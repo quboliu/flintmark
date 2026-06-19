@@ -2,7 +2,7 @@
   "name": "flintmark",
   "displayName": "Flintmark",
   "description": "Obsidian-compatible Live Preview Markdown editing in VS Code. Not affiliated with Obsidian.",
-  "version": "0.27.0",
+  "version": "0.27.1",
   "publisher": "quboliu",
   "license": "MIT",
   "repository": {
@@ -40,24 +40,24 @@
       {
         "command": "ofm.setAsDefaultEditor",
         "title": "Set Live Preview as Default Markdown Editor",
-        "category": "Markdown Live Preview"
+        "category": "Flintmark"
       },
       {
         "command": "ofm.openAsLivePreview",
         "title": "Switch to Live View",
-        "category": "Markdown Live Preview",
+        "category": "Flintmark",
         "icon": "$(book)"
       },
       {
         "command": "ofm.openAsSource",
         "title": "Switch to Code View",
-        "category": "Markdown Live Preview",
+        "category": "Flintmark",
         "icon": "$(code)"
       },
       {
         "command": "ofm.selectTheme",
         "title": "Select Theme",
-        "category": "Markdown Live Preview"
+        "category": "Flintmark"
       },
       {
         "command": "ofm.editSelectionWithAI",

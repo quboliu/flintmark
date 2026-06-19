@@ -95,11 +95,20 @@ Download `flintmark-<version>.vsix` from the
 in VS Code: **Extensions → ⋯ → Install from VSIX…**, or from a terminal:
 
 ```
-code --install-extension flintmark-0.27.0.vsix
+code --install-extension flintmark-0.27.1.vsix
 ```
 
 Open any `.md` file and accept the prompt to make Live Preview the default, or run
 **Flintmark: Switch to Live View**. Toggle back any time with **Switch to Code View**.
+
+### Set as the default Markdown editor
+
+Missed the first-run prompt? Set it any time — open the Command Palette and run
+**Flintmark: Set Live Preview as Default Markdown Editor**. Or add to your settings:
+
+```json
+"workbench.editorAssociations": { "*.md": "ofm.livePreview", "*.markdown": "ofm.livePreview" }
+```
 
 ## Settings
 

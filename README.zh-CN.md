@@ -85,14 +85,24 @@ Flintmark **不自带 AI**。webview 编辑器会对宿主隐藏选区,因此 Co
 
 ## 安装
 
-在 Marketplace 搜索 **Flintmark**,或:
+从 [Releases](https://github.com/quboliu/Flintmark/releases) 下载 `flintmark-<版本>.vsix`,
+然后安装 —— 在 VS Code 里:**Extensions → ⋯ → Install from VSIX…**,或在终端:
 
 ```
-code --install-extension quboliu.obsidian-flavored-markdown
+code --install-extension flintmark-0.27.1.vsix
 ```
 
 打开任意 `.md`,在提示中将实时预览设为默认,或运行 **Flintmark: Switch to Live View**。
 随时用 **Switch to Code View** 切回源码。
+
+### 设为默认 Markdown 编辑器
+
+错过首次提示?随时可设:打开命令面板,运行
+**Flintmark: Set Live Preview as Default Markdown Editor**。或在 settings 里加:
+
+```json
+"workbench.editorAssociations": { "*.md": "ofm.livePreview", "*.markdown": "ofm.livePreview" }
+```
 
 ## 设置
 
