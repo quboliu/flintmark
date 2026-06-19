@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { BUNDLED_THEMES } from "./themes";
 import { acceptNativeAi } from "./ai/aiBridge";
-import { showAiLog } from "./ai/aiLog";
+import { showAiLog, aiLog } from "./ai/aiLog";
 
 const VIEW_TYPE = "ofm.livePreview";
 const PROMPTED_KEY = "ofm.promptedDefaultEditor";
@@ -34,6 +34,18 @@ export function registerCommands(
   reg("ofm.selectTheme", () => selectTheme());
 
   reg("ofm.showAiLog", () => showAiLog());
+
+  // Debug: dump the host's AI/chat command namespace to the AI log, so we can
+  // discover a host's real command IDs (e.g. Antigravity differs from Cursor/VS Code).
+  reg("ofm.dumpAiCommands", async () => {
+    const all = await vscode.commands.getCommands(true);
+    const re =
+      /(ai|chat|cascade|gemini|composer|prompt|generat|inline|windsurf|codeium|exafunction|antigravity|copilot|assistant|llm|agent|ask)/i;
+    const hits = all.filter((c) => re.test(c)).sort();
+    aiLog(`──── AI/chat command namespace (${hits.length} of ${all.length}) ────`);
+    for (const c of hits) aiLog("  " + c);
+    showAiLog();
+  });
 
   // AI Selection Bridge ---------------------------------------------------
   reg("ofm.editSelectionWithAI", () => {
