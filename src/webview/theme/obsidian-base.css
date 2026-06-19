@@ -1,0 +1,106 @@
+/*
+ * Obsidian core-compatibility base (docs §15.4/15.5).
+ *
+ * Obsidian themes (e.g. Things) only provide HSL *inputs* (--base-h/s/d/l,
+ * --accent-h/s/d/l) and rely on Obsidian's app CSS to DERIVE the real variables
+ * (--background-primary, --text-normal, …). We replicate that derivation here so
+ * a bundled theme's palette actually drives the editor. Defaults keep it valid
+ * when a theme omits an input. A theme may still override any of these directly.
+ *
+ * Loaded after obsidian-variables.css (the :root VS Code fallbacks) and before
+ * the active theme; .theme-dark/.theme-light (more specific than :root) win.
+ */
+
+.theme-dark {
+  --background-primary: hsl(var(--base-h, 220), var(--base-s, 12%), var(--base-d, 14%));
+  --background-primary-alt: hsl(var(--base-h, 220), var(--base-s, 12%), calc(var(--base-d, 14%) - 1%));
+  --background-secondary: hsl(var(--base-h, 220), var(--base-s, 12%), calc(var(--base-d, 14%) - 2%));
+  --background-secondary-alt: hsl(var(--base-h, 220), var(--base-s, 12%), calc(var(--base-d, 14%) - 3%));
+  --background-modifier-border: hsl(var(--base-h, 220), var(--base-s, 12%), calc(var(--base-d, 14%) + 10%));
+  --background-modifier-hover: hsl(var(--base-h, 220), var(--base-s, 12%), calc(var(--base-d, 14%) + 6%));
+
+  --text-normal: hsl(var(--base-h, 220), var(--base-s, 12%), calc(var(--base-l, 96%) - 12%));
+  --text-muted: hsl(var(--base-h, 220), var(--base-s, 12%), calc(var(--base-l, 96%) - 32%));
+  --text-faint: hsl(var(--base-h, 220), var(--base-s, 12%), calc(var(--base-l, 96%) - 48%));
+
+  --interactive-accent: hsl(var(--accent-h, 215), var(--accent-s, 70%), var(--accent-d, 65%));
+  --text-accent: hsl(var(--accent-h, 215), var(--accent-s, 70%), var(--accent-d, 65%));
+
+  --code-background: hsl(var(--base-h, 220), var(--base-s, 12%), calc(var(--base-d, 14%) + 4%));
+  --code-normal: var(--text-normal);
+}
+
+.theme-light {
+  --background-primary: hsl(var(--base-h, 220), var(--base-s, 12%), var(--base-l, 96%));
+  --background-primary-alt: hsl(var(--base-h, 220), var(--base-s, 12%), calc(var(--base-l, 96%) - 2%));
+  --background-secondary: hsl(var(--base-h, 220), var(--base-s, 12%), calc(var(--base-l, 96%) - 3%));
+  --background-secondary-alt: hsl(var(--base-h, 220), var(--base-s, 12%), calc(var(--base-l, 96%) - 5%));
+  --background-modifier-border: hsl(var(--base-h, 220), var(--base-s, 12%), calc(var(--base-l, 96%) - 14%));
+  --background-modifier-hover: hsl(var(--base-h, 220), var(--base-s, 12%), calc(var(--base-l, 96%) - 6%));
+
+  --text-normal: hsl(var(--base-h, 220), var(--base-s, 12%), calc(var(--base-d, 14%) + 8%));
+  --text-muted: hsl(var(--base-h, 220), var(--base-s, 12%), calc(var(--base-d, 14%) + 28%));
+  --text-faint: hsl(var(--base-h, 220), var(--base-s, 12%), calc(var(--base-d, 14%) + 44%));
+
+  --interactive-accent: hsl(var(--accent-h, 215), var(--accent-s, 70%), var(--accent-l, 55%));
+  --text-accent: hsl(var(--accent-h, 215), var(--accent-s, 70%), var(--accent-l, 55%));
+
+  --code-background: hsl(var(--base-h, 220), var(--base-s, 12%), calc(var(--base-l, 96%) - 4%));
+  --code-normal: var(--text-normal);
+}
+
+/* Common derived aliases (theme + our rendering both read these). */
+.theme-dark,
+.theme-light {
+  --link-color: var(--text-accent);
+  --hr-color: var(--background-modifier-border);
+  --text-highlight-bg: hsla(var(--accent-h, 215), var(--accent-s, 70%), 50%, 0.3);
+  --tag-color: var(--text-accent);
+}
+
+/*
+ * Task checkbox base (replicates Obsidian core's checkbox appearance). A theme
+ * (e.g. Things) layers per-task-type colours/icons on top via
+ * `input[data-task='…']:checked`. Scoped to our class so other webview inputs
+ * (the search panel) are untouched. `[ ]` → empty rounded box; `[x]` → accent
+ * box with a checkmark; extended statuses inherit the box and pick up the
+ * theme's mask when present.
+ */
+.ofm-task-checkbox {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  box-sizing: border-box;
+  width: var(--checkbox-size, 1.15em);
+  height: var(--checkbox-size, 1.15em);
+  margin: 0 0.4em 0 0;
+  vertical-align: -0.13em;
+  border: 1px solid var(--checkbox-border-color, rgba(128, 128, 128, 0.6));
+  border-radius: var(--checkbox-radius, 30%);
+  background-color: transparent;
+  cursor: pointer;
+  transition:
+    background-color 80ms ease,
+    border-color 80ms ease;
+}
+.ofm-task-checkbox:hover {
+  border-color: var(--checkbox-border-color-hover, var(--text-muted, rgba(128, 128, 128, 0.85)));
+}
+.ofm-task-checkbox:checked {
+  background-color: var(--checkbox-color, var(--interactive-accent, #4a7dff));
+  border-color: var(--checkbox-color, var(--interactive-accent, #4a7dff));
+}
+.ofm-task-checkbox:checked::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-color: var(--checkbox-marker-color, #fff);
+  -webkit-mask-image: var(--checkbox-icon);
+  mask-image: var(--checkbox-icon);
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: 80%;
+  mask-size: 80%;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+}

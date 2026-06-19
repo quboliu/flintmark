@@ -1,0 +1,136 @@
+import * as vscode from "vscode";
+import { BUNDLED_THEMES } from "./themes";
+import { acceptNativeAi } from "./ai/aiBridge";
+import { showAiLog } from "./ai/aiLog";
+
+const VIEW_TYPE = "ofm.livePreview";
+const PROMPTED_KEY = "ofm.promptedDefaultEditor";
+const MD_GLOBS = ["*.md", "*.markdown"];
+
+/** Minimal surface the AI command needs from the editor provider. */
+export interface AiPanelHost {
+  requestAiEditOnActivePanel(mode: "edit" | "chat"): boolean;
+}
+
+export function registerCommands(
+  context: vscode.ExtensionContext,
+  aiHost?: AiPanelHost
+): void {
+  const reg = (id: string, fn: (...args: unknown[]) => unknown) =>
+    context.subscriptions.push(vscode.commands.registerCommand(id, fn));
+
+  reg("ofm.setAsDefaultEditor", () => setAsDefaultEditor());
+
+  reg("ofm.openAsLivePreview", async () => {
+    const uri = activeTextUri() ?? activeCustomUri();
+    if (uri) await vscode.commands.executeCommand("vscode.openWith", uri, VIEW_TYPE);
+  });
+
+  reg("ofm.openAsSource", async () => {
+    const uri = activeCustomUri() ?? activeTextUri();
+    if (uri) await vscode.commands.executeCommand("vscode.openWith", uri, "default");
+  });
+
+  reg("ofm.selectTheme", () => selectTheme());
+
+  reg("ofm.showAiLog", () => showAiLog());
+
+  // AI Selection Bridge ---------------------------------------------------
+  reg("ofm.editSelectionWithAI", () => {
+    if (!aiHost?.requestAiEditOnActivePanel("edit")) {
+      vscode.window.showInformationMessage(
+        "Flintmark: open a Markdown file in Live Preview first."
+      );
+    }
+  });
+
+  reg("ofm.addSelectionToChat", () => {
+    if (!aiHost?.requestAiEditOnActivePanel("chat")) {
+      vscode.window.showInformationMessage(
+        "Flintmark: open a Markdown file in Live Preview first."
+      );
+    }
+  });
+
+  reg("ofm.returnToLivePreview", async () => {
+    const uri = activeTextUri() ?? activeCustomUri();
+    if (uri) await vscode.commands.executeCommand("vscode.openWith", uri, VIEW_TYPE);
+  });
+
+  reg("ofm.acceptAiAndReturn", async () => {
+    const uri = activeTextUri() ?? activeCustomUri();
+    await acceptNativeAi(); // best-effort; no-op if the host has no accept cmd
+    if (uri) await vscode.commands.executeCommand("vscode.openWith", uri, VIEW_TYPE);
+  });
+
+  // First-run: offer to make Live Preview the default for Markdown.
+  void maybePromptDefault(context);
+}
+
+function activeTextUri(): vscode.Uri | undefined {
+  return vscode.window.activeTextEditor?.document.uri;
+}
+
+function activeCustomUri(): vscode.Uri | undefined {
+  const input = vscode.window.tabGroups.activeTabGroup.activeTab?.input;
+  if (input instanceof vscode.TabInputCustom && input.viewType === VIEW_TYPE) {
+    return input.uri;
+  }
+  return undefined;
+}
+
+async function selectTheme(): Promise<void> {
+  const current = vscode.workspace.getConfiguration("ofm").get<string>("theme");
+  const pick = await vscode.window.showQuickPick(
+    BUNDLED_THEMES.map((t) => ({
+      label: t.name,
+      description: t.id === current ? "(current)" : "",
+      id: t.id,
+    })),
+    { placeHolder: "Select the Live Preview theme" }
+  );
+  if (pick) {
+    await vscode.workspace
+      .getConfiguration("ofm")
+      .update("theme", pick.id, vscode.ConfigurationTarget.Global);
+  }
+}
+
+async function setAsDefaultEditor(): Promise<void> {
+  const config = vscode.workspace.getConfiguration();
+  const assoc = {
+    ...(config.get<Record<string, string>>("workbench.editorAssociations") ?? {}),
+  };
+  for (const glob of MD_GLOBS) assoc[glob] = VIEW_TYPE;
+  await config.update(
+    "workbench.editorAssociations",
+    assoc,
+    vscode.ConfigurationTarget.Global
+  );
+  vscode.window.showInformationMessage(
+    "Markdown files now open in Live Preview by default."
+  );
+}
+
+function isDefaultForMarkdown(): boolean {
+  const assoc =
+    vscode.workspace
+      .getConfiguration()
+      .get<Record<string, string>>("workbench.editorAssociations") ?? {};
+  return assoc["*.md"] === VIEW_TYPE;
+}
+
+async function maybePromptDefault(context: vscode.ExtensionContext): Promise<void> {
+  if (context.globalState.get(PROMPTED_KEY)) return;
+  if (isDefaultForMarkdown()) {
+    await context.globalState.update(PROMPTED_KEY, true);
+    return;
+  }
+  const choice = await vscode.window.showInformationMessage(
+    "Open Markdown files in Live Preview by default? (You can always use “Reopen Editor With…”.)",
+    "Set as default",
+    "Not now"
+  );
+  await context.globalState.update(PROMPTED_KEY, true);
+  if (choice === "Set as default") await setAsDefaultEditor();
+}

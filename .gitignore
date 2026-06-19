@@ -1,0 +1,12 @@
+node_modules/
+out/
+*.vsix
+.vscode-test/
+
+# Claude Code worktrees / local agent state
+.claude/
+
+# Internal development & collaboration docs — never published to the public repo
+docs/
+CONTEXT.md
+examples/

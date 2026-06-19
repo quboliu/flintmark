@@ -1,0 +1,76 @@
+/*
+ * Variable-level Obsidian theme compatibility (ADR-0004, v1).
+ * Obsidian's documented CSS variables, mapped to VS Code theme variables.
+ * These are FALLBACKS on :root — an active theme sets its own values on `body`/
+ * `.theme-dark` (closer to the content), so the theme wins and :root only fills
+ * variables a theme leaves unset.
+ */
+:root {
+  /* Backgrounds */
+  --background-primary: var(--vscode-editor-background);
+  --background-primary-alt: var(--vscode-editor-background);
+  --background-secondary: var(--vscode-sideBar-background, var(--vscode-editor-background));
+  --background-secondary-alt: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+  --background-modifier-border: var(--vscode-editorWidget-border, rgba(128, 128, 128, 0.3));
+  --background-modifier-hover: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.1));
+
+  /* Text */
+  --text-normal: var(--vscode-editor-foreground);
+  --text-muted: var(--vscode-descriptionForeground);
+  --text-faint: var(--vscode-disabledForeground);
+  --text-accent: var(--vscode-textLink-foreground);
+  --text-on-accent: var(--vscode-button-foreground);
+  --text-selection: var(--vscode-editor-selectionBackground);
+  --interactive-accent: var(--vscode-focusBorder);
+
+  /* Headings */
+  --h1-color: var(--text-normal);
+  --h2-color: var(--text-normal);
+  --h3-color: var(--text-normal);
+  --h4-color: var(--text-normal);
+  --h5-color: var(--text-normal);
+  --h6-color: var(--text-muted);
+
+  /* Code */
+  --code-background: var(--vscode-textCodeBlock-background, rgba(128, 128, 128, 0.1));
+  --code-normal: var(--text-normal);
+  --font-monospace: var(--vscode-editor-font-family, monospace);
+
+  /* Inline / blocks */
+  --blockquote-border-color: var(--background-modifier-border);
+  --hr-color: var(--background-modifier-border);
+  --tag-color: var(--text-accent);
+  --tag-background: rgba(78, 161, 255, 0.13);
+  --text-highlight-bg: var(--vscode-editor-findMatchHighlightBackground, rgba(255, 235, 59, 0.4));
+  --link-color: var(--text-accent);
+  --link-unresolved-color: var(--vscode-errorForeground, #e05252);
+
+  /* Typography */
+  --font-text-size: var(--vscode-editor-font-size, 14px);
+  /* Body text font — resolves the theme's text font (Things sets
+     --font-text-theme) at the point of use, else the VS Code UI font (sans). */
+  --font-text: var(--font-text-theme, var(--font-interface-theme, var(--vscode-font-family, sans-serif)));
+  --bold-weight: 600;
+  --bold-color: inherit;
+  --italic-color: inherit;
+  /* Heading weights (Obsidian core defaults; a theme may override). */
+  --h1-weight: 700;
+  --h2-weight: 600;
+  --h3-weight: 600;
+  --h4-weight: 600;
+  --h5-weight: 600;
+  --h6-weight: 600;
+  /* Revealed formatting-marker dimming (`cm-formatting-*`). */
+  --text-formatted: var(--text-faint);
+  --normal-weight: 400;
+
+  /* Task checkboxes — Obsidian-style box (base in obsidian-base.css). */
+  --checkbox-size: 1.15em;
+  --checkbox-radius: 30%;
+  --checkbox-border-color: var(--text-faint, rgba(128, 128, 128, 0.6));
+  --checkbox-border-color-hover: var(--text-muted, rgba(128, 128, 128, 0.8));
+  --checkbox-color: var(--interactive-accent, var(--vscode-focusBorder, #4a7dff));
+  --checkbox-color-hover: var(--checkbox-color);
+  --checkbox-marker-color: var(--text-on-accent, var(--vscode-button-foreground, #fff));
+  --checkbox-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'%3E%3C/polyline%3E%3C/svg%3E");
+}

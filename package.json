@@ -1,0 +1,297 @@
+{
+  "name": "flintmark",
+  "displayName": "Flintmark",
+  "description": "Obsidian-compatible Live Preview Markdown editing in VS Code. Not affiliated with Obsidian.",
+  "version": "0.27.0",
+  "publisher": "quboliu",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/quboliu/Flintmark"
+  },
+  "engines": {
+    "vscode": "^1.89.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCustomEditor:ofm.livePreview",
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "customEditors": [
+      {
+        "viewType": "ofm.livePreview",
+        "displayName": "Markdown Live Preview",
+        "selector": [
+          {
+            "filenamePattern": "*.md"
+          },
+          {
+            "filenamePattern": "*.markdown"
+          }
+        ],
+        "priority": "option"
+      }
+    ],
+    "commands": [
+      {
+        "command": "ofm.setAsDefaultEditor",
+        "title": "Set Live Preview as Default Markdown Editor",
+        "category": "Markdown Live Preview"
+      },
+      {
+        "command": "ofm.openAsLivePreview",
+        "title": "Switch to Live View",
+        "category": "Markdown Live Preview",
+        "icon": "$(book)"
+      },
+      {
+        "command": "ofm.openAsSource",
+        "title": "Switch to Code View",
+        "category": "Markdown Live Preview",
+        "icon": "$(code)"
+      },
+      {
+        "command": "ofm.selectTheme",
+        "title": "Select Theme",
+        "category": "Markdown Live Preview"
+      },
+      {
+        "command": "ofm.editSelectionWithAI",
+        "title": "Edit Selection with AI (bridge to source)",
+        "category": "Flintmark"
+      },
+      {
+        "command": "ofm.returnToLivePreview",
+        "title": "Return to Live Preview",
+        "category": "Flintmark"
+      },
+      {
+        "command": "ofm.acceptAiAndReturn",
+        "title": "Accept AI Edit & Return to Live Preview",
+        "category": "Flintmark"
+      },
+      {
+        "command": "ofm.refreshBacklinks",
+        "title": "Refresh Backlinks",
+        "category": "Flintmark",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "ofm.refreshOutline",
+        "title": "Refresh Outline",
+        "category": "Flintmark",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "ofm.gotoHeading",
+        "title": "Go to Heading",
+        "category": "Flintmark"
+      },
+      {
+        "command": "ofm.addSelectionToChat",
+        "title": "Add Selection to AI Chat",
+        "category": "Flintmark"
+      },
+      {
+        "command": "ofm.showAiLog",
+        "title": "Show AI Log",
+        "category": "Flintmark"
+      }
+    ],
+    "configuration": {
+      "title": "Markdown Live Preview",
+      "properties": {
+        "ofm.theme": {
+          "type": "string",
+          "enum": [
+            "things"
+          ],
+          "enumDescriptions": [
+            "Things — by @kepano / @colineckert (MIT)"
+          ],
+          "default": "things",
+          "description": "Built-in theme for the Markdown Live Preview editor."
+        },
+        "ofm.ai.trigger": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "manual"
+          ],
+          "enumDescriptions": [
+            "Auto-invoke the host's native AI (Copilot inline chat / Cursor Cmd+K) after bridging the selection to source.",
+            "Only bridge the selection to source; you invoke the AI yourself."
+          ],
+          "default": "auto",
+          "description": "What happens after the selection is bridged into the source editor for AI editing."
+        },
+        "ofm.ai.sourceLayout": {
+          "type": "string",
+          "enum": [
+            "replace",
+            "beside"
+          ],
+          "enumDescriptions": [
+            "Replace the Live Preview tab with the source editor (flip).",
+            "Open the source editor beside the Live Preview (split)."
+          ],
+          "default": "replace",
+          "description": "Where the source editor opens when bridging a selection to native AI."
+        },
+        "ofm.ai.triggerCommand": {
+          "type": "string",
+          "default": "",
+          "description": "Override the host AI command invoked after bridging (advanced). Empty = auto-detect (inlineChat.start on VS Code, aipopup.action.modal.generate on Cursor)."
+        },
+        "ofm.ai.chatCommand": {
+          "type": "string",
+          "default": "",
+          "description": "Override the host command used to add a selection to the AI chat (advanced). Empty = auto-detect (workbench.action.chat.attachSelection on VS Code, workbench.action.chat.addToChatAction on Cursor)."
+        },
+        "ofm.ai.chatBridge": {
+          "type": "string",
+          "enum": [
+            "split",
+            "inplace"
+          ],
+          "enumDescriptions": [
+            "Open a transient SIDE editor to add the selection to chat (Live Preview never re-renders; a brief side split appears).",
+            "Flip THIS tab to source and back (no side split; returning to Live re-renders the view once)."
+          ],
+          "default": "split",
+          "description": "How the selection is bridged to the AI chat (both momentarily need a real text editor; this picks which transition you see)."
+        },
+        "ofm.lineWidth": {
+          "type": "number",
+          "default": 75,
+          "minimum": 20,
+          "maximum": 240,
+          "markdownDescription": "Readable column width of the Live Preview, in `rem` (1rem ≈ 16px). Larger = wider text column = smaller left/right page margins. Default 75."
+        }
+      }
+    },
+    "views": {
+      "ofm-flintmark": [
+        {
+          "id": "ofm.outline",
+          "name": "Outline"
+        },
+        {
+          "id": "ofm.backlinks",
+          "name": "Backlinks"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "ofm.refreshOutline",
+          "when": "view == ofm.outline",
+          "group": "navigation"
+        },
+        {
+          "command": "ofm.refreshBacklinks",
+          "when": "view == ofm.backlinks",
+          "group": "navigation"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "ofm.openAsSource",
+          "when": "activeCustomEditorId == 'ofm.livePreview'",
+          "group": "navigation@1"
+        },
+        {
+          "command": "ofm.openAsLivePreview",
+          "when": "editorLangId == markdown && !activeCustomEditorId",
+          "group": "navigation@1"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "ofm-flintmark",
+          "title": "Flintmark",
+          "icon": "media/flintmark-icon.svg"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "lint": "eslint src",
+    "test:unit": "node test/run-unit.mjs",
+    "build:test": "node esbuild.test.mjs",
+    "test:integration": "npm run compile && npm run build:test && xvfb-run -a node out/test/runTest.js",
+    "test:e2e": "npm run compile && xvfb-run -a node test/e2e/livepreview.e2e.mjs",
+    "test": "npm run test:unit && npm run test:integration && npm run test:e2e"
+  },
+  "devDependencies": {
+    "@types/katex": "^0.16.8",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^20.12.0",
+    "@types/vscode": "^1.89.0",
+    "@vscode/test-electron": "^3.0.0",
+    "@vscode/vsce": "^3.9.2",
+    "esbuild": "^0.21.0",
+    "eslint": "^9.0.0",
+    "glob": "^13.0.6",
+    "mocha": "^11.7.6",
+    "playwright": "^1.61.0",
+    "typescript": "^5.4.0"
+  },
+  "dependencies": {
+    "@codemirror/commands": "^6.5.0",
+    "@codemirror/lang-cpp": "^6.0.3",
+    "@codemirror/lang-css": "^6.3.1",
+    "@codemirror/lang-go": "^6.0.1",
+    "@codemirror/lang-html": "^6.4.11",
+    "@codemirror/lang-java": "^6.0.2",
+    "@codemirror/lang-javascript": "^6.2.5",
+    "@codemirror/lang-json": "^6.0.2",
+    "@codemirror/lang-markdown": "^6.5.0",
+    "@codemirror/lang-php": "^6.0.2",
+    "@codemirror/lang-python": "^6.2.1",
+    "@codemirror/lang-rust": "^6.0.2",
+    "@codemirror/lang-sass": "^6.0.2",
+    "@codemirror/lang-sql": "^6.10.0",
+    "@codemirror/lang-yaml": "^6.1.3",
+    "@codemirror/language": "^6.10.0",
+    "@codemirror/legacy-modes": "^6.5.3",
+    "@codemirror/search": "^6.7.1",
+    "@codemirror/state": "^6.4.0",
+    "@codemirror/view": "^6.26.0",
+    "@lezer/common": "^1.2.0",
+    "@lezer/highlight": "^1.2.3",
+    "katex": "^0.17.0",
+    "mermaid": "^11.15.0"
+  },
+  "icon": "media/icon.png",
+  "galleryBanner": {
+    "color": "#1d2127",
+    "theme": "dark"
+  },
+  "keywords": [
+    "markdown",
+    "obsidian",
+    "live preview",
+    "wysiwyg",
+    "wikilink",
+    "callout",
+    "notes",
+    "md",
+    "editor",
+    "preview"
+  ],
+  "homepage": "https://github.com/quboliu/Flintmark#readme",
+  "bugs": {
+    "url": "https://github.com/quboliu/Flintmark/issues"
+  },
+  "qna": false
+}
