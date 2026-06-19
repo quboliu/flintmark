@@ -26,11 +26,12 @@ export const AI_TRIGGER_CANDIDATES: ReadonlyArray<readonly [string, AiTriggerKin
  *  Antigravity's `antigravity.*` come FIRST — it also exposes the generic
  *  `workbench.action.chat.*`, but those don't reach its Agent. */
 export const ADD_TO_CHAT_CANDIDATES: readonly string[] = [
-  "antigravity.addContext", // Antigravity — add the selection to the Agent's context
+  "antigravity.prioritized.chat.open", // Antigravity — open the Agent WITH the selection (the right-click "add to chat" action; gated on editorHasSelection)
   "workbench.action.chat.attachSelection", // VS Code/Copilot — attach selection as context
   "composer.startComposerPromptFromSelection", // Cursor — selection → composer (the Ctrl+L action)
   "aichat.newchataction", // Cursor — new chat (includes the selection)
   "antigravity.sendPromptToAgentPanel", // Antigravity — send to Agent panel (fallback)
+  "antigravity.addContext", // Antigravity — add to context (fallback; bare call is a no-op)
   "workbench.action.chat.addToChatAction", // generic add-to-chat
   "glass.insertSelectionIntoGlassComposer", // Cursor "Glass" window mode (rarely the main chat)
   "workbench.action.chat.open", // last resort — just open the chat panel
