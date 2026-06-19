@@ -12,9 +12,13 @@ import { EditorView } from "@codemirror/view";
 export const markdownTheme = EditorView.theme({
   /* Body text font: follow the theme's text font (Things = system sans), with
      the VS Code UI font as fallback. Code/inline-code/frontmatter set their own
-     monospace and so are unaffected. */
+     monospace and so are unaffected.
+     Size: a reading/writing surface wants a bit more than the code-editor font,
+     so bump 2px above editor.fontSize (default 14 → 16). Headings are rem-based
+     and unaffected; code blocks/inline are em-based and ride up with this. */
   ".cm-content": {
     fontFamily: "var(--font-text, var(--vscode-font-family, sans-serif))",
+    fontSize: "calc(var(--vscode-editor-font-size, 14px) + 2px)",
   },
   /* Headings (1-6) — size & weight follow the theme (--hN-size/--hN-weight);
      colors come from the theme (--hN-color). Fallbacks preserve our look when a
