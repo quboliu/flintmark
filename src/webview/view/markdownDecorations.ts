@@ -593,11 +593,17 @@ function addImageDecoration(
     const label = (inner.includes("|") ? inner.split("|").slice(1).join("|") : target).trim();
     if (/\.(png|jpe?g|gif|svg|webp|bmp|avif)$/i.test(target)) {
       const resolved = imageMap[target] ?? (/^(https?:|data:)/.test(target) ? target : "");
+      // Obsidian sizing: the first `|` part may be `W` or `WxH` (px).
+      const sizeM = /^(\d+)(?:x(\d+))?$/.exec(
+        inner.includes("|") ? inner.split("|")[1].trim() : ""
+      );
+      const width = sizeM ? Number(sizeM[1]) : undefined;
+      const height = sizeM && sizeM[2] ? Number(sizeM[2]) : undefined;
+      const alt = sizeM ? target : label;
       decos.push(
-        Decoration.replace({ widget: new ImageWidget(resolved, label) }).range(
-          node.from,
-          node.to
-        )
+        Decoration.replace({
+          widget: new ImageWidget(resolved, alt, width, height),
+        }).range(node.from, node.to)
       );
     } else {
       decos.push(

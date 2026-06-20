@@ -22,19 +22,30 @@ export const imageMapField = StateField.define<Record<string, string>>({
 export class ImageWidget extends WidgetType {
   constructor(
     readonly src: string,
-    readonly alt: string
+    readonly alt: string,
+    /** Optional Obsidian `![[img.png|W]]` / `|WxH` dimensions, in px. */
+    readonly width?: number,
+    readonly height?: number
   ) {
     super();
   }
 
   eq(other: ImageWidget): boolean {
-    return other.src === this.src && other.alt === this.alt;
+    return (
+      other.src === this.src &&
+      other.alt === this.alt &&
+      other.width === this.width &&
+      other.height === this.height
+    );
   }
 
   toDOM(view: EditorView): HTMLElement {
     const img = document.createElement("img");
     img.className = "ofm-image";
     img.alt = this.alt;
+    // Obsidian `|W` / `|WxH` sizing (px). Width only → keep aspect ratio.
+    if (this.width !== undefined) img.width = this.width;
+    if (this.height !== undefined) img.height = this.height;
     // The image loads asynchronously and changes the line height once decoded.
     // Tell CM6 to re-measure so its height map stays in sync (otherwise content
     // below the image is click/caret offset — the dynamic-height counterpart of

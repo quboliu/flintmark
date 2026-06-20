@@ -54,13 +54,17 @@ const PIXEL_PNG_B64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
 writeFileSync(notePath, INITIAL);
 writeFileSync(join(work, "pixel.png"), Buffer.from(PIXEL_PNG_B64, "base64"));
+// Attachment in a SUBFOLDER, referenced by BARE name from a note elsewhere —
+// the Obsidian vault layout the ImageIndex must resolve vault-wide.
+mkdirSync(join(work, "attachments"), { recursive: true });
+writeFileSync(join(work, "attachments", "deep.png"), Buffer.from(PIXEL_PNG_B64, "base64"));
 // Target for the [[Other Note]] wikilink (resolved by the Vault Index).
 writeFileSync(join(work, "Other Note.md"), "# Other Note\n\nlinked content\n");
 // Dedicated fixture for callout-default-title + %% comment (kept OUT of the
 // main note.md, whose line positions the click-offset test depends on).
 writeFileSync(
   join(work, "features.md"),
-  "# Features\n\n> [!note]\n> body only, no custom title\n\nVisible %%secretcomment%% visible.\n\nA claim[^1] needs a source.\n\n[^1]: the footnote definition.\n\n```sql\nSELECT id FROM users WHERE active = true;\n```\n"
+  "# Features\n\n> [!note]\n> body only, no custom title\n\nVisible %%secretcomment%% visible.\n\nA claim[^1] needs a source.\n\n[^1]: the footnote definition.\n\n```sql\nSELECT id FROM users WHERE active = true;\n```\n\nVault image ![[deep.png]] from a subfolder.\n"
 );
 
 const app = await electron.launch({
@@ -632,6 +636,26 @@ try {
     const fcm = featCm || (await featuresFrame());
     const kw = await fcm.evaluate(() => document.querySelectorAll(".cm-keyword").length);
     assert.ok(kw > 0, "SQL keywords (SELECT/FROM/WHERE) should be highlighted");
+  });
+
+  await test("bare ![[deep.png]] resolves vault-wide to a subfolder attachment", async () => {
+    const fcm = featCm || (await featuresFrame());
+    // The image index builds asynchronously; on ready it re-sends the imageMap
+    // and the embed's <img> src flips from the legacy doc-relative guess to the
+    // vault-resolved attachments/ path. Poll for that.
+    let src = null;
+    for (let i = 0; i < 30; i++) {
+      src = await fcm.evaluate(() => {
+        const img = document.querySelector("img.ofm-image");
+        return img ? img.getAttribute("src") : null;
+      });
+      if (src && /attachments\/deep\.png/.test(src)) break;
+      await win.waitForTimeout(500);
+    }
+    assert.ok(
+      src && /attachments\/deep\.png/.test(src) && /^(https?:|vscode-webview:)/.test(src),
+      `bare ![[deep.png]] should resolve vault-wide to attachments/deep.png, got: ${src}`
+    );
   });
 } finally {
   await app.close();

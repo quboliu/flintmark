@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { DocumentSyncManager } from "./documentSync";
 import { VaultIndexService } from "./vault";
+import { ImageIndexService } from "./vault/imageIndexService";
 import { DEFAULT_THEME_ID, findTheme } from "./themes";
 import { openSourceWithSelection, triggerNativeAi, addSelectionToChat } from "./ai/aiBridge";
 import { aiLog } from "./ai/aiLog";
@@ -59,10 +60,14 @@ export class OfmCustomTextEditorProvider
   implements vscode.CustomTextEditorProvider
 {
   /**
-   * Registry of active webview panels, keyed by document URI string.
-   * Used to route onDidChangeTextDocument events to the correct panel.
+   * Registry of active webview panels, keyed by document URI string. Stores the
+   * document too so an image-index change can recompute the image map for every
+   * open editor (not just on text edits).
    */
-  private panels: Map<string, vscode.WebviewPanel> = new Map();
+  private panels: Map<
+    string,
+    { document: vscode.TextDocument; panel: vscode.WebviewPanel }
+  > = new Map();
 
   /** Serializes webview edits per URI — the concurrent-edit corruption guard. */
   private editQueue = new SerialQueue();
@@ -73,7 +78,8 @@ export class OfmCustomTextEditorProvider
   constructor(
     private readonly context: vscode.ExtensionContext,
     private readonly syncManager: DocumentSyncManager,
-    private readonly vault?: VaultIndexService
+    private readonly vault?: VaultIndexService,
+    private readonly imageIndex?: ImageIndexService
   ) {
     // Global listener: reconcile external document changes into webviews.
     this.context.subscriptions.push(
@@ -82,11 +88,24 @@ export class OfmCustomTextEditorProvider
       )
     );
 
+    // When the image index (re)builds — initial scan finishing, or an attachment
+    // added/removed while a note's text is unchanged — recompute the image map
+    // for every open editor so newly-resolved images appear without an edit.
+    if (this.imageIndex) {
+      this.context.subscriptions.push(
+        this.imageIndex.onDidChange(() => {
+          for (const { document, panel } of this.panels.values()) {
+            this.sendImageMap(document, panel);
+          }
+        })
+      );
+    }
+
     // Live theme switching: re-push the active theme to every open editor.
     this.context.subscriptions.push(
       vscode.workspace.onDidChangeConfiguration((e) => {
         if (e.affectsConfiguration("ofm.theme")) {
-          for (const panel of this.panels.values()) {
+          for (const { panel } of this.panels.values()) {
             const msg: HostMsg = {
               type: "themeChanged",
               theme: this.buildThemePayload(panel.webview),
@@ -96,7 +115,7 @@ export class OfmCustomTextEditorProvider
         }
         if (e.affectsConfiguration("ofm.lineWidth")) {
           const settings: Settings = { lineWidth: readLineWidth() };
-          for (const panel of this.panels.values()) {
+          for (const { panel } of this.panels.values()) {
             panel.webview.postMessage({ type: "settingsChanged", settings } as HostMsg);
           }
         }
@@ -132,7 +151,7 @@ export class OfmCustomTextEditorProvider
     const uri = document.uri.toString();
 
     // Register panel so we can route external changes to it.
-    this.panels.set(uri, webviewPanel);
+    this.panels.set(uri, { document, panel: webviewPanel });
     webviewPanel.onDidDispose(() => this.panels.delete(uri));
 
     // Configure webview
@@ -586,10 +605,10 @@ export class OfmCustomTextEditorProvider
     if (active instanceof vscode.TabInputCustom && active.viewType === "ofm.livePreview") {
       uri = active.uri.toString();
     }
-    return (
+    const rec =
       (uri ? this.panels.get(uri) : undefined) ??
-      (this.panels.size === 1 ? [...this.panels.values()][0] : undefined)
-    );
+      (this.panels.size === 1 ? [...this.panels.values()][0] : undefined);
+    return rec?.panel;
   }
 
   /** Palette/command entry: ask the active Live Preview panel for its selection
@@ -624,32 +643,48 @@ export class OfmCustomTextEditorProvider
     const text = document.getText();
     const dir = vscode.Uri.joinPath(document.uri, "..");
     const map: Record<string, string> = {};
-    const resolve = (src: string): void => {
-      if (map[src] !== undefined) return;
-      if (/^(https?:|data:)/.test(src)) {
-        map[src] = src;
-        return;
-      }
+
+    // Legacy resolution: relative to the document's folder (what we did before the
+    // vault-wide index). Used when the ImageIndex can't resolve (not ready /
+    // over-cap / outside a workspace root / genuinely unresolved) — no regression
+    // for same-folder images and existing relative paths.
+    const legacy = (src: string): string => {
       const fileUri = src.startsWith("/")
         ? vscode.Uri.file(src)
         : vscode.Uri.joinPath(dir, src);
-      map[src] = panel.webview.asWebviewUri(fileUri).toString();
+      return panel.webview.asWebviewUri(fileUri).toString();
     };
 
-    // Standard images: ![alt](src)
+    // `key` is what the WEBVIEW looks up (raw markdown src, or the embed target);
+    // `ref` is the path we hand the resolver. SYNCHRONOUS — no I/O here.
+    const put = (key: string, ref: string, requireImageExt: boolean): void => {
+      if (map[key] !== undefined) return;
+      if (/^(https?:|data:)/.test(ref)) {
+        map[key] = ref;
+        return;
+      }
+      const hit = this.imageIndex?.resolveImage(document.uri, ref, requireImageExt);
+      map[key] = hit ? panel.webview.asWebviewUri(hit).toString() : legacy(ref);
+    };
+
+    // Standard images: ![alt](src) — key === the raw src (matches the webview).
     const re = /!\[[^\]]*\]\(\s*([^)\s]+)/g;
     let m: RegExpExecArray | null;
-    while ((m = re.exec(text)) !== null) resolve(m[1]);
+    while ((m = re.exec(text)) !== null) put(m[1], m[1], false);
 
-    // Image embeds: ![[file.png]] / ![[file.png|alt]] (note embeds are ignored).
-    const embedRe = /!\[\[([^\]|#]+?)(?:[#|][^\]]*)?\]\]/g;
+    // Image embeds: ![[target#anchor|size]] — key === the webview's
+    // `inner.split("|")[0].split("#")[0].trim()`; only image-extension targets
+    // are images (note embeds render as chips, not here).
+    const embedRe = /!\[\[([^\]]+?)\]\]/g;
     while ((m = embedRe.exec(text)) !== null) {
-      const target = m[1].trim();
-      if (/\.(png|jpe?g|gif|svg|webp|bmp|avif)$/i.test(target)) resolve(target);
+      const target = m[1].split("|")[0].split("#")[0].trim();
+      if (/\.(png|jpe?g|gif|svg|webp|bmp|avif)$/i.test(target)) put(target, target, true);
     }
 
     const uri = document.uri.toString();
-    const json = JSON.stringify(map);
+    // Stable serialization (sorted keys) so insertion-order churn never reposts;
+    // a changed resolved URI for the same key still reposts (index events).
+    const json = JSON.stringify(map, Object.keys(map).sort());
     if (this.lastImageMap.get(uri) === json) return; // unchanged → skip
     this.lastImageMap.set(uri, json);
     const msg: HostMsg = { type: "imageMap", map };
@@ -662,7 +697,7 @@ export class OfmCustomTextEditorProvider
 
   private onDocumentChanged(e: vscode.TextDocumentChangeEvent): void {
     const uri = e.document.uri.toString();
-    const panel = this.panels.get(uri);
+    const panel = this.panels.get(uri)?.panel;
 
     // Refresh image resolution on every change (images can be typed/edited);
     // sendImageMap only posts when the set of image srcs actually changed.
