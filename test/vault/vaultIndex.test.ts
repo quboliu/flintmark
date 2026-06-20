@@ -145,6 +145,72 @@ test("resolveLink: backslash separators compare equal to forward slash", () => {
   assert.equal(idx.resolveLink("vault/Foo"), "C:\\vault\\Foo.md");
 });
 
+// --------------------------------------------------------------------------
+// Path normalization + scoring edges (mutation-hardening)
+// --------------------------------------------------------------------------
+
+test("the .md/.markdown extension is stripped case-insensitively", () => {
+  const idx = buildVaultIndex([
+    { path: "Foo.MD", text: "" },
+    { path: "Bar.MARKDOWN", text: "" },
+  ]);
+  assert.equal(idx.getNote("Foo.MD")?.name, "Foo");
+  assert.equal(idx.resolveLink("Foo"), "Foo.MD");
+  assert.equal(idx.resolveLink("Bar"), "Bar.MARKDOWN");
+});
+
+test("path normalization drops empty segments; name is the last segment", () => {
+  const idx = buildVaultIndex([{ path: "a//Foo.md", text: "" }]);
+  assert.equal(idx.getNote("a//Foo.md")?.name, "Foo");
+  assert.equal(idx.resolveLink("Foo"), "a//Foo.md");
+});
+
+test("resolveLink: a name that is only separators/whitespace is null", () => {
+  const idx = buildVaultIndex([{ path: "Foo.md", text: "" }]);
+  assert.equal(idx.resolveLink("/"), null);
+  assert.equal(idx.resolveLink("   "), null);
+});
+
+test("resolveLink: an exact-case path hint outranks a case-only path hint", () => {
+  const idx = buildVaultIndex([
+    { path: "Sub/Note.md", text: "" }, // exact-case path-hint match  (+8)
+    { path: "sub/Note.md", text: "" }, // case-only path-hint match    (+6)
+  ]);
+  assert.equal(idx.resolveLink("Sub/Note"), "Sub/Note.md");
+});
+
+test("resolveLink: with equal scores, the SHORTER path wins", () => {
+  const idx = buildVaultIndex([
+    { path: "deep/folder/Note.md", text: "" }, // 3 segments
+    { path: "Note.md", text: "" }, //             1 segment
+  ]);
+  assert.equal(idx.resolveLink("Note"), "Note.md");
+});
+
+test("resolveLink trims surrounding whitespace on the name", () => {
+  const idx = buildVaultIndex([{ path: "notes/Foo.md", text: "" }]);
+  assert.equal(idx.resolveLink("  Foo  "), "notes/Foo.md");
+});
+
+test("resolveLink: a path hint scores above a bare-basename match", () => {
+  // "z/Note" path-hint matches z/Note.md (+8); Note.md only matches the basename.
+  // Without path-hint scoring the SHORTER Note.md would wrongly win.
+  const idx = buildVaultIndex([
+    { path: "z/Note.md", text: "" },
+    { path: "Note.md", text: "" },
+  ]);
+  assert.equal(idx.resolveLink("z/Note"), "z/Note.md");
+});
+
+test("resolveLink tiebreak prefers the shorter path even when it sorts later", () => {
+  // "Note.md" (1 seg, sorts AFTER "A/..") must still win on length, not lexicography.
+  const idx = buildVaultIndex([
+    { path: "A/Note.md", text: "" },
+    { path: "Note.md", text: "" },
+  ]);
+  assert.equal(idx.resolveLink("Note"), "Note.md");
+});
+
 if (failed > 0) {
   console.error(`\n${failed} test(s) FAILED`);
   process.exit(1);
