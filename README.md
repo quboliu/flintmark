@@ -65,6 +65,14 @@ diagrams, lazy-loaded so they cost nothing until one appears.
 
 ![Inline syntax](media/shots/inline.png)
 
+### Images & attachments
+
+Local images and Obsidian embeds render inline. `![[image.png]]` resolves **across
+your vault** — keep attachments in any folder and reference them by bare name, just
+like Obsidian — and `![[image.png|200]]` / `|200x120` sizes them.
+
+![Images and attachments](media/shots/images.png)
+
 ### Outline & Backlinks
 
 A dedicated side container. VS Code's built-in Outline can't see webview editors,
@@ -95,7 +103,7 @@ Download `flintmark-<version>.vsix` from the
 in VS Code: **Extensions → ⋯ → Install from VSIX…**, or from a terminal:
 
 ```
-code --install-extension flintmark-0.27.1.vsix
+code --install-extension flintmark-0.28.0.vsix
 ```
 
 Open any `.md` file and accept the prompt to make Live Preview the default, or run

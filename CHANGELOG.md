@@ -3,6 +3,18 @@
 All notable changes to Flintmark are documented here. Versions are pre-1.0 while
 the editor stabilizes for the Marketplace.
 
+## 0.28.0
+
+- **Vault-wide image resolution.** Obsidian image embeds (`![[image.png]]`) and
+  bare relative images now resolve across the whole vault: attachments kept in any
+  folder and referenced by a bare name render correctly when an Obsidian vault is
+  opened in VS Code (previously only same-folder images resolved). Adds `|W` /
+  `|WxH` sizing. Backed by a per-workspace-root, path-only attachment index with
+  synchronous resolution on the editor hot path; design reviewed adversarially.
+- **Quality system.** Seed-reproducible chaos/fuzz tests, mutation testing
+  (Stryker), coverage (c8), a consolidated metrics report, and a CI gate
+  (lint + types + unit + chaos → webview e2e) plus a weekly deep run.
+
 ## 0.25.0
 
 - **Rebrand to Flintmark** and Marketplace publish prep: extension icon,
