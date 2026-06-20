@@ -3,6 +3,18 @@
 All notable changes to Flintmark are documented here. Versions are pre-1.0 while
 the editor stabilizes for the Marketplace.
 
+## 0.28.1
+
+- **Custom fonts for rendered Markdown.** Three new settings let the Live Preview
+  use its own fonts, independent of the VS Code / Cursor editor font: `ofm.fontFamily`
+  (prose — body text and headings), `ofm.fontSize` (prose size in px), and
+  `ofm.monospaceFontFamily` (code blocks, inline code, frontmatter). Empty = follow
+  the active theme / editor font, as before. Changes apply live (no reopen). The
+  values feed dedicated `--ofm-*` override variables that sit at the front of the
+  font cascade, so a chosen font wins over both the theme and the editor font.
+  Backed by pure, unit-tested normalization (clamping + family sanitization) plus
+  a webview e2e assertion.
+
 ## 0.28.0
 
 - **Vault-wide image resolution.** Obsidian image embeds (`![[image.png]]`) and

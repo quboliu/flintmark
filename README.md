@@ -124,6 +124,9 @@ Missed the first-run prompt? Set it any time — open the Command Palette and ru
 | --- | --- | --- |
 | `ofm.theme` | `things` | Bundled Live Preview theme. |
 | `ofm.lineWidth` | `75` | Readable column width, in `rem`. Larger = wider text, smaller margins. |
+| `ofm.fontFamily` | _(theme)_ | Prose font (body + headings) for rendered Markdown, independent of the editor font. Empty = theme / UI font. |
+| `ofm.fontSize` | `0` | Prose font size in px. `0` = editor font size + 2px. |
+| `ofm.monospaceFontFamily` | _(editor)_ | Code font (fenced blocks, inline code, frontmatter). Empty = editor font. |
 | `ofm.ai.chatBridge` | `split` | How *Add to Chat* relocates the selection (`split` keeps the Live tab; `inplace` flips it). |
 | `ofm.ai.sourceLayout` | `replace` | Where *Edit* opens the source (`replace` / `beside`). |
 | `ofm.ai.trigger` | `auto` | Auto-trigger the native inline AI, or `manual`. |

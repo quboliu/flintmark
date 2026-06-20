@@ -2,7 +2,7 @@
   "name": "flintmark",
   "displayName": "Flintmark",
   "description": "Obsidian-compatible Live Preview Markdown editing in VS Code. Not affiliated with Obsidian.",
-  "version": "0.28.0",
+  "version": "0.28.1",
   "publisher": "quboliu",
   "license": "MIT",
   "repository": {
@@ -120,6 +120,23 @@
           ],
           "default": "things",
           "description": "Built-in theme for the Markdown Live Preview editor."
+        },
+        "ofm.fontFamily": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Font family for rendered Markdown **prose** (body text and headings) in the Live Preview. A CSS font-family list, e.g. `\"LXGW WenKai\", \"Segoe UI\", sans-serif`. Empty = follow the active theme / VS Code UI font. This is independent of the VS Code editor font, so the rendered note can use a different font from your code."
+        },
+        "ofm.fontSize": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 72,
+          "markdownDescription": "Font size (px) for rendered Markdown prose in the Live Preview. `0` = follow the VS Code editor font size (+2px). Values from 8 to 72 take effect; headings and code scale relative to this."
+        },
+        "ofm.monospaceFontFamily": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Font family for **code** (fenced code blocks, inline code, frontmatter) in the Live Preview. A CSS font-family list, e.g. `\"Maple Mono\", \"JetBrains Mono\", monospace`. Empty = follow the VS Code editor font."
         },
         "ofm.ai.trigger": {
           "type": "string",

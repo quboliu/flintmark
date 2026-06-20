@@ -34,7 +34,9 @@
   /* Code */
   --code-background: var(--vscode-textCodeBlock-background, rgba(128, 128, 128, 0.1));
   --code-normal: var(--text-normal);
-  --font-monospace: var(--vscode-editor-font-family, monospace);
+  /* --ofm-font-monospace (set by the webview from `ofm.monospaceFontFamily`)
+     wins when present; else the VS Code editor font. */
+  --font-monospace: var(--ofm-font-monospace, var(--vscode-editor-font-family, monospace));
 
   /* Inline / blocks */
   --blockquote-border-color: var(--background-modifier-border);
@@ -47,9 +49,11 @@
 
   /* Typography */
   --font-text-size: var(--vscode-editor-font-size, 14px);
-  /* Body text font — resolves the theme's text font (Things sets
-     --font-text-theme) at the point of use, else the VS Code UI font (sans). */
-  --font-text: var(--font-text-theme, var(--font-interface-theme, var(--vscode-font-family, sans-serif)));
+  /* Body text font — resolves at the point of use. Priority: the user's
+     --ofm-font-family (set by the webview from `ofm.fontFamily`, independent of
+     the VS Code editor font) → the theme's text font (Things sets
+     --font-text-theme) → the VS Code UI font (sans). */
+  --font-text: var(--ofm-font-family, var(--font-text-theme, var(--font-interface-theme, var(--vscode-font-family, sans-serif))));
   --bold-weight: 600;
   --bold-color: inherit;
   --italic-color: inherit;

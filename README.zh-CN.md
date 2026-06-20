@@ -118,6 +118,9 @@ code --install-extension flintmark-0.28.0.vsix
 | --- | --- | --- |
 | `ofm.theme` | `things` | 内置实时预览主题。 |
 | `ofm.lineWidth` | `75` | 可读列宽,单位 `rem`。越大正文越宽、页边距越小。 |
+| `ofm.fontFamily` | _(主题)_ | 渲染 Markdown 的正文字体(正文 + 标题),独立于编辑器字体。留空 = 主题 / 界面字体。 |
+| `ofm.fontSize` | `0` | 正文字号(px)。`0` = 编辑器字号 + 2px。 |
+| `ofm.monospaceFontFamily` | _(编辑器)_ | 代码字体(代码块、行内代码、frontmatter)。留空 = 编辑器字体。 |
 | `ofm.ai.chatBridge` | `split` | *Add to Chat* 如何搬运选区(`split` 保留实时预览标签;`inplace` 翻转当前标签)。 |
 | `ofm.ai.sourceLayout` | `replace` | *Edit* 在何处打开源码(`replace` / `beside`)。 |
 | `ofm.ai.trigger` | `auto` | 自动触发原生行内 AI,或 `manual`。 |

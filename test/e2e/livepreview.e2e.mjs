@@ -39,10 +39,19 @@ writeFileSync(
     "telemetry.telemetryLevel": "off",
     "update.mode": "none",
     "window.commandCenter": false,
-    // Live Preview body font = editor.fontSize + 2px. Pin a small editor font so
-    // the whole fixture fits the viewport and CM6 doesn't virtualize the bottom
-    // lines out of the DOM (these tests assert behaviour, not pixel sizes).
+    // Pin a small editor font so the whole fixture fits the viewport and CM6
+    // doesn't virtualize the bottom lines out of the DOM (these tests assert
+    // behaviour, not pixel sizes). ofm.fontSize below overrides the body size.
     "editor.fontSize": 8,
+    // Custom-font feature: prose font + size + code font, all INDEPENDENT of the
+    // editor font. Generic families so layout barely shifts (and getComputedStyle
+    // reports the specified list even when the named font isn't installed on CI).
+    // Body stays proportional / code stays monospace, so the existing font test
+    // still holds. fontSize 9 < editor+2 (10), so it only shrinks → no extra
+    // virtualization risk.
+    "ofm.fontFamily": "Georgia, serif",
+    "ofm.fontSize": 9,
+    "ofm.monospaceFontFamily": "'Courier New', monospace",
   })
 );
 const notePath = join(work, "note.md");
@@ -287,6 +296,43 @@ try {
       `body font should be proportional, got ${fonts.body}`
     );
     assert.notEqual(fonts.body, fonts.code, "body and code fonts must differ");
+  });
+
+  await test("custom font settings override the theme + editor fonts", async () => {
+    // ofm.fontFamily / fontSize / monospaceFontFamily (set in the fixture) must
+    // win over the theme's text font AND the VS Code editor font, via the
+    // --ofm-* override variables applied to the document root. getComputedStyle
+    // returns the SPECIFIED family list, so this holds even when the named fonts
+    // aren't installed on the CI runner.
+    const r = await cm.evaluate(() => {
+      const content = document.querySelector(".cm-content");
+      const code = document.querySelector(".cm-line.ofm-codeblock");
+      return {
+        bodyFont: getComputedStyle(content).fontFamily,
+        bodySize: getComputedStyle(content).fontSize,
+        codeFont: code ? getComputedStyle(code).fontFamily : "",
+        rootVar: getComputedStyle(document.documentElement)
+          .getPropertyValue("--ofm-font-family")
+          .trim(),
+      };
+    });
+    assert.ok(
+      /georgia/i.test(r.bodyFont),
+      `body should use the custom prose font (ofm.fontFamily), got ${r.bodyFont}`
+    );
+    assert.ok(
+      /courier/i.test(r.codeFont),
+      `code should use the custom monospace font (ofm.monospaceFontFamily), got ${r.codeFont}`
+    );
+    assert.equal(
+      r.bodySize,
+      "9px",
+      `body size should follow ofm.fontSize (9px), got ${r.bodySize}`
+    );
+    assert.ok(
+      r.rootVar.length > 0,
+      "--ofm-font-family should be set on the document root"
+    );
   });
 
   await test("headings use the theme's graduated sizes (h1 > h6 > 0)", async () => {

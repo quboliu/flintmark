@@ -18,7 +18,11 @@ export const markdownTheme = EditorView.theme({
      and unaffected; code blocks/inline are em-based and ride up with this. */
   ".cm-content": {
     fontFamily: "var(--font-text, var(--vscode-font-family, sans-serif))",
-    fontSize: "calc(var(--vscode-editor-font-size, 14px) + 2px)",
+    // --ofm-font-size (set by the webview from `ofm.fontSize`) wins when present;
+    // else the editor font size + 2px. Headings (rem) are unaffected; code/inline
+    // (em) ride up with this.
+    fontSize:
+      "var(--ofm-font-size, calc(var(--vscode-editor-font-size, 14px) + 2px))",
   },
   /* Headings (1-6) — size & weight follow the theme (--hN-size/--hN-weight);
      colors come from the theme (--hN-color). Fallbacks preserve our look when a

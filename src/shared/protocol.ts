@@ -113,6 +113,14 @@ export interface Settings {
   /** Readable column width in rem (drives --file-line-width; smaller side margins
    *  come from a larger value). */
   lineWidth?: number;
+  /** Font-family for rendered prose (body text + headings). Omitted = follow the
+   *  active theme / VS Code UI font. Independent of the VS Code editor font. */
+  fontFamily?: string;
+  /** Font-size (px) for rendered prose. Omitted = editor font size + 2px. */
+  fontSize?: number;
+  /** Font-family for code (fenced blocks, inline code, frontmatter). Omitted =
+   *  follow the VS Code editor font. */
+  monospaceFontFamily?: string;
 }
 
 /** Active theme, sent from host to webview. The webview just applies the CSS at

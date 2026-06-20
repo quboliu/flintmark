@@ -12,7 +12,9 @@ import type {
   WebviewMsg,
   DocChange,
   ThemePayload,
+  Settings,
 } from "../shared/protocol";
+import { settingsToCssVars } from "../shared/settings";
 import { createMessenger } from "./messaging/client";
 import { createEditor, hostOrigin, currentSelectionRange } from "./view/createEditor";
 import { setImageMap } from "./view/widgets/imageWidget";
@@ -198,13 +200,16 @@ function handleConflict(_serverVersion: DocVersion): void {
 // applySettings: apply layout settings (readable column width → side margins)
 // ---------------------------------------------------------------------------
 
-function applySettings(settings: { lineWidth?: number } | undefined): void {
+function applySettings(settings: Settings | undefined): void {
   if (!settings) return;
-  if (typeof settings.lineWidth === "number" && settings.lineWidth > 0) {
-    document.documentElement.style.setProperty(
-      "--file-line-width",
-      `${settings.lineWidth}rem`
-    );
+  // Set/remove override variables on the document root. Setting them on :root
+  // (highest in the cascade for these vars — the theme never declares them) lets
+  // a user font win over both the theme's --font-text-theme and the VS Code
+  // editor font; a `null` (cleared setting) removes the var so it reverts.
+  const root = document.documentElement.style;
+  for (const { name, value } of settingsToCssVars(settings)) {
+    if (value === null) root.removeProperty(name);
+    else root.setProperty(name, value);
   }
 }
 

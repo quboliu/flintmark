@@ -6,6 +6,7 @@ import { DEFAULT_THEME_ID, findTheme } from "./themes";
 import { openSourceWithSelection, triggerNativeAi, addSelectionToChat } from "./ai/aiBridge";
 import { aiLog } from "./ai/aiLog";
 import { clampOffsetRange } from "../shared/ranges";
+import { DEFAULT_LINE_WIDTH, normalizeSettings } from "../shared/settings";
 import { SerialQueue } from "./serialQueue";
 import type {
   HostMsg,
@@ -30,12 +31,17 @@ function getNonce(): string {
   return text;
 }
 
-// Readable column width (rem) → drives --file-line-width. Bigger = smaller side
-// margins. Clamped to a sane range; falls back to the default.
-const DEFAULT_LINE_WIDTH = 75;
-function readLineWidth(): number {
-  const n = vscode.workspace.getConfiguration("ofm").get<number>("lineWidth");
-  return typeof n === "number" && n >= 20 && n <= 240 ? n : DEFAULT_LINE_WIDTH;
+// Read + normalize the user-facing editor settings (column width, prose/code
+// fonts) into the payload pushed to the webview. Validation/clamping lives in the
+// pure, unit-tested `normalizeSettings` (../shared/settings).
+function readSettings(): Settings {
+  const cfg = vscode.workspace.getConfiguration("ofm");
+  return normalizeSettings({
+    lineWidth: cfg.get<number>("lineWidth"),
+    fontFamily: cfg.get<string>("fontFamily"),
+    fontSize: cfg.get<number>("fontSize"),
+    monospaceFontFamily: cfg.get<string>("monospaceFontFamily"),
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -113,8 +119,16 @@ export class OfmCustomTextEditorProvider
             panel.webview.postMessage(msg);
           }
         }
-        if (e.affectsConfiguration("ofm.lineWidth")) {
-          const settings: Settings = { lineWidth: readLineWidth() };
+        if (
+          e.affectsConfiguration("ofm.lineWidth") ||
+          e.affectsConfiguration("ofm.fontFamily") ||
+          e.affectsConfiguration("ofm.fontSize") ||
+          e.affectsConfiguration("ofm.monospaceFontFamily")
+        ) {
+          // Push the FULL settings object so the webview can revert a CLEARED
+          // font (omitted field → CSS variable removed) live, not just apply new
+          // values.
+          const settings: Settings = readSettings();
           for (const { panel } of this.panels.values()) {
             panel.webview.postMessage({ type: "settingsChanged", settings } as HostMsg);
           }
@@ -189,7 +203,9 @@ export class OfmCustomTextEditorProvider
     const mermaidUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this.context.extensionUri, "out", "mermaid.js")
     );
-    const lineWidth = readLineWidth();
+    // Initial paint only — the webview re-applies the full settings (incl. fonts)
+    // from the `init` message onto the document root, which overrides this.
+    const lineWidth = readSettings().lineWidth ?? DEFAULT_LINE_WIDTH;
 
     // CSP: scripts only from our nonce; styles inline (CM6 needs this);
     // images and fonts restricted to webview cspSource.
@@ -311,7 +327,7 @@ export class OfmCustomTextEditorProvider
   ): void {
     const text = document.getText();
     const version: DocVersion = document.version;
-    const settings: Settings = { lineWidth: readLineWidth() };
+    const settings: Settings = readSettings();
     const theme = this.buildThemePayload(panel.webview);
 
     const initMsg: HostMsg = {
