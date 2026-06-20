@@ -1,23 +1,42 @@
+# What does NOT ship in the published .vsix.
+#
+# Sources, tests, tooling, CI, and docs are all excluded. The out/ directory is
+# an ALLOWLIST: only the compiled runtime ships — test bundles, coverage,
+# mutation/chaos artifacts and source maps stay out (a local out/ polluted by a
+# test run must never bloat the package).
 .vscode/**
 .git/**
+.github/**
 .claude/**
 node_modules/**
 src/**
 test/**
 docs/**
+scripts/**
+examples/**
 CONTEXT.md
 tsconfig.json
 esbuild.mjs
 esbuild.test.mjs
+eslint.config.mjs
+stryker.conf.json
 .gitignore
 .vscodeignore
 package-lock.json
 *.vsix
-**/*.map
-out/test/**
-out/test-unit/**
-out/*.cjs
-out/**/*.png
-examples/**
+*.log
 media/shots/**
 README.zh-CN.md
+
+# out/ allowlist — exclude everything, then re-include only the runtime esbuild
+# emits (extension host bundle, webview bundle + KaTeX CSS, lazy Mermaid bundle,
+# and the KaTeX font files the CSS url()s resolve to).
+**/*.map
+out/**
+!out/extension.js
+!out/webview.js
+!out/webview.css
+!out/mermaid.js
+!out/*.woff2
+!out/*.woff
+!out/*.ttf

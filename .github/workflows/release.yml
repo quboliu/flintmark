@@ -1,0 +1,129 @@
+# Release pipeline for Flintmark — the ONLY supported way to cut a release.
+#
+# Triggered by pushing a version tag (vX.Y.Z). Releasing from a clean checkout
+# (never `vsce package` on a laptop, where a test-polluted out/ bloats the VSIX)
+# guarantees the package contains only compiled runtime, and ties the release to
+# a specific commit + this run.
+#
+#   git tag v0.28.0 && git push origin v0.28.0
+#
+# Flow: re-verify the fast gate -> package a clean VSIX -> assert it is
+# well-formed (runtime present, no dev/test artifacts) -> create/update the
+# GitHub Release with the VSIX attached -> publish to the Marketplace + Open VSX.
+# The two publish steps SKIP until their tokens (VSCE_PAT / OVSX_PAT) exist as
+# repo secrets; add them and future tagged releases publish everywhere.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch: # manual re-run; releases the current package.json version
+
+# Never cancel a release mid-flight (a half-published version is worse than a
+# queued one).
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write # create the GitHub Release (and the tag, on manual dispatch)
+
+jobs:
+  verify:
+    name: Verify (lint · types · unit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npx tsc --noEmit -p .
+      - run: npm run test:unit
+
+  release:
+    name: Package · Release · Publish
+    runs-on: ubuntu-latest
+    needs: verify
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VSCE_PAT: ${{ secrets.VSCE_PAT }}
+      OVSX_PAT: ${{ secrets.OVSX_PAT }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+
+      - name: Resolve version + assert tag matches package.json
+        id: ver
+        run: |
+          PKG="$(node -p "require('./package.json').version")"
+          if [ "${GITHUB_REF}" != "${GITHUB_REF#refs/tags/}" ]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+          else
+            TAG="v${PKG}"
+          fi
+          if [ "$TAG" != "v${PKG}" ]; then
+            echo "::error::tag ${TAG} does not match package.json version v${PKG}"
+            exit 1
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${PKG}" >> "$GITHUB_OUTPUT"
+          echo "Releasing ${TAG}"
+
+      - name: Package VSIX (clean build via vscode:prepublish)
+        run: npx @vscode/vsce package
+
+      - name: Assert VSIX is well-formed
+        run: |
+          VSIX="$(ls flintmark-*.vsix)"
+          echo "Packaged: ${VSIX} ($(du -h "$VSIX" | cut -f1))"
+          # Positive: the compiled runtime MUST be present (else math/diagrams break).
+          for f in out/extension.js out/webview.js out/webview.css out/mermaid.js; do
+            unzip -l "$VSIX" | grep -qF "extension/${f}" \
+              || { echo "::error::VSIX missing runtime file: ${f}"; exit 1; }
+          done
+          # Negative: dev/test artifacts MUST NOT leak (the local-package bloat bug).
+          if unzip -l "$VSIX" | grep -Eq 'extension/out/(test|coverage|metrics|mutation|stryker)|extension/scripts/|extension/\.github/|\.cjs$'; then
+            echo "::error::dev/test artifacts leaked into the VSIX:"
+            unzip -l "$VSIX" | grep -E 'extension/out/(test|coverage|metrics|mutation|stryker)|extension/scripts/|extension/\.github/|\.cjs$'
+            exit 1
+          fi
+
+      - name: Extract release notes from CHANGELOG
+        run: |
+          awk -v v="${{ steps.ver.outputs.version }}" '
+            $0 ~ "^## " v "([ ]|$)" { grab=1; next }
+            grab && /^## / { exit }
+            grab { print }
+          ' CHANGELOG.md > RELEASE_NOTES.md
+          if [ ! -s RELEASE_NOTES.md ]; then
+            echo "Flintmark ${{ steps.ver.outputs.version }}" > RELEASE_NOTES.md
+          fi
+          echo "---- release notes ----"; cat RELEASE_NOTES.md
+
+      - name: Create / update GitHub Release
+        run: |
+          TAG="${{ steps.ver.outputs.tag }}"
+          TITLE="Flintmark ${{ steps.ver.outputs.version }}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --title "$TITLE" --notes-file RELEASE_NOTES.md
+          else
+            gh release create "$TAG" --title "$TITLE" --notes-file RELEASE_NOTES.md --target "${GITHUB_SHA}"
+          fi
+          gh release upload "$TAG" flintmark-*.vsix --clobber
+
+      - name: Publish to VS Code Marketplace
+        if: ${{ env.VSCE_PAT != '' }}
+        run: npx @vscode/vsce publish --packagePath "$(ls flintmark-*.vsix)"
+
+      - name: Publish to Open VSX (Cursor / VSCodium / Windsurf)
+        if: ${{ env.OVSX_PAT != '' }}
+        run: npx -y ovsx publish "$(ls flintmark-*.vsix)" -p "$OVSX_PAT"
