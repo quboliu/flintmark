@@ -5,30 +5,34 @@ import * as vscode from "vscode";
 //
 // We do NOT build our own AI. A webview-based custom editor hides its selection
 // from the host (`window.activeTextEditor` is undefined when our editor is
-// focused), so the host's native AI (Copilot inline chat, Cursor Cmd+K) cannot
-// see what's selected in Live Preview. The bridge fixes this WITHOUT any AI
-// logic of our own: it relocates the selection into the REAL source text editor
-// and then hands off entirely to whatever native AI the host provides.
-//
-// Command IDs below were confirmed by probing the real hosts:
-//   VS Code 1.124 / VSCodium : inlineChat.start ✓        (aipopup.* absent)
-//   Cursor 3.2.11            : aipopup.action.modal.generate ✓ (inlineChat.start absent)
-// Each node has a fallback so the worst case still leaves the user in source
+// focused), so the host's native AI cannot see what's selected in Live Preview.
+// The bridge fixes this WITHOUT any AI logic of our own:
+//   (1) relocate the selection into the REAL source text editor, then
+//   (2) hand off to the host's native AI command — chosen by the per-IDE
+//       HostAdapter (see hostAdapters.ts), NOT a flat command list.
+// On any failure it degrades to a status-bar hint, leaving the user in source
 // with the selection set, ready to invoke their AI manually.
 // ---------------------------------------------------------------------------
 
-import {
-  pickAiTrigger,
-  pickAiAccept,
-  pickChatTrigger,
-  type AiTriggerKind,
-} from "./aiCommands";
+import { selectHostAdapter, type HostContext } from "./hostAdapters";
 import { aiLog } from "./aiLog";
 
 const MANUAL_HINT = "Flintmark: selection is ready in source — invoke your AI (e.g. ⌘K / Ctrl+K).";
 
+function hint(message: string): void {
+  vscode.window.setStatusBarMessage(message, 6000);
+}
+
+/** Snapshot of the running host for the pure adapter layer. */
+async function hostContext(): Promise<HostContext> {
+  return {
+    available: new Set(await vscode.commands.getCommands(true)),
+    appName: vscode.env.appName,
+  };
+}
+
 /**
- * Node 3 — relocate to the real source editor with the selection set.
+ * Relocate to the real source editor with the selection set.
  * Ideal: replace the custom-editor tab in place (`vscode.openWith … default`).
  * Fallbacks: showTextDocument (beside layout, or if the in-place flip fails).
  */
@@ -72,76 +76,68 @@ export async function openSourceWithSelection(
 }
 
 /**
- * Node 4 — hand off to the host's native AI. Detects the available command and
- * invokes it; on any failure (or "manual" mode / no AI present) it degrades to
- * a status-bar hint, leaving the user in source with the selection ready.
+ * Hand off to the host's native inline AI (the active HostAdapter decides which
+ * command). On "manual" mode / no command / failure → status-bar hint.
  */
 export async function triggerNativeAi(
   mode: "auto" | "manual",
   preferredCommand?: string
-): Promise<AiTriggerKind> {
+): Promise<void> {
   if (mode === "manual") {
     aiLog("trigger(edit): manual mode → status-bar hint only (no command fired)");
-    vscode.window.setStatusBarMessage(MANUAL_HINT, 6000);
-    return "manual";
+    hint(MANUAL_HINT);
+    return;
   }
-  const available = new Set(await vscode.commands.getCommands(true));
-  const pick = pickAiTrigger(available, preferredCommand);
-  if (!pick) {
-    aiLog(
-      `trigger(edit): NO inline-AI command available (preferred=${preferredCommand ?? "—"}) → manual hint`
-    );
-    vscode.window.setStatusBarMessage(MANUAL_HINT, 6000);
-    return "manual";
+  const ctx = await hostContext();
+  const adapter = selectHostAdapter(ctx);
+  const plan = adapter.edit(ctx, preferredCommand);
+  aiLog(`trigger(edit): host=${adapter.id} appName=${JSON.stringify(ctx.appName ?? "")}`);
+  if (!plan) {
+    aiLog(`trigger(edit): host '${adapter.id}' has no inline-AI command → manual hint`);
+    hint(MANUAL_HINT);
+    return;
   }
-  aiLog(`trigger(edit): invoking '${pick.command}' (kind=${pick.kind})`);
+  aiLog(`trigger(edit): invoking '${plan.command}'`);
   try {
-    await vscode.commands.executeCommand(pick.command);
-    aiLog(`trigger(edit): '${pick.command}' returned OK`);
-    return pick.kind;
+    await vscode.commands.executeCommand(plan.command);
+    aiLog(`trigger(edit): '${plan.command}' returned OK`);
   } catch (e) {
-    aiLog(`trigger(edit): '${pick.command}' THREW: ${(e as Error)?.message} → manual hint`);
-    vscode.window.setStatusBarMessage(MANUAL_HINT, 6000);
-    return "manual";
+    aiLog(`trigger(edit): '${plan.command}' THREW: ${(e as Error)?.message} → manual hint`);
+    hint(MANUAL_HINT);
   }
 }
 
 /**
  * "Add to Chat" — attach the (now relocated to source) selection to the host's
- * native AI chat/composer. Returns true if a chat command was invoked.
+ * native AI chat (the active HostAdapter decides which command). Returns true
+ * if a chat command was invoked.
  */
 export async function addSelectionToChat(preferredCommand?: string): Promise<boolean> {
-  const available = new Set(await vscode.commands.getCommands(true));
-  const cmd = pickChatTrigger(available, preferredCommand);
-  if (!cmd) {
-    aiLog(
-      `addToChat: NO chat command available (preferred=${preferredCommand ?? "—"}) → selection left ready in source`
-    );
-    vscode.window.setStatusBarMessage(
-      "Flintmark: no AI chat found — open your chat and the selection is ready in source.",
-      6000
-    );
+  const ctx = await hostContext();
+  const adapter = selectHostAdapter(ctx);
+  const plan = adapter.chat(ctx, preferredCommand);
+  aiLog(`addToChat: host=${adapter.id} appName=${JSON.stringify(ctx.appName ?? "")}`);
+  if (!plan) {
+    aiLog(`addToChat: host '${adapter.id}' has no chat command → selection left ready in source`);
+    hint("Flintmark: no AI chat found — open your chat; the selection is ready in source.");
     return false;
   }
-  aiLog(`addToChat: invoking '${cmd}'`);
+  aiLog(`addToChat: invoking '${plan.command}'`);
   try {
-    await vscode.commands.executeCommand(cmd);
-    aiLog(`addToChat: '${cmd}' returned OK`);
+    await vscode.commands.executeCommand(plan.command);
+    aiLog(`addToChat: '${plan.command}' returned OK`);
     return true;
   } catch (e) {
-    aiLog(`addToChat: '${cmd}' THREW: ${(e as Error)?.message} → selection left ready in source`);
-    vscode.window.setStatusBarMessage(
-      "Flintmark: couldn't add to chat — the selection is ready in source.",
-      6000
-    );
+    aiLog(`addToChat: '${plan.command}' THREW: ${(e as Error)?.message} → selection left ready in source`);
+    hint("Flintmark: couldn't add to chat — the selection is ready in source.");
     return false;
   }
 }
 
-/** Node 5 — best-effort accept (if the host exposes an accept command). */
+/** Best-effort accept (if the active host adapter knows an accept command). */
 export async function acceptNativeAi(): Promise<boolean> {
-  const available = new Set(await vscode.commands.getCommands(true));
-  const accept = pickAiAccept(available);
+  const ctx = await hostContext();
+  const accept = selectHostAdapter(ctx).accept(ctx);
   if (!accept) return false;
   try {
     await vscode.commands.executeCommand(accept);

@@ -43,8 +43,8 @@ export function createAiButton(
     return b;
   };
 
-  dom.appendChild(mkButton("✨ Edit", "Edit selection with AI", onEdit));
-  dom.appendChild(mkButton("💬 Add to Chat", "Add selection to AI chat", onAddToChat));
+  dom.appendChild(mkButton("Edit", "Edit selection with AI", onEdit));
+  dom.appendChild(mkButton("Add to Chat", "Add selection to AI chat", onAddToChat));
   view.dom.appendChild(dom);
 
   const reposition = (): void => {
@@ -62,7 +62,7 @@ export function createAiButton(
       const box = view.dom.getBoundingClientRect();
       const top = Math.max(2, coords.top - box.top - 30);
       const left = Math.max(2, Math.min(coords.left - box.left, box.width - 130));
-      dom.style.display = "block";
+      dom.style.display = "flex";
       dom.style.top = `${top}px`;
       dom.style.left = `${left}px`;
     } catch {

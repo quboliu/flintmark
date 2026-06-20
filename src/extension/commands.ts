@@ -1,7 +1,8 @@
 import * as vscode from "vscode";
 import { BUNDLED_THEMES } from "./themes";
 import { acceptNativeAi } from "./ai/aiBridge";
-import { showAiLog, aiLog } from "./ai/aiLog";
+import { showAiLog, aiLogForce } from "./ai/aiLog";
+import { selectHostAdapter } from "./ai/hostAdapters";
 
 const VIEW_TYPE = "ofm.livePreview";
 const PROMPTED_KEY = "ofm.promptedDefaultEditor";
@@ -35,15 +36,24 @@ export function registerCommands(
 
   reg("ofm.showAiLog", () => showAiLog());
 
-  // Debug: dump the host's AI/chat command namespace to the AI log, so we can
-  // discover a host's real command IDs (e.g. Antigravity differs from Cursor/VS Code).
+  // Debug: report which HostAdapter is detected for the running IDE + the
+  // commands it would use, then dump the host's AI/chat command namespace — for
+  // diagnosing a new/changed host and choosing an `ofm.ai.*Command` override.
   reg("ofm.dumpAiCommands", async () => {
     const all = await vscode.commands.getCommands(true);
+    const ctx = { available: new Set(all), appName: vscode.env.appName };
+    const adapter = selectHostAdapter(ctx);
+    aiLogForce(`──── host detection ────`);
+    aiLogForce(`  appName: ${JSON.stringify(ctx.appName)}`);
+    aiLogForce(`  adapter: ${adapter.id}`);
+    aiLogForce(`  chat → ${adapter.chat(ctx)?.command ?? "(none)"}`);
+    aiLogForce(`  edit → ${adapter.edit(ctx)?.command ?? "(none)"}`);
+    aiLogForce(`  accept → ${adapter.accept(ctx) ?? "(none)"}`);
     const re =
       /(ai|chat|cascade|gemini|composer|prompt|generat|inline|windsurf|codeium|exafunction|antigravity|copilot|assistant|llm|agent|ask)/i;
     const hits = all.filter((c) => re.test(c)).sort();
-    aiLog(`──── AI/chat command namespace (${hits.length} of ${all.length}) ────`);
-    for (const c of hits) aiLog("  " + c);
+    aiLogForce(`──── AI/chat command namespace (${hits.length} of ${all.length}) ────`);
+    for (const c of hits) aiLogForce("  " + c);
     showAiLog();
   });
 

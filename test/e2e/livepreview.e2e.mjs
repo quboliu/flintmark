@@ -36,6 +36,10 @@ writeFileSync(
     "telemetry.telemetryLevel": "off",
     "update.mode": "none",
     "window.commandCenter": false,
+    // Live Preview body font = editor.fontSize + 2px. Pin a small editor font so
+    // the whole fixture fits the viewport and CM6 doesn't virtualize the bottom
+    // lines out of the DOM (these tests assert behaviour, not pixel sizes).
+    "editor.fontSize": 8,
   })
 );
 const notePath = join(work, "note.md");

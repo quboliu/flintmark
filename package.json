@@ -176,6 +176,11 @@
           "minimum": 20,
           "maximum": 240,
           "markdownDescription": "Readable column width of the Live Preview, in `rem` (1rem ≈ 16px). Larger = wider text column = smaller left/right page margins. Default 75."
+        },
+        "ofm.ai.debugLog": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Trace the AI Selection Bridge to the **Flintmark AI** output channel (and `/tmp/flintmark-ai.log`) for diagnosing AI integration on a given IDE. Off by default; turn on only when troubleshooting."
         }
       }
     },

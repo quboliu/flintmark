@@ -3,14 +3,15 @@ import * as os from "os";
 import * as path from "path";
 import * as fs from "fs";
 
-// A dedicated output channel that traces every hop of the AI Selection Bridge.
-// The round-trip ends in the HOST's native AI (which we can't observe headless),
-// so this trace is how we — and the user — see exactly where a click lands or
-// breaks: message received → selection relocated → which native command fired.
+// Tracing for the AI Selection Bridge: every hop (message received → selection
+// relocated → which native command fired) goes to a "Flintmark AI" output
+// channel AND a file mirror (LOG_FILE), so a run can be inspected outside the
+// editor UI.
 //
-// We ALSO tee the trace to a file (LOG_FILE) so it can be read OUTSIDE the
-// editor UI — both for headless verification (drive the button, read the file)
-// and so a manual tester's run can be inspected without copy-pasting.
+// OFF BY DEFAULT in the shipped extension — automatic tracing only runs when the
+// user opts in via the `ofm.ai.debugLog` setting (keeps the package quiet and
+// avoids writing to /tmp during normal use). Explicit user-invoked diagnostics
+// (ofm.dumpAiCommands) always write, via aiLogForce().
 let channel: vscode.OutputChannel | null = null;
 
 /** Plain-text mirror of the channel; readable without the Output panel. */
@@ -21,8 +22,11 @@ function chan(): vscode.OutputChannel {
   return channel;
 }
 
-/** Append one timestamped line to the channel AND the on-disk mirror. */
-export function aiLog(msg: string): void {
+function debugLogEnabled(): boolean {
+  return vscode.workspace.getConfiguration("ofm").get<boolean>("ai.debugLog") === true;
+}
+
+function write(msg: string): void {
   const line = `${new Date().toISOString().slice(11, 23)}  ${msg}`;
   chan().appendLine(line);
   try {
@@ -32,7 +36,22 @@ export function aiLog(msg: string): void {
   }
 }
 
+/** Trace a bridge hop — no-op unless `ofm.ai.debugLog` is enabled. */
+export function aiLog(msg: string): void {
+  if (debugLogEnabled()) write(msg);
+}
+
+/** Always write — for explicit, user-invoked diagnostics (e.g. dumpAiCommands). */
+export function aiLogForce(msg: string): void {
+  write(msg);
+}
+
 /** Reveal the AI log channel (bound to ofm.showAiLog). */
 export function showAiLog(): void {
+  if (!debugLogEnabled()) {
+    chan().appendLine(
+      "(AI debug logging is OFF — enable the `ofm.ai.debugLog` setting to trace AI actions, then retry.)"
+    );
+  }
   chan().show(true);
 }

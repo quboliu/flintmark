@@ -290,26 +290,40 @@ export const markdownTheme = EditorView.theme({
     position: "absolute",
     zIndex: "20",
     display: "flex",
-    gap: "4px",
+    alignItems: "stretch",
+    overflow: "hidden",
+    backgroundColor:
+      "var(--background-secondary, var(--vscode-editorWidget-background, #252526))",
+    border:
+      "1px solid var(--background-modifier-border, var(--vscode-editorWidget-border, rgba(128,128,128,0.3)))",
+    borderRadius: "6px",
+    boxShadow: "0 1px 3px rgba(0,0,0,0.25)",
   },
   ".ofm-ai-button": {
-    padding: "2px 9px",
+    margin: "0",
+    padding: "3px 10px",
     fontSize: "0.8em",
     fontWeight: "500",
-    lineHeight: "1.6",
+    lineHeight: "1.5",
     whiteSpace: "nowrap",
-    color: "var(--text-on-accent, var(--vscode-button-foreground, #fff))",
-    backgroundColor:
-      "var(--interactive-accent, var(--vscode-button-background, #4a7dff))",
+    color: "var(--text-muted, var(--vscode-descriptionForeground, #8a8a8a))",
+    backgroundColor: "transparent",
     border: "none",
-    borderRadius: "6px",
-    boxShadow: "0 2px 8px rgba(0,0,0,0.35)",
+    borderRadius: "0",
     cursor: "pointer",
     userSelect: "none",
+    transition: "background-color 0.12s ease, color 0.12s ease",
+  },
+  /* Hairline divider between the two segments of the chip */
+  ".ofm-ai-button + .ofm-ai-button": {
+    borderLeft:
+      "1px solid var(--background-modifier-border, var(--vscode-editorWidget-border, rgba(128,128,128,0.3)))",
   },
   ".ofm-ai-button:hover": {
+    color:
+      "var(--interactive-accent, var(--vscode-textLink-foreground, var(--vscode-button-background, #4a7dff)))",
     backgroundColor:
-      "var(--interactive-accent-hover, var(--vscode-button-hoverBackground, #5d8bff))",
+      "var(--background-modifier-hover, var(--vscode-toolbar-hoverBackground, rgba(128,128,128,0.12)))",
   },
 
   /* Find/replace panel (@codemirror/search) — match the VS Code chrome */
