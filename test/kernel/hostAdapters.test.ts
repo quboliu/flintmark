@@ -87,6 +87,78 @@ test("matched adapter with no usable command returns null (→ bridge hints)", (
   assert.equal(a.chat(c), null);
 });
 
+// --- exact-command, fallback, override + detection edges (mutation-hardening) -
+
+test("accept() returns each host's exact accept command", () => {
+  const ag = ctx("Antigravity IDE", "antigravity.toggleChatFocus", "antigravity.prioritized.agentAcceptFocusedHunk");
+  assert.equal(selectHostAdapter(ag).accept(ag), "antigravity.prioritized.agentAcceptFocusedHunk");
+  const cu = ctx("Cursor", "aichat.newchataction", "aipopup.action.insertEditSelection");
+  assert.equal(selectHostAdapter(cu).accept(cu), "aipopup.action.insertEditSelection");
+  const vs = ctx("Visual Studio Code", "inlineChat.start", "inlineChat.acceptChanges");
+  assert.equal(selectHostAdapter(vs).accept(vs), "inlineChat.acceptChanges");
+});
+
+test("accept() falls back to a secondary candidate when the first is absent", () => {
+  const ag = ctx("Antigravity IDE", "antigravity.toggleChatFocus", "antigravity.prioritized.agentAcceptAllInFile");
+  assert.equal(selectHostAdapter(ag).accept(ag), "antigravity.prioritized.agentAcceptAllInFile");
+  const cu = ctx("Cursor", "aichat.newchataction", "composer.acceptComposerStep");
+  assert.equal(selectHostAdapter(cu).accept(cu), "composer.acceptComposerStep");
+  const vs = ctx("Visual Studio Code", "inlineChat.start", "editor.action.inlineSuggest.commit");
+  assert.equal(selectHostAdapter(vs).accept(vs), "editor.action.inlineSuggest.commit");
+});
+
+test("accept() is null when no accept command is registered", () => {
+  const vs = ctx("Visual Studio Code", "inlineChat.start");
+  assert.equal(selectHostAdapter(vs).accept(vs), null);
+});
+
+test("accept() reaches the third candidate (cursor: composer.acceptPlan)", () => {
+  const cu = ctx("Cursor", "aichat.newchataction", "composer.acceptPlan");
+  assert.equal(selectHostAdapter(cu).accept(cu), "composer.acceptPlan");
+});
+
+test("the generic adapter's accept command is reachable for an unknown host", () => {
+  const mystery = ctx("Mystery IDE", "workbench.action.chat.open", "editor.action.inlineSuggest.commit");
+  const a = selectHostAdapter(mystery);
+  assert.equal(a.id, "generic");
+  assert.equal(a.accept(mystery), "editor.action.inlineSuggest.commit");
+});
+
+test("chat/edit fall back to a secondary candidate when the primary is absent", () => {
+  // cursor: primary chat (aichat.newchataction) absent → composer.start… picked
+  const cu = ctx("Cursor", "aipopup.action.modal.generate", "composer.startComposerPromptFromSelection");
+  assert.equal(selectHostAdapter(cu).chat(cu)?.command, "composer.startComposerPromptFromSelection");
+  const cu2 = ctx("Cursor", "aipopup.action.modal.generate", "glass.insertSelectionIntoGlassComposer");
+  assert.equal(selectHostAdapter(cu2).chat(cu2)?.command, "glass.insertSelectionIntoGlassComposer");
+  // vscode: primary attachSelection absent → addToChatAction, then open
+  const vs = ctx("Visual Studio Code", "inlineChat.start", "workbench.action.chat.addToChatAction");
+  assert.equal(selectHostAdapter(vs).chat(vs)?.command, "workbench.action.chat.addToChatAction");
+  const vs2 = ctx("Visual Studio Code", "inlineChat.start", "workbench.action.chat.open");
+  assert.equal(selectHostAdapter(vs2).chat(vs2)?.command, "workbench.action.chat.open");
+});
+
+test("an empty-string override is ignored (falls through to candidates)", () => {
+  const cu = ctx("Cursor", "aichat.newchataction");
+  assert.equal(selectHostAdapter(cu).chat(cu, "")?.command, "aichat.newchataction");
+});
+
+test("detection by appName alone (no command signatures), case-insensitive", () => {
+  // Uppercased appName, NO host command IDs present → still detected via appName
+  // (kills a toLowerCase→toUpperCase mutation and the appName-only path).
+  assert.equal(selectHostAdapter(ctx("ANTIGRAVITY IDE")).id, "antigravity");
+  assert.equal(selectHostAdapter(ctx("CURSOR")).id, "cursor");
+  assert.equal(selectHostAdapter(ctx("VISUAL STUDIO CODE")).id, "vscode");
+});
+
+test("detection by command signature alone (no appName)", () => {
+  assert.equal(selectHostAdapter(ctx(undefined, "antigravity.openAgent")).id, "antigravity");
+  assert.equal(selectHostAdapter(ctx(undefined, "antigravity.openInteractiveEditor")).id, "antigravity");
+  assert.equal(selectHostAdapter(ctx(undefined, "aipopup.action.modal.generate")).id, "cursor");
+  assert.equal(selectHostAdapter(ctx(undefined, "aichat.newchataction")).id, "cursor");
+  assert.equal(selectHostAdapter(ctx(undefined, "workbench.action.chat.attachSelection")).id, "vscode");
+  assert.equal(selectHostAdapter(ctx(undefined, "inlineChat.start")).id, "vscode");
+});
+
 if (failed > 0) {
   console.error(`\n${failed} hostAdapters test(s) FAILED`);
   process.exit(1);
