@@ -18,9 +18,12 @@ function walk(dir, acc = []) {
   return acc;
 }
 
-const files = walk("test");
+// Optional dir arg lets a script target one layer (e.g. `run-unit.mjs test/chaos`
+// for the heavy `test:chaos` run); default walks all of test/ for `test:unit`.
+const root = process.argv[2] || "test";
+const files = walk(root);
 if (files.length === 0) {
-  console.log("No unit tests found.");
+  console.log(`No unit tests found under ${root}.`);
   process.exit(0);
 }
 

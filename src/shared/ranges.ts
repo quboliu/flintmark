@@ -50,6 +50,28 @@ export function positionToOffset(
 }
 
 /**
+ * Normalize a possibly-reversed or out-of-bounds offset pair into a valid,
+ * ordered `[from, to]` range clamped to `[0, len]`.
+ *
+ * This mirrors EXACTLY the clamping the AI Selection Bridge applies before it
+ * turns raw webview selection offsets into a source `Selection`
+ * (see customTextEditorProvider.handleAiEditSelection). Extracted here so the
+ * boundary logic — the part most likely to break on weird offsets — is pure
+ * and unit-testable without VS Code.
+ *
+ * Guarantees for finite inputs: `0 <= from <= to <= len`.
+ */
+export function clampOffsetRange(
+  from: number,
+  to: number,
+  len: number
+): { from: number; to: number } {
+  const lo = Math.max(0, Math.min(from, to, len));
+  const hi = Math.min(Math.max(0, Math.max(from, to)), len);
+  return { from: lo, to: hi };
+}
+
+/**
  * Compute the line count of a text string.
  */
 export function lineCount(text: string): number {

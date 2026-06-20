@@ -1,0 +1,58 @@
+# Deep chaos / fuzz — kept OFF the per-push path (the CI gate already runs the
+# default 600-seed chaos every push). This explores a much larger input space on
+# a schedule, varying the seed each run so new inputs are covered while staying
+# fully reproducible (the seed is printed in the log and any crash input is
+# uploaded as an artifact).
+#
+# Public-repo runner minutes are free, so cadence is a "be reasonable" choice,
+# not a cost one: WEEKLY is plenty for a renderer + always-on manual trigger.
+# Note: GitHub auto-disables scheduled workflows after 60 days of repo
+# inactivity (it emails the owner); the workflow_dispatch trigger always works.
+name: Chaos (deep fuzz)
+
+on:
+  schedule:
+    - cron: "0 4 * * 1" # Mondays 04:00 UTC
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: "FUZZ_RUNS (iterations per phase)"
+        default: "50000"
+      seed:
+        description: "FUZZ_SEED (blank = derive from the run id)"
+        default: ""
+
+concurrency:
+  group: chaos-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  deep-chaos:
+    name: Deep fuzz sweep
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Deep chaos sweep
+        env:
+          FUZZ_RUNS: ${{ github.event.inputs.runs || '50000' }}
+          # Vary the seed per run to explore new inputs; it's logged (and written
+          # into every crash artifact) so a failure replays with FUZZ_SEED/ITER.
+          FUZZ_SEED: ${{ github.event.inputs.seed || github.run_id }}
+        run: node test/run-unit.mjs test/chaos
+      - name: Upload crash corpus on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chaos-crashes
+          path: out/chaos-crashes/**
+          retention-days: 14
+          if-no-files-found: ignore

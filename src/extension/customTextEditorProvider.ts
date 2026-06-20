@@ -4,6 +4,7 @@ import { VaultIndexService } from "./vault";
 import { DEFAULT_THEME_ID, findTheme } from "./themes";
 import { openSourceWithSelection, triggerNativeAi, addSelectionToChat } from "./ai/aiBridge";
 import { aiLog } from "./ai/aiLog";
+import { clampOffsetRange } from "../shared/ranges";
 import type {
   HostMsg,
   WebviewMsg,
@@ -444,11 +445,10 @@ export class OfmCustomTextEditorProvider
   ): Promise<void> {
     // Node 1+2: clamp offsets to the document (selection == source offsets).
     const len = document.getText().length;
-    const a = Math.max(0, Math.min(from, to, len));
-    const b = Math.max(0, Math.max(from, to));
+    const { from: a, to: bClamped } = clampOffsetRange(from, to, len);
     const sel = new vscode.Selection(
       document.positionAt(a),
-      document.positionAt(Math.min(b, len))
+      document.positionAt(bClamped)
     );
 
     const cfg = vscode.workspace.getConfiguration("ofm");

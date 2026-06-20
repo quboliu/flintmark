@@ -1,0 +1,95 @@
+# CI gate for Flintmark. Public repo on standard GitHub-hosted runners =
+# free, unlimited minutes (the 2026 pricing changes keep public repos free),
+# so cost is not the constraint — being a good citizen is. We keep it lean:
+#   • paths-ignore: pure-docs commits don't spend a runner
+#   • concurrency: a new push cancels the previous in-flight run on the same ref
+#   • two-stage: the fast deterministic gate must pass before the heavy GUI job
+# Deep/long fuzzing is NOT here (it would run on every push) — see
+# chaos-nightly.yml, which runs weekly + on demand.
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "README.md"
+      - "README.zh-CN.md"
+      - "CHANGELOG.md"
+      - "THIRD-PARTY-NOTICES.md"
+      - "LICENSE"
+      - "docs/**"
+      - "media/**"
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - "README.md"
+      - "README.zh-CN.md"
+      - "CHANGELOG.md"
+      - "THIRD-PARTY-NOTICES.md"
+      - "LICENSE"
+      - "docs/**"
+      - "media/**"
+  workflow_dispatch:
+
+# One active run per ref; superseded pushes are cancelled (faster feedback, less
+# wasted compute).
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    name: Lint · Types · Unit + Chaos
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Typecheck (tsc --noEmit)
+        run: npx tsc --noEmit -p .
+      - name: Unit + chaos (L1)
+        run: npm run test:unit
+
+  e2e:
+    name: Webview E2E (L2 + L3)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: gate # don't spin up the heavy GUI job if the fast gate already failed
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Install xvfb + VSCodium (host for the real CM6 webview)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb
+          TAG=$(curl -fsSL https://api.github.com/repos/VSCodium/vscodium/releases/latest | grep -oP '"tag_name":\s*"\K[^"]+')
+          echo "Using VSCodium $TAG"
+          curl -fsSL -o /tmp/codium.tar.gz "https://github.com/VSCodium/vscodium/releases/download/${TAG}/VSCodium-linux-x64-${TAG}.tar.gz"
+          mkdir -p "$HOME/codium"
+          tar -xzf /tmp/codium.tar.gz -C "$HOME/codium"
+          echo "VSCODE_BIN=$HOME/codium/codium" >> "$GITHUB_ENV"
+      - name: Integration (L2 — extension activates in a real editor)
+        run: npm run test:integration
+      - name: E2E (L3 — drives the CM6 webview under xvfb)
+        run: npm run test:e2e
+      - name: Upload screenshots on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-artifacts
+          path: out/*.png
+          retention-days: 7
+          if-no-files-found: ignore

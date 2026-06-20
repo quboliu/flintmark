@@ -237,6 +237,7 @@
     "watch": "node esbuild.mjs --watch",
     "lint": "eslint src",
     "test:unit": "node test/run-unit.mjs",
+    "test:chaos": "FUZZ_RUNS=20000 node test/run-unit.mjs test/chaos",
     "build:test": "node esbuild.test.mjs",
     "test:integration": "npm run compile && npm run build:test && xvfb-run -a node out/test/runTest.js",
     "test:e2e": "npm run compile && xvfb-run -a node test/e2e/livepreview.e2e.mjs",
@@ -253,8 +254,11 @@
     "eslint": "^9.0.0",
     "glob": "^13.0.6",
     "mocha": "^11.7.6",
+    "pixelmatch": "^6.0.0",
     "playwright": "^1.61.0",
-    "typescript": "^5.4.0"
+    "pngjs": "^7.0.0",
+    "typescript": "^5.4.0",
+    "typescript-eslint": "^8.61.1"
   },
   "dependencies": {
     "@codemirror/commands": "^6.5.0",
