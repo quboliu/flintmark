@@ -20,5 +20,5 @@
   "tempDirName": "out/stryker-tmp",
   "concurrency": 2,
   "timeoutMS": 60000,
-  "thresholds": { "high": 85, "low": 70, "break": 75 }
+  "thresholds": { "high": 85, "low": 75, "break": 80 }
 }
