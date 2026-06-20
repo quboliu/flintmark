@@ -1,14 +1,13 @@
-# Deep chaos / fuzz — kept OFF the per-push path (the CI gate already runs the
-# default 600-seed chaos every push). This explores a much larger input space on
-# a schedule, varying the seed each run so new inputs are covered while staying
-# fully reproducible (the seed is printed in the log and any crash input is
-# uploaded as an artifact).
+# Deep quality pass — kept OFF the per-push path (the CI gate already runs the
+# default chaos every push). Weekly + on-demand, it does the EXPENSIVE work:
+#   • deep fuzz over a much larger input space (varied, logged, reproducible seed)
+#   • mutation testing (test STRENGTH — do the tests actually catch bugs?)
+# then aggregates both into the run's job summary.
 #
 # Public-repo runner minutes are free, so cadence is a "be reasonable" choice,
-# not a cost one: WEEKLY is plenty for a renderer + always-on manual trigger.
-# Note: GitHub auto-disables scheduled workflows after 60 days of repo
-# inactivity (it emails the owner); the workflow_dispatch trigger always works.
-name: Chaos (deep fuzz)
+# not a cost one. Note: GitHub auto-disables scheduled workflows after 60 days of
+# repo inactivity (it emails the owner); workflow_dispatch always works.
+name: Deep quality (chaos + mutation)
 
 on:
   schedule:
@@ -23,7 +22,7 @@ on:
         default: ""
 
 concurrency:
-  group: chaos-${{ github.ref }}
+  group: deep-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -48,11 +47,54 @@ jobs:
           # into every crash artifact) so a failure replays with FUZZ_SEED/ITER.
           FUZZ_SEED: ${{ github.event.inputs.seed || github.run_id }}
         run: node test/run-unit.mjs test/chaos
-      - name: Upload crash corpus on failure
-        if: failure()
+      - name: Upload chaos metrics + any crash corpus
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: chaos-crashes
-          path: out/chaos-crashes/**
+          name: metrics-chaos
+          path: |
+            out/metrics
+            out/chaos-crashes
           retention-days: 14
           if-no-files-found: ignore
+
+  mutation:
+    name: Mutation testing (test strength)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Stryker mutation run
+        run: npm run test:mutation
+      - name: Upload mutation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: metrics-mutation
+          path: out/mutation/mutation.json
+          retention-days: 14
+          if-no-files-found: ignore
+
+  report:
+    name: 📋 Deep-quality report
+    runs-on: ubuntu-latest
+    needs: [deep-chaos, mutation]
+    if: ${{ always() }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Download metrics
+        uses: actions/download-artifact@v4
+        with:
+          pattern: metrics-*
+          merge-multiple: true
+          path: out
+      - name: Build consolidated report → job summary
+        run: node scripts/test-report.mjs

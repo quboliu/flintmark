@@ -5,6 +5,7 @@ import { DEFAULT_THEME_ID, findTheme } from "./themes";
 import { openSourceWithSelection, triggerNativeAi, addSelectionToChat } from "./ai/aiBridge";
 import { aiLog } from "./ai/aiLog";
 import { clampOffsetRange } from "../shared/ranges";
+import { SerialQueue } from "./serialQueue";
 import type {
   HostMsg,
   WebviewMsg,
@@ -63,8 +64,8 @@ export class OfmCustomTextEditorProvider
    */
   private panels: Map<string, vscode.WebviewPanel> = new Map();
 
-  /** Per-URI promise chain that serializes webview edits (see enqueueEdit). */
-  private editChains: Map<string, Promise<void>> = new Map();
+  /** Serializes webview edits per URI — the concurrent-edit corruption guard. */
+  private editQueue = new SerialQueue();
 
   /** Last image-map JSON sent per URI, to avoid redundant webview re-renders. */
   private lastImageMap: Map<string, string> = new Map();
@@ -314,12 +315,13 @@ export class OfmCustomTextEditorProvider
    * per-URI via a promise chain.
    */
   private enqueueEdit(document: vscode.TextDocument, changes: DocChange[]): void {
-    const uri = document.uri.toString();
-    const prev = this.editChains.get(uri) ?? Promise.resolve();
-    const next = prev
-      .catch(() => undefined) // a failed edit must not break the chain
-      .then(() => this.applyWebviewEdit(document, changes));
-    this.editChains.set(uri, next);
+    // Strict per-URI serialization — see SerialQueue. Offsets in `changes` were
+    // computed by the webview against its optimistic doc; running edits one at a
+    // time means each applies to a document that already contains every prior
+    // edit, so they map correctly instead of racing.
+    void this.editQueue.run(document.uri.toString(), () =>
+      this.applyWebviewEdit(document, changes)
+    );
   }
 
   private async applyWebviewEdit(

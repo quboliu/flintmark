@@ -319,6 +319,7 @@ function loadCorpus(): { name: string; doc: string }[] {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+const startedAt = Date.now();
 console.log(
   `  (chaos base seed=${BASE_SEED}, runs=${RUNS}` +
     (ONLY_ITER >= 0 ? `, REPLAY iter=${ONLY_ITER}` : "") +
@@ -361,6 +362,35 @@ test(`mutation fuzz sweep (${RUNS} seeds): mutate the fixed corpus, invariants h
     runCase(doc, rng.int(doc.length + 1), `FUZZ_SEED=${BASE_SEED} FUZZ_ITER=${i} (mutation)`);
   }
 });
+
+// Quantified metrics for the consolidated report (skip in single-iter replay).
+if (ONLY_ITER < 0) {
+  const corpusCount = loadCorpus().length;
+  const docsFuzzed = RUNS * 2 + FIXED.length + corpusCount; // soup + mutation phases
+  try {
+    fs.mkdirSync("out/metrics", { recursive: true });
+    fs.writeFileSync(
+      "out/metrics/chaos.json",
+      JSON.stringify(
+        {
+          layer: "chaos",
+          baseSeed: BASE_SEED,
+          runsPerPhase: RUNS,
+          phases: 2,
+          docsFuzzed,
+          fixedCorpus: FIXED.length,
+          savedCorpus: corpusCount,
+          failures: failed,
+          durationMs: Date.now() - startedAt,
+        },
+        null,
+        2
+      )
+    );
+  } catch {
+    /* best-effort */
+  }
+}
 
 if (failed > 0) {
   console.error(`\n${failed} chaos test(s) FAILED — each failure above prints a REPLAY command`);

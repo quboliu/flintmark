@@ -12,7 +12,10 @@ const REPO = resolve(".");
 const VSCODE = process.env.VSCODE_BIN || "/usr/share/codium/codium";
 
 let failed = 0;
+let total = 0;
+const startedAt = Date.now();
 async function test(name, fn) {
+  total++;
   try {
     await fn();
     console.log("  ✓ " + name);
@@ -632,6 +635,20 @@ try {
   });
 } finally {
   await app.close();
+}
+
+try {
+  mkdirSync(join(REPO, "out", "metrics"), { recursive: true });
+  writeFileSync(
+    join(REPO, "out", "metrics", "e2e.json"),
+    JSON.stringify(
+      { layer: "e2e", tests: total, passed: total - failed, failed, durationMs: Date.now() - startedAt },
+      null,
+      2
+    )
+  );
+} catch {
+  /* best-effort */
 }
 
 if (failed > 0) {

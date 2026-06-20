@@ -4,8 +4,9 @@
 #   • paths-ignore: pure-docs commits don't spend a runner
 #   • concurrency: a new push cancels the previous in-flight run on the same ref
 #   • two-stage: the fast deterministic gate must pass before the heavy GUI job
-# Deep/long fuzzing is NOT here (it would run on every push) — see
-# chaos-nightly.yml, which runs weekly + on demand.
+#   • report: a final job aggregates per-layer metrics into the run's job summary
+# Deep fuzzing + mutation testing are NOT here (they'd run on every push) — see
+# chaos-nightly.yml (weekly + on demand).
 name: CI
 
 on:
@@ -42,9 +43,9 @@ permissions:
 
 jobs:
   gate:
-    name: Lint · Types · Unit + Chaos
+    name: Lint · Types · Unit + Chaos + Coverage
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -56,8 +57,18 @@ jobs:
         run: npm run lint
       - name: Typecheck (tsc --noEmit)
         run: npx tsc --noEmit -p .
-      - name: Unit + chaos (L1)
-        run: npm run test:unit
+      - name: Unit + chaos + coverage (L1)
+        run: npm run test:coverage
+      - name: Upload gate metrics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: metrics-gate
+          path: |
+            out/metrics
+            out/coverage/coverage-summary.json
+          retention-days: 14
+          if-no-files-found: ignore
 
   e2e:
     name: Webview E2E (L2 + L3)
@@ -85,11 +96,35 @@ jobs:
         run: npm run test:integration
       - name: E2E (L3 — drives the CM6 webview under xvfb)
         run: npm run test:e2e
-      - name: Upload screenshots on failure
-        if: failure()
+        # NOTE: visual regression is intentionally NOT run in CI — pixel baselines
+        # are font/environment-specific and would flake on a hosted runner. It's a
+        # local pre-release gate (npm run test:visual). See test/e2e/visual.e2e.mjs.
+      - name: Upload e2e metrics + screenshots
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-artifacts
-          path: out/*.png
-          retention-days: 7
+          name: metrics-e2e
+          path: |
+            out/metrics
+            out/*.png
+          retention-days: 14
           if-no-files-found: ignore
+
+  report:
+    name: 📋 Test report
+    runs-on: ubuntu-latest
+    needs: [gate, e2e]
+    if: ${{ always() }} # report even when a layer failed (so the failure is visible)
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Download all metrics
+        uses: actions/download-artifact@v4
+        with:
+          pattern: metrics-*
+          merge-multiple: true
+          path: out
+      - name: Build consolidated report → job summary
+        run: node scripts/test-report.mjs
