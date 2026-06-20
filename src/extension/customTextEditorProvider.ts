@@ -324,6 +324,12 @@ export class OfmCustomTextEditorProvider
     };
 
     panel.webview.postMessage(initMsg);
+    // FORCE the image map to this freshly-ready webview: a pre-ready send (e.g.
+    // an imageIndex.onDidChange that fired before `ready`) is dropped by the
+    // webview (view still null) yet updated lastImageMap, which would dedupe-skip
+    // this send and leave the ready webview with no images. Clearing the cache
+    // first guarantees delivery once the webview can actually apply it.
+    this.lastImageMap.delete(document.uri.toString());
     this.sendImageMap(document, panel);
   }
 

@@ -140,10 +140,12 @@ test("parseEmbedInner pulls the path part and |WxH dimensions", () => {
   assert.equal(parseEmbedInner("sub/img.png#x").pathPart, "sub/img.png");
 });
 
-test("an absolute path is never vault-resolved (caller uses legacy Uri.file)", () => {
+test("an absolute path is never vault-resolved (POSIX / Windows / UNC)", () => {
   const s = snap(["attachments/logo.png"]);
-  assert.equal(md(s, ["notes"], "/tmp/logo.png"), null);
+  assert.equal(md(s, ["notes"], "/tmp/logo.png"), null); // POSIX
   assert.equal(embed(s, ["notes"], "/var/logo.png"), null);
+  assert.equal(md(s, ["notes"], "C:/Users/me/logo.png"), null); // Windows drive
+  assert.equal(md(s, ["notes"], "\\\\server\\share\\logo.png"), null); // UNC
 });
 
 // --- snapshot status -------------------------------------------------------

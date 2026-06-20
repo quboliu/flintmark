@@ -167,7 +167,9 @@ export function resolveImageRef(
   if (!cleaned) return null;
   // Absolute paths are NEVER vault-resolved (would silently swap `/tmp/x.png`
   // for an unrelated `attachments/x.png`). Caller falls back to legacy Uri.file.
-  if (cleaned.startsWith("/")) return null;
+  // Covers POSIX `/…`, UNC `\\…` (→ `//…` after slash-normalisation), and
+  // Windows drive paths `C:/…`.
+  if (cleaned.startsWith("/") || /^[a-zA-Z]:\//.test(cleaned)) return null;
   const decoded = decodeMaybe(cleaned);
   const isRelativeMarker = decoded.startsWith("./") || decoded.startsWith("../");
   const segs = decoded.split("/").filter((s) => s.length > 0);
