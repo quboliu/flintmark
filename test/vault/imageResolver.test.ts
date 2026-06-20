@@ -140,6 +140,12 @@ test("parseEmbedInner pulls the path part and |WxH dimensions", () => {
   assert.equal(parseEmbedInner("sub/img.png#x").pathPart, "sub/img.png");
 });
 
+test("an absolute path is never vault-resolved (caller uses legacy Uri.file)", () => {
+  const s = snap(["attachments/logo.png"]);
+  assert.equal(md(s, ["notes"], "/tmp/logo.png"), null);
+  assert.equal(embed(s, ["notes"], "/var/logo.png"), null);
+});
+
 // --- snapshot status -------------------------------------------------------
 
 test("a non-ready snapshot resolves nothing (caller uses legacy fallback)", () => {

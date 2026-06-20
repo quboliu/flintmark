@@ -165,6 +165,9 @@ export function resolveImageRef(
   if (snapshot.status !== "ready") return null;
   const cleaned = rawPath.replace(/\\/g, "/").trim();
   if (!cleaned) return null;
+  // Absolute paths are NEVER vault-resolved (would silently swap `/tmp/x.png`
+  // for an unrelated `attachments/x.png`). Caller falls back to legacy Uri.file.
+  if (cleaned.startsWith("/")) return null;
   const decoded = decodeMaybe(cleaned);
   const isRelativeMarker = decoded.startsWith("./") || decoded.startsWith("../");
   const segs = decoded.split("/").filter((s) => s.length > 0);

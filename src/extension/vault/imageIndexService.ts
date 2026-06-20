@@ -20,12 +20,13 @@ const EXCLUDE_GLOB = "**/{.git,node_modules,.obsidian,.trash}/**";
 const RESCAN_DEBOUNCE_MS = 150;
 const DEFAULT_MAX_FILES = 100_000;
 
-/** Strip a folder's path prefix off a contained file Uri → root-relative path. */
+/** Strip a folder's path prefix off a contained file Uri → root-relative path.
+ *  Requires a path-segment boundary so root `/a/b` never matches `/a/bc/x`. */
 function relFromRoot(root: vscode.Uri, file: vscode.Uri): string {
-  const rp = file.path.startsWith(root.path)
-    ? file.path.slice(root.path.length)
-    : file.path;
-  return rp.replace(/^\/+/, "");
+  const base = root.path.endsWith("/") ? root.path : root.path + "/";
+  return file.path.startsWith(base)
+    ? file.path.slice(base.length)
+    : file.path.replace(/^\/+/, "");
 }
 
 export class ImageIndexService implements vscode.Disposable {
@@ -35,6 +36,8 @@ export class ImageIndexService implements vscode.Disposable {
   private readonly roots = new Map<string, vscode.Uri>();
   private watcher: vscode.FileSystemWatcher | undefined;
   private readonly rescanTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  /** Per-root rescan generation; a slow older scan must not overwrite a newer one. */
+  private readonly gen = new Map<string, number>();
   private readonly emitter = new vscode.EventEmitter<void>();
 
   /** Fires after any root's snapshot is (re)built. */
@@ -49,18 +52,20 @@ export class ImageIndexService implements vscode.Disposable {
 
   /** Scan all workspace roots and start watching. Non-blocking at activation. */
   async initialize(): Promise<void> {
+    // Create the watcher FIRST so a file added/removed DURING the initial scan
+    // (between findFiles returning and the watcher registering) isn't missed.
+    this.watcher = vscode.workspace.createFileSystemWatcher(IMAGE_GLOB);
+    const touch = (uri: vscode.Uri): void => this.onImageChanged(uri);
+    this.watcher.onDidCreate(touch);
+    this.watcher.onDidDelete(touch);
+    // onDidChange (content) does not affect the path index — ignored on purpose.
+
     const folders = vscode.workspace.workspaceFolders ?? [];
     for (const f of folders) {
       this.roots.set(f.uri.toString(), f.uri);
       this.snapshots.set(f.uri.toString(), buildSnapshot([], "notReady"));
     }
     await Promise.all(folders.map((f) => this.rescanRoot(f.uri)));
-
-    this.watcher = vscode.workspace.createFileSystemWatcher(IMAGE_GLOB);
-    const touch = (uri: vscode.Uri): void => this.onImageChanged(uri);
-    this.watcher.onDidCreate(touch);
-    this.watcher.onDidDelete(touch);
-    // onDidChange (content) does not affect the path index — ignored on purpose.
   }
 
   /**
@@ -104,9 +109,13 @@ export class ImageIndexService implements vscode.Disposable {
     );
   }
 
-  /** Full rescan of one root → atomically swap in a new snapshot → emit once. */
+  /** Full rescan of one root → atomically swap in a new snapshot → emit once.
+   *  A generation token guards against a slow older scan overwriting a newer one. */
   private async rescanRoot(root: vscode.Uri): Promise<void> {
-    this.roots.set(root.toString(), root);
+    const key = root.toString();
+    this.roots.set(key, root);
+    const myGen = (this.gen.get(key) ?? 0) + 1;
+    this.gen.set(key, myGen);
     const cap = this.maxFiles();
     let snapshot: ImageSnapshot;
     try {
@@ -126,7 +135,8 @@ export class ImageIndexService implements vscode.Disposable {
     } catch {
       snapshot = buildSnapshot([], "disabled");
     }
-    this.snapshots.set(root.toString(), snapshot);
+    if (this.gen.get(key) !== myGen) return; // a newer rescan superseded this one
+    this.snapshots.set(key, snapshot);
     this.emitter.fire();
   }
 

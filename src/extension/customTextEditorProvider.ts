@@ -152,7 +152,12 @@ export class OfmCustomTextEditorProvider
 
     // Register panel so we can route external changes to it.
     this.panels.set(uri, { document, panel: webviewPanel });
-    webviewPanel.onDidDispose(() => this.panels.delete(uri));
+    webviewPanel.onDidDispose(() => {
+      this.panels.delete(uri);
+      // Drop the dedup cache so a REOPENED webview (which starts with an empty
+      // imageMap) is re-sent the map even if the document text is unchanged.
+      this.lastImageMap.delete(uri);
+    });
 
     // Configure webview
     webviewPanel.webview.options = {

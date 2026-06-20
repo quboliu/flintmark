@@ -43,9 +43,11 @@ export class ImageWidget extends WidgetType {
     const img = document.createElement("img");
     img.className = "ofm-image";
     img.alt = this.alt;
-    // Obsidian `|W` / `|WxH` sizing (px). Width only → keep aspect ratio.
-    if (this.width !== undefined) img.width = this.width;
-    if (this.height !== undefined) img.height = this.height;
+    // Obsidian `|W` / `|WxH` sizing (px). Use inline style — the theme's
+    // `.ofm-image { height: auto }` would override the HTML height attribute.
+    // Width only → height stays auto (aspect ratio preserved).
+    if (this.width !== undefined) img.style.width = `${this.width}px`;
+    if (this.height !== undefined) img.style.height = `${this.height}px`;
     // The image loads asynchronously and changes the line height once decoded.
     // Tell CM6 to re-measure so its height map stays in sync (otherwise content
     // below the image is click/caret offset — the dynamic-height counterpart of
