@@ -83,12 +83,22 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Install xvfb + VSCodium (host for the real CM6 webview)
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           sudo apt-get update
           sudo apt-get install -y xvfb
-          TAG=$(curl -fsSL https://api.github.com/repos/VSCodium/vscodium/releases/latest | grep -oP '"tag_name":\s*"\K[^"]+')
+          # Authenticate the API call: the unauthenticated 60/hr limit can flake on
+          # shared runner IPs (this step failed that way once).
+          TAG=$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
+            https://api.github.com/repos/VSCodium/vscodium/releases/latest \
+            | grep -oP '"tag_name":\s*"\K[^"]+')
           echo "Using VSCodium $TAG"
-          curl -fsSL -o /tmp/codium.tar.gz "https://github.com/VSCodium/vscodium/releases/download/${TAG}/VSCodium-linux-x64-${TAG}.tar.gz"
+          url="https://github.com/VSCodium/vscodium/releases/download/${TAG}/VSCodium-linux-x64-${TAG}.tar.gz"
+          for attempt in 1 2 3; do
+            curl -fsSL -o /tmp/codium.tar.gz "$url" && break
+            echo "download attempt $attempt failed; retrying in 5s"; sleep 5
+          done
           mkdir -p "$HOME/codium"
           tar -xzf /tmp/codium.tar.gz -C "$HOME/codium"
           echo "VSCODE_BIN=$HOME/codium/codium" >> "$GITHUB_ENV"
