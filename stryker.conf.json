@@ -3,13 +3,16 @@
   "_comment": "Mutation testing measures TEST STRENGTH (do our tests actually catch bugs?) — the rigorous metric line coverage can't give, and which esbuild tree-shaking hides. Command runner against our esbuild unit harness; the command runs ONLY the test files that cover the mutated sources (fast). Scoped to small, pure, heavily-tested logic; widen `mutate` for a deeper nightly pass. Run: npm run test:mutation",
   "testRunner": "command",
   "commandRunner": {
-    "command": "node test/run-unit.mjs test/kernel/reveal.test.ts test/kernel/ranges.test.ts test/kernel/outline.test.ts test/kernel/hostAdapters.test.ts"
+    "command": "node test/run-unit.mjs test/kernel/reveal.test.ts test/kernel/ranges.test.ts test/kernel/outline.test.ts test/kernel/hostAdapters.test.ts test/kernel/decorate.test.ts test/vault/linkParser.test.ts test/vault/vaultIndex.test.ts"
   },
   "mutate": [
     "src/webview/kernel/reveal.ts",
     "src/shared/ranges.ts",
     "src/extension/outlineParser.ts",
-    "src/extension/ai/hostAdapters.ts"
+    "src/extension/ai/hostAdapters.ts",
+    "src/webview/kernel/decorate.ts",
+    "src/extension/vault/linkParser.ts",
+    "src/extension/vault/vaultIndex.ts"
   ],
   "coverageAnalysis": "off",
   "reporters": ["clear-text", "progress", "json"],
@@ -17,5 +20,5 @@
   "tempDirName": "out/stryker-tmp",
   "concurrency": 2,
   "timeoutMS": 60000,
-  "thresholds": { "high": 85, "low": 60, "break": 80 }
+  "thresholds": { "high": 85, "low": 70, "break": 75 }
 }

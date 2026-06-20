@@ -275,6 +275,108 @@ test("heading level 6 produces correct styling instruction", () => {
   assert.equal(plan.headingStyles[0].level, 6);
 });
 
+// ---------------------------------------------------------------------------
+// Revealed markers carry the correct cm-formatting-* class (formattingClass).
+// (Mutation-hardening: the whole formattingClass switch was untested.)
+// ---------------------------------------------------------------------------
+
+/** A single-marker construct of an arbitrary type, for the formatting-class tests. */
+function span(
+  type: ConstructInfo["type"],
+  from: number,
+  to: number,
+  markerLen = 2
+): ConstructInfo {
+  return {
+    from,
+    to,
+    type,
+    markers: [
+      { from, to: from + markerLen, constructFrom: from, constructTo: to },
+      { from: to - markerLen, to, constructFrom: from, constructTo: to },
+    ],
+  };
+}
+
+test("revealed strong markers are tagged cm-formatting-strong", () => {
+  const plan = computeDecorationPlan([bold(0, 4)], [{ from: 3, to: 3 }]); // cursor inside
+  assert.equal(plan.hiddenRanges.length, 0, "revealed construct hides nothing");
+  assert.equal(plan.formattingMarkers.length, 2, "both ** markers tagged");
+  for (const fm of plan.formattingMarkers)
+    assert.equal(fm.cls, "cm-formatting cm-formatting-strong");
+});
+
+test("revealed emphasis markers are tagged cm-formatting-em", () => {
+  const plan = computeDecorationPlan([italic(0, 4)], [{ from: 2, to: 2 }]);
+  assert.ok(plan.formattingMarkers.length >= 1);
+  for (const fm of plan.formattingMarkers)
+    assert.equal(fm.cls, "cm-formatting cm-formatting-em");
+});
+
+test("revealed strikethrough markers are tagged cm-formatting-strikethrough", () => {
+  const plan = computeDecorationPlan([span("strikethrough", 0, 8)], [{ from: 3, to: 3 }]);
+  assert.ok(plan.formattingMarkers.length >= 1);
+  for (const fm of plan.formattingMarkers)
+    assert.equal(fm.cls, "cm-formatting cm-formatting-strikethrough");
+});
+
+test("revealed inline-code markers are tagged cm-formatting-code", () => {
+  const plan = computeDecorationPlan([span("inlineCode", 0, 6, 1)], [{ from: 3, to: 3 }]);
+  assert.ok(plan.formattingMarkers.length >= 1);
+  for (const fm of plan.formattingMarkers)
+    assert.equal(fm.cls, "cm-formatting cm-formatting-code");
+});
+
+test("revealed heading marker carries the LEVEL-specific header class", () => {
+  const plan = computeDecorationPlan([heading(0, 3, 7)], [{ from: 1, to: 1 }]);
+  assert.equal(plan.formattingMarkers.length, 1);
+  assert.equal(
+    plan.formattingMarkers[0].cls,
+    "cm-formatting cm-formatting-header cm-formatting-header-3"
+  );
+});
+
+test("a zero-width marker is skipped (not hidden, not tagged)", () => {
+  const c: ConstructInfo = {
+    from: 0,
+    to: 4,
+    type: "strong",
+    markers: [{ from: 2, to: 2, constructFrom: 0, constructTo: 4 }], // degenerate
+  };
+  assert.equal(computeDecorationPlan([c], []).hiddenRanges.length, 0, "zero-width not hidden");
+  assert.equal(
+    computeDecorationPlan([c], [{ from: 1, to: 1 }]).formattingMarkers.length,
+    0,
+    "zero-width not tagged when revealed"
+  );
+});
+
+test("heading styles are emitted ONLY for levels 1..6", () => {
+  // non-heading construct → no heading style
+  assert.equal(computeDecorationPlan([bold(0, 4)], []).headingStyles.length, 0);
+  // out-of-range levels → no heading style (guards the 1..6 bounds)
+  for (const lvl of [0, 7]) {
+    const c: ConstructInfo = {
+      from: 0,
+      to: 5,
+      type: "heading",
+      headingLevel: lvl,
+      markers: [{ from: 0, to: 2, constructFrom: 0, constructTo: 5 }],
+    };
+    assert.equal(
+      computeDecorationPlan([c], []).headingStyles.length,
+      0,
+      `level ${lvl} is out of range → no heading style`
+    );
+  }
+  // in-range boundary levels → emitted, level preserved
+  for (const lvl of [1, 6]) {
+    const plan = computeDecorationPlan([heading(0, lvl, 5)], []);
+    assert.equal(plan.headingStyles.length, 1, `level ${lvl} emits a style`);
+    assert.equal(plan.headingStyles[0].level, lvl);
+  }
+});
+
 if (failed > 0) {
   console.error(`\n${failed} test(s) FAILED`);
   process.exit(1);
