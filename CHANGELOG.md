@@ -3,6 +3,15 @@
 All notable changes to Flintmark are documented here. Versions are pre-1.0 while
 the editor stabilizes for the Marketplace.
 
+## 0.32.2
+
+- **Properties panel, closer to Obsidian.** The panel now has a **"Properties"
+  header** and a **per-property type icon** in the leading column — a calendar for
+  ISO dates, a list glyph for sequences, a tag glyph for `tags`, and text lines for
+  plain scalars. Icons are inferred from each value and drawn inline (Lucide-style),
+  with **no icon-font dependency**, so there's no measurable rendering cost. The
+  panel stays read-only; edit the raw YAML in the Code view (`</>`).
+
 ## 0.32.1
 
 - **Fix: the Properties panel now appears on open.** In 0.32.0 it was reveal-gated,

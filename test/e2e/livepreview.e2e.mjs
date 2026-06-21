@@ -857,13 +857,18 @@ try {
     await fcm.locator(".ofm-properties").first().waitFor({ state: "attached", timeout: 5000 });
     const r = await fcm.evaluate(() => {
       const panel = document.querySelector(".ofm-properties");
+      const header = document.querySelector(".ofm-properties-header");
       const keys = [...document.querySelectorAll(".ofm-prop-key")].map((e) => e.textContent);
       const chips = [...document.querySelectorAll(".ofm-prop-chip")].map((e) => e.textContent);
-      return { hasPanel: !!panel, keys, chips };
+      const icons = [...document.querySelectorAll(".ofm-prop-icon svg")].length;
+      return { hasPanel: !!panel, header: header?.textContent || "", keys, chips, icons };
     });
     assert.ok(r.hasPanel, "expected an .ofm-properties panel");
+    assert.equal(r.header, "Properties", `expected a "Properties" header, got: ${r.header}`);
     assert.ok(r.keys.includes("title") && r.keys.includes("tags"), `keys: ${JSON.stringify(r.keys)}`);
     assert.ok(r.chips.includes("demo") && r.chips.includes("test"), `tag chips: ${JSON.stringify(r.chips)}`);
+    // One leading type icon per property row.
+    assert.equal(r.icons, r.keys.length, `expected ${r.keys.length} icons, got ${r.icons}`);
   });
 
   await test("%% comments are hidden in preview (cursor elsewhere)", async () => {

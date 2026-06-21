@@ -13,6 +13,18 @@ export interface FrontmatterProp {
   list: boolean;
 }
 
+/** Icon category for a property, for the Properties panel's leading glyph. */
+export type PropIcon = "text" | "list" | "tags" | "date";
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2})?)?/;
+
+/** Infer the display icon for a property: tags/list for sequences, date for an
+ *  ISO-ish scalar, else text. Pure → unit-testable. */
+export function propIconType(prop: FrontmatterProp): PropIcon {
+  if (prop.list) return /^tags?$/i.test(prop.key) ? "tags" : "list";
+  return DATE_RE.test(prop.items[0] ?? "") ? "date" : "text";
+}
+
 const KEY_RE = /^([A-Za-z0-9_][\w.-]*):[ \t]*(.*)$/;
 const LIST_ITEM_RE = /^[ \t]+-[ \t]+(.*)$/;
 

@@ -1,7 +1,7 @@
 // L1 unit tests for the minimal frontmatter YAML parser (the Properties panel).
 // Pure, no CM6/DOM. Falls back to null on anything beyond the supported subset.
 import assert from "node:assert";
-import { parseFrontmatter } from "../../src/webview/view/frontmatter";
+import { parseFrontmatter, propIconType } from "../../src/webview/view/frontmatter";
 
 let failed = 0;
 function test(name: string, fn: () => void): void {
@@ -107,6 +107,34 @@ test("no opening / closing fence → null", () => {
 
 test("empty frontmatter → null", () => {
   assert.equal(parseFrontmatter("---\n---"), null);
+});
+
+test("propIconType: tags list → tags", () => {
+  assert.equal(propIconType({ key: "tags", items: ["a"], list: true }), "tags");
+  assert.equal(propIconType({ key: "tag", items: [], list: true }), "tags");
+  assert.equal(propIconType({ key: "Tags", items: ["x"], list: true }), "tags");
+});
+
+test("propIconType: other list → list", () => {
+  assert.equal(propIconType({ key: "domain", items: ["x"], list: true }), "list");
+  assert.equal(propIconType({ key: "aliases", items: [], list: true }), "list");
+});
+
+test("propIconType: ISO date scalar → date", () => {
+  assert.equal(propIconType({ key: "created", items: ["2026-06-21"], list: false }), "date");
+  assert.equal(
+    propIconType({ key: "updated", items: ["2026-06-21T01:52:32"], list: false }),
+    "date",
+  );
+  assert.equal(propIconType({ key: "when", items: ["2026-06-21 09:00"], list: false }), "date");
+});
+
+test("propIconType: plain scalar / empty → text", () => {
+  assert.equal(propIconType({ key: "title", items: ["epoll"], list: false }), "text");
+  assert.equal(propIconType({ key: "status", items: ["verified"], list: false }), "text");
+  assert.equal(propIconType({ key: "note", items: [], list: false }), "text");
+  // 'tags' as a SCALAR (not a list) is text, not the tags glyph.
+  assert.equal(propIconType({ key: "tags", items: ["one"], list: false }), "text");
 });
 
 if (failed > 0) {
