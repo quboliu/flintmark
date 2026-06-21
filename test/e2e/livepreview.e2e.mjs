@@ -3,7 +3,7 @@
 // L1/L2 cannot reach — marker hiding, cursor-driven Reveal, and the typing →
 // disk round-trip. Run via: xvfb-run -a node test/e2e/livepreview.e2e.mjs
 import { _electron as electron } from "playwright";
-import { mkdtempSync, writeFileSync, readFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import assert from "node:assert";
@@ -596,6 +596,111 @@ try {
     assert.ok(
       /line-through/.test(struck),
       `cancelled task line should be struck through, got: ${struck}`
+    );
+  });
+
+  await test("[[ autocomplete suggests vault notes and inserts the wikilink", async () => {
+    await cm.locator(".cm-line").filter({ hasText: "zzz end" }).first().click();
+    await win.keyboard.press("End");
+    await win.keyboard.press("Enter");
+    await win.keyboard.type("[[Other", { delay: 40 });
+    // The completion tooltip lists vault notes (Other Note.md is in the fixture).
+    const tip = cm.locator(".cm-tooltip-autocomplete");
+    await tip.first().waitFor({ state: "attached", timeout: 5000 });
+    const opts = await tip.locator("li").allInnerTexts();
+    assert.ok(
+      opts.some((t) => /Other Note/.test(t)),
+      `[[ completion should list 'Other Note', got: ${JSON.stringify(opts)}`
+    );
+    await win.keyboard.press("Enter"); // accept → inserts the name + ]]
+    await win.waitForTimeout(600);
+    await win.keyboard.press("Control+S");
+    await win.waitForTimeout(1200);
+    const onDisk = readFileSync(notePath, "utf8");
+    assert.ok(
+      onDisk.includes("[[Other Note]]"),
+      `accepting [[ completion should yield [[Other Note]]; file is:\n${onDisk}`
+    );
+  });
+
+  await test("# autocomplete suggests vault tags", async () => {
+    await cm.locator(".cm-line").filter({ hasText: "zzz end" }).first().click();
+    await win.keyboard.press("End");
+    await win.keyboard.press("Enter");
+    await win.keyboard.type("#pro", { delay: 40 });
+    const tip = cm.locator(".cm-tooltip-autocomplete");
+    await tip.first().waitFor({ state: "attached", timeout: 5000 });
+    const opts = await tip.locator("li").allInnerTexts();
+    assert.ok(
+      opts.some((t) => /project/.test(t)),
+      `# completion should list the 'project' tag, got: ${JSON.stringify(opts)}`
+    );
+    await win.keyboard.press("Escape");
+    await win.keyboard.press("Control+S"); // don't leave note.md dirty
+    await win.waitForTimeout(600);
+  });
+
+  // NOTE: image paste runs BEFORE the folding test on purpose — the viewport is
+  // still near the bottom (the autocomplete tests clicked 'zzz end'), so the
+  // 'zzz end' line is rendered and clickable. Folding scrolls to the top, which
+  // would virtualize it out of the DOM.
+  await test("pasting an image saves an attachment and inserts ![[…]]", async () => {
+    await cm.locator(".cm-line").filter({ hasText: "zzz end" }).first().click();
+    await win.keyboard.press("End");
+    await win.keyboard.press("Enter");
+    // Dispatch a paste carrying a tiny PNG File.
+    await cm.evaluate((b64) => {
+      const bin = atob(b64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const file = new File([bytes], "pasted.png", { type: "image/png" });
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      const ev = new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true });
+      document.querySelector(".cm-content").dispatchEvent(ev);
+    }, PIXEL_PNG_B64);
+    // Host writes the file + replies; webview inserts the embed. Allow round-trip.
+    let onDisk = "";
+    for (let i = 0; i < 20; i++) {
+      await win.waitForTimeout(300);
+      await win.keyboard.press("Control+S");
+      onDisk = readFileSync(notePath, "utf8");
+      if (/!\[\[pasted\.png\]\]/.test(onDisk)) break;
+    }
+    assert.ok(
+      /!\[\[pasted\.png\]\]/.test(onDisk),
+      `image paste should insert ![[pasted.png]]; file is:\n${onDisk}`
+    );
+    assert.ok(
+      existsSync(join(work, "pasted.png")),
+      "the pasted image should be written next to the note"
+    );
+  });
+
+  await test("heading fold markers appear and fold/unfold via keymap", async () => {
+    // Jump to the top heading (Ctrl-Home) so a foldable heading is in the
+    // viewport and the cursor sits on it (under virtualization, '.cm-line.first()'
+    // is the first RENDERED line, not necessarily line 0).
+    await cm.locator(".cm-content").click();
+    await win.keyboard.press("Control+Home");
+    await win.waitForTimeout(500);
+    const marker = cm.locator(".ofm-fold-marker");
+    await marker.first().waitFor({ state: "attached", timeout: 5000 });
+    assert.ok((await marker.count()) > 0, "expected fold markers on heading lines");
+    // Fold the section (Ctrl-Shift-[) → a fold placeholder appears.
+    await win.keyboard.press("Control+Shift+BracketLeft");
+    await win.waitForTimeout(400);
+    assert.ok(
+      (await cm.locator(".cm-foldPlaceholder").count()) > 0,
+      "folding should show a fold placeholder"
+    );
+    // Unfold (Ctrl-Shift-]) → placeholder removed (restores the doc for later tests).
+    await win.keyboard.press("Control+Shift+BracketRight");
+    await win.waitForTimeout(400);
+    assert.equal(
+      await cm.locator(".cm-foldPlaceholder").count(),
+      0,
+      "unfolding should remove the placeholder"
     );
   });
 

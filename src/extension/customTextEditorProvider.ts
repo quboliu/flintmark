@@ -8,6 +8,7 @@ import { aiLog } from "./ai/aiLog";
 import { clampOffsetRange } from "../shared/ranges";
 import { DEFAULT_LINE_WIDTH, normalizeSettings } from "../shared/settings";
 import { resolveNewNoteName } from "./vault/newNote";
+import { attachmentName, dedupeName } from "./vault/attachment";
 import { SerialQueue } from "./serialQueue";
 import type {
   HostMsg,
@@ -103,6 +104,20 @@ export class OfmCustomTextEditorProvider
         this.imageIndex.onDidChange(() => {
           for (const { document, panel } of this.panels.values()) {
             this.sendImageMap(document, panel);
+          }
+        })
+      );
+    }
+
+    // Vault index (re)built — push fresh autocomplete data (notes + tags) to
+    // every open editor so `[[` / `#` completion stays current.
+    if (this.vault) {
+      this.context.subscriptions.push(
+        this.vault.onDidChange(() => {
+          const vault = this.vault!.getVaultData();
+          const msg: HostMsg = { type: "vaultData", vault };
+          for (const { panel } of this.panels.values()) {
+            panel.webview.postMessage(msg);
           }
         })
       );
@@ -305,6 +320,9 @@ export class OfmCustomTextEditorProvider
       case "openLink":
         return this.handleOpenLink(document, msg.target);
 
+      case "saveAttachment":
+        return this.handleSaveAttachment(document, panel, msg);
+
       case "aiEditSelection":
         aiLog(
           `▶ aiEditSelection received from webview: mode=${msg.mode} from=${msg.from} to=${msg.to}`
@@ -337,6 +355,7 @@ export class OfmCustomTextEditorProvider
       text,
       settings,
       theme,
+      vault: this.vault?.getVaultData(),
     };
 
     panel.webview.postMessage(initMsg);
@@ -537,6 +556,70 @@ export class OfmCustomTextEditorProvider
     }
 
     await vscode.commands.executeCommand("vscode.openWith", fileUri, "ofm.livePreview");
+  }
+
+  // -----------------------------------------------------------------------
+  // Image paste/drop: write the bytes as an attachment next to the note, then
+  // tell the webview the embed name to insert. Image MIME types only (the pure
+  // attachmentName refuses anything else), with a size cap.
+  // -----------------------------------------------------------------------
+
+  private static readonly MAX_ATTACHMENT_BYTES = 24 * 1024 * 1024;
+
+  private async handleSaveAttachment(
+    document: vscode.TextDocument,
+    panel: vscode.WebviewPanel,
+    msg: Extract<WebviewMsg, { type: "saveAttachment" }>
+  ): Promise<void> {
+    const d = new Date();
+    const p2 = (n: number) => String(n).padStart(2, "0");
+    const stamp = `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}`;
+
+    const name = attachmentName(msg.filename, msg.mime, stamp);
+    if (!name) {
+      vscode.window.showWarningMessage("Flintmark: only image attachments can be pasted.");
+      return;
+    }
+
+    let bytes: Uint8Array;
+    try {
+      bytes = Uint8Array.from(Buffer.from(msg.dataBase64, "base64"));
+    } catch {
+      return;
+    }
+    if (bytes.length === 0 || bytes.length > OfmCustomTextEditorProvider.MAX_ATTACHMENT_BYTES) {
+      vscode.window.showWarningMessage("Flintmark: attachment is empty or too large (max 24 MB).");
+      return;
+    }
+
+    const dir = vscode.Uri.joinPath(document.uri, "..");
+    let finalName = name;
+    let target = vscode.Uri.joinPath(dir, finalName);
+    for (let i = 1; i < 1000 && (await this.uriExists(target)); i++) {
+      finalName = dedupeName(name, i);
+      target = vscode.Uri.joinPath(dir, finalName);
+    }
+
+    try {
+      await vscode.workspace.fs.writeFile(target, bytes);
+    } catch (e) {
+      vscode.window.showErrorMessage(
+        `Flintmark: couldn't save attachment: ${(e as Error).message}`
+      );
+      return;
+    }
+
+    const reply: HostMsg = { type: "attachmentSaved", requestId: msg.requestId, embed: finalName };
+    panel.webview.postMessage(reply);
+  }
+
+  private async uriExists(uri: vscode.Uri): Promise<boolean> {
+    try {
+      await vscode.workspace.fs.stat(uri);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   // -----------------------------------------------------------------------

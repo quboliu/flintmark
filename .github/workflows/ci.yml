@@ -19,7 +19,7 @@ on:
       - "THIRD-PARTY-NOTICES.md"
       - "LICENSE"
       - "docs/**"
-      - "media/**"
+      - "media/shots/**"
   pull_request:
     branches: [main]
     paths-ignore:
@@ -29,7 +29,7 @@ on:
       - "THIRD-PARTY-NOTICES.md"
       - "LICENSE"
       - "docs/**"
-      - "media/**"
+      - "media/shots/**"
   workflow_dispatch:
 
 # One active run per ref; superseded pushes are cancelled (faster feedback, less

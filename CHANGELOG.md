@@ -3,6 +3,22 @@
 All notable changes to Flintmark are documented here. Versions are pre-1.0 while
 the editor stabilizes for the Marketplace.
 
+## 0.30.0
+
+- **Autocomplete.** Type `[[` to complete vault notes, `#` to complete tags, and
+  `[[#` to complete the current note's headings (ATX + Setext) — backed by the
+  vault index, pushed to the editor and refreshed as the vault changes.
+- **Heading folding.** Collapse/expand a heading's section from the gutter arrow
+  or with `Ctrl/⌘-Shift-[` / `]` (a `#` inside fenced code never counts as a
+  heading).
+- **Image paste & drop.** Paste or drag an image into a note to save it next to
+  the file and insert the `![[name]]` embed. Image types only, with a size cap;
+  the embed name is sanitized so it always resolves.
+- CI gate: theme-CSS changes (`media/themes/**`) no longer skip CI (only
+  `media/shots/**` is ignored).
+- New logic is unit-tested (autocomplete/folding/attachment helpers at 100%
+  coverage) with webview e2e for the popup, fold keymap, and paste round-trip.
+
 ## 0.29.0
 
 - **Editing shortcuts.** Toggle inline markup around the selection — bold

@@ -14,6 +14,7 @@
 
 import * as vscode from "vscode";
 import { buildVaultIndex, NoteEntry, NoteInput, VaultIndex } from "./vaultIndex";
+import type { VaultData } from "../../shared/protocol";
 
 const MD_GLOB = "**/*.md";
 const EXCLUDE_GLOB = "**/{node_modules,.git}/**";
@@ -28,6 +29,11 @@ export class VaultIndexService implements vscode.Disposable {
   private watcher: vscode.FileSystemWatcher | undefined;
   private rebuildTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly decoder = new TextDecoder();
+
+  /** Fires after every (debounced) rebuild so views can refresh (e.g. push
+   *  fresh autocomplete data to webviews). */
+  private readonly _onDidChange = new vscode.EventEmitter<void>();
+  readonly onDidChange = this._onDidChange.event;
 
   /** Scan the workspace and start watching. Safe to await once at activation. */
   async initialize(): Promise<void> {
@@ -60,6 +66,12 @@ export class VaultIndexService implements vscode.Disposable {
   }
   getAllTags(): string[] {
     return this.index.getAllTags();
+  }
+
+  /** Compact data for webview autocomplete: deduped note names + all tags. */
+  getVaultData(): VaultData {
+    const notes = [...new Set(this.index.getAllNotes().map((n) => n.name).filter((s) => s.length > 0))].sort();
+    return { notes, tags: this.index.getAllTags() };
   }
 
   /** Resolve a wikilink target name → Note path string, or null. */
@@ -114,11 +126,13 @@ export class VaultIndexService implements vscode.Disposable {
     const inputs: NoteInput[] = [];
     for (const [path, text] of this.texts) inputs.push({ path, text });
     this.index = buildVaultIndex(inputs);
+    this._onDidChange.fire();
   }
 
   dispose(): void {
     if (this.rebuildTimer) clearTimeout(this.rebuildTimer);
     this.watcher?.dispose();
+    this._onDidChange.dispose();
   }
 }
 

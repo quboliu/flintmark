@@ -5,6 +5,7 @@ import {
 } from "@codemirror/view";
 import { EditorState, Annotation, Transaction } from "@codemirror/state";
 import { defaultKeymap } from "@codemirror/commands";
+import type { VaultData } from "../../shared/protocol";
 import { search, searchKeymap } from "@codemirror/search";
 import { syntaxHighlighting } from "@codemirror/language";
 import {
@@ -19,6 +20,14 @@ import { markdownTheme } from "./markdownTheme";
 import { taskToggleFacet } from "./widgets/checkboxWidget";
 import { imageMapField } from "./widgets/imageWidget";
 import { formatKeymap, handlePasteLink } from "./formatCommands";
+import { markdownFolding } from "./folding";
+import { markdownAutocomplete } from "./autocomplete";
+import {
+  imageFromPaste,
+  imageFromDrop,
+  queueImageSave,
+  type AttachmentPoster,
+} from "./attachmentPaste";
 
 // ---------------------------------------------------------------------------
 // Annotation: marks dispatches originated by the host so we don't re-send
@@ -46,6 +55,10 @@ export interface EditorCallbacks {
   onRequestAiEdit: (range: { from: number; to: number }) => void;
   /** Called to bridge the current selection to source and add it to the AI chat. */
   onRequestAddToChat: (range: { from: number; to: number }) => void;
+  /** Latest vault data (note names + tags) for `[[` / `#` autocomplete. */
+  getVaultData: () => VaultData;
+  /** Called to save a pasted/dropped image; the host replies via attachmentSaved. */
+  onSaveAttachment: AttachmentPoster;
 }
 
 /** The current selection (or caret position) as document offsets. */
@@ -123,6 +136,12 @@ export function createEditor(
 
         EditorView.lineWrapping,
 
+        // Heading/section folding (gutter + Ctrl-Shift-[ / ]).
+        markdownFolding,
+
+        // [[wikilink]] / #tag / [[#heading]] autocomplete (vault-index backed).
+        markdownAutocomplete(callbacks.getVaultData),
+
         // Markdown language: GFM + Obsidian inline syntax (wikilink/tag/==) — ADR-0003.
         ofmMarkdown(),
 
@@ -157,9 +176,30 @@ export function createEditor(
             }
             return false;
           },
-          // Smart paste: URL over a selection → [selection](url). Falls through
-          // to the default paste when it's not a URL-over-selection.
-          paste: (event, view) => handlePasteLink(event, view),
+          // Paste: an image → save as an attachment and insert ![[name]];
+          // otherwise a URL over a selection → [selection](url); else default.
+          paste: (event, view) => {
+            const img = imageFromPaste(event);
+            if (img) {
+              event.preventDefault();
+              const sel = view.state.selection.main;
+              // Replace the selection (like a normal paste); a caret if empty.
+              queueImageSave(img, { from: sel.from, to: sel.to }, callbacks.onSaveAttachment);
+              return true;
+            }
+            return handlePasteLink(event, view);
+          },
+          // Drop an image file → save as an attachment at the drop point.
+          drop: (event, view) => {
+            const img = imageFromDrop(event);
+            if (!img) return false;
+            event.preventDefault();
+            const at =
+              view.posAtCoords({ x: event.clientX, y: event.clientY }) ??
+              view.state.selection.main.head;
+            queueImageSave(img, { from: at, to: at }, callbacks.onSaveAttachment);
+            return true;
+          },
         }),
 
         // Listen for user edits: only forward transactions that

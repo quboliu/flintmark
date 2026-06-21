@@ -37,6 +37,12 @@ code block gets a **Copy** button. Beyond `[ ]`/`[x]`, the extended task markers
 render too — `[/]` in progress, `[-]` cancelled (struck through), `[>]` forwarded,
 `[?]` question.
 
+### Autocomplete & folding
+
+Type `[[` to autocomplete vault notes, `#` for tags, and `[[#` for the current
+note's headings — backed by the vault index. Headings fold: click the gutter
+arrow or press `Ctrl/⌘-Shift-[` / `]` to collapse and expand a section.
+
 ### Callouts
 
 The full Obsidian callout set — `[!note]`, `[!tip]`, `[!warning]`, `[!important]`,
@@ -79,7 +85,8 @@ that note next to the current one.
 
 Local images and Obsidian embeds render inline. `![[image.png]]` resolves **across
 your vault** — keep attachments in any folder and reference them by bare name, just
-like Obsidian — and `![[image.png|200]]` / `|200x120` sizes them.
+like Obsidian — and `![[image.png|200]]` / `|200x120` sizes them. **Paste or drag an
+image** into the note to save it next to the file and insert the embed.
 
 ![Images and attachments](media/shots/images.png)
 

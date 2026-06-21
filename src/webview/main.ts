@@ -13,11 +13,13 @@ import type {
   DocChange,
   ThemePayload,
   Settings,
+  VaultData,
 } from "../shared/protocol";
 import { settingsToCssVars } from "../shared/settings";
 import { createMessenger } from "./messaging/client";
 import { createEditor, hostOrigin, currentSelectionRange } from "./view/createEditor";
 import { setImageMap } from "./view/widgets/imageWidget";
+import { applyAttachmentSaved } from "./view/attachmentPaste";
 
 // ---------------------------------------------------------------------------
 // State
@@ -26,6 +28,7 @@ import { setImageMap } from "./view/widgets/imageWidget";
 const messenger = createMessenger();
 let view: EditorView | null = null;
 let currentVersion: DocVersion = 0;
+let vaultData: VaultData = { notes: [], tags: [] };
 
 // ---------------------------------------------------------------------------
 // Register message handler
@@ -47,6 +50,12 @@ messenger.onMessage((msg: HostMsg) => {
       break;
     case "themeChanged":
       applyTheme(msg.theme);
+      break;
+    case "vaultData":
+      vaultData = msg.vault;
+      break;
+    case "attachmentSaved":
+      if (view) applyAttachmentSaved(view, msg.requestId, msg.embed);
       break;
     case "imageMap":
       if (view) view.dispatch({ effects: setImageMap.of(msg.map) });
@@ -74,6 +83,7 @@ messenger.onMessage((msg: HostMsg) => {
 
 function handleInit(msg: Extract<HostMsg, { type: "init" }>): void {
   currentVersion = msg.version;
+  if (msg.vault) vaultData = msg.vault;
 
   if (view) {
     view.destroy();
@@ -130,6 +140,10 @@ function handleInit(msg: Extract<HostMsg, { type: "init" }>): void {
     },
     onRequestAddToChat: (range) => {
       messenger.post({ type: "aiEditSelection", from: range.from, to: range.to, mode: "chat" });
+    },
+    getVaultData: () => vaultData,
+    onSaveAttachment: (payload) => {
+      messenger.post({ type: "saveAttachment", ...payload });
     },
   });
 }

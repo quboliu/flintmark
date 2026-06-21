@@ -26,6 +26,16 @@ export type WebviewMsg =
   // offsets, since the doc content is identical to the source). mode picks the
   // handoff: "edit" → inline edit (Cmd+K); "chat" → add selection to chat.
   | { type: "aiEditSelection"; from: number; to: number; mode: "edit" | "chat" }
+  // Image paste/drop: send the bytes (base64) to the host, which writes an
+  // attachment next to the note and replies with `attachmentSaved` carrying the
+  // embed name to insert.
+  | {
+      type: "saveAttachment";
+      requestId: number;
+      filename: string;
+      mime: string;
+      dataBase64: string;
+    }
   | { type: "log"; level: "info" | "warn" | "error"; msg: string };
 
 // ---------------------------------------------------------------------------
@@ -40,6 +50,7 @@ export type HostMsg =
       text: string;
       settings: Settings;
       theme: ThemePayload;
+      vault?: VaultData;
     }
   | {
       type: "applyEdit";
@@ -54,6 +65,8 @@ export type HostMsg =
     }
   | { type: "settingsChanged"; settings: Settings }
   | { type: "themeChanged"; theme: ThemePayload }
+  | { type: "vaultData"; vault: VaultData }
+  | { type: "attachmentSaved"; requestId: number; embed: string }
   | { type: "imageMap"; map: Record<string, string> }
   // Palette/command path: ask the webview to report its current selection so the
   // host can run the AI Selection Bridge (the webview replies with aiEditSelection).
@@ -121,6 +134,14 @@ export interface Settings {
   /** Font-family for code (fenced blocks, inline code, frontmatter). Omitted =
    *  follow the VS Code editor font. */
   monospaceFontFamily?: string;
+}
+
+/** Vault data pushed to the webview for autocomplete (`[[` notes, `#` tags). */
+export interface VaultData {
+  /** Note basenames (no extension), deduped + sorted — for `[[ ]]` completion. */
+  notes: string[];
+  /** Tags (without `#`), sorted — for `#` completion. */
+  tags: string[];
 }
 
 /** Active theme, sent from host to webview. The webview just applies the CSS at
