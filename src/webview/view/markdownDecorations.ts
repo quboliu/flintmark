@@ -1147,23 +1147,22 @@ function buildBlockWidgets(state: EditorState): DecorationSet {
   }));
   const decos: Range<Decoration>[] = [];
 
-  // Frontmatter → Properties panel (Obsidian-style) when not being edited. While
-  // the cursor is inside it (reveal) or when the YAML is beyond the parser's
-  // simple subset, we fall back to the raw dimmed YAML the ViewPlugin renders.
+  // Frontmatter → Properties panel (Obsidian-style). ALWAYS shown (not reveal-
+  // gated): in Obsidian the panel is the Live-Preview representation and you edit
+  // the raw YAML in Source mode — here, the Code view (the </> toggle). We only
+  // fall back to the raw dimmed YAML when the parser can't handle the YAML.
   const fm = FRONTMATTER_RE.exec(docText);
   if (fm) {
     const fmEnd = fm[0].length;
     const closeLine = state.doc.lineAt(Math.max(0, fmEnd - 1));
-    if (!shouldRevealConstruct(0, closeLine.to, selections)) {
-      const props = parseFrontmatter(docText.slice(0, fmEnd));
-      if (props && props.length > 0) {
-        decos.push(
-          Decoration.replace({
-            widget: new FrontmatterWidget(props),
-            block: true,
-          }).range(0, closeLine.to)
-        );
-      }
+    const props = parseFrontmatter(docText.slice(0, fmEnd));
+    if (props && props.length > 0) {
+      decos.push(
+        Decoration.replace({
+          widget: new FrontmatterWidget(props),
+          block: true,
+        }).range(0, closeLine.to)
+      );
     }
   }
 

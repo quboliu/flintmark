@@ -3,6 +3,14 @@
 All notable changes to Flintmark are documented here. Versions are pre-1.0 while
 the editor stabilizes for the Marketplace.
 
+## 0.32.1
+
+- **Fix: the Properties panel now appears on open.** In 0.32.0 it was reveal-gated,
+  so a note that opened with the cursor at the top (inside the frontmatter) showed
+  raw YAML instead of the panel — it looked like nothing happened. The panel is now
+  **always shown** (matching Obsidian's Live Preview); edit the raw YAML via the
+  Code view (`</>`), mirroring Obsidian's Source mode.
+
 ## 0.32.0
 
 - **Properties panel for frontmatter.** YAML frontmatter renders as an

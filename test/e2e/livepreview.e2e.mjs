@@ -852,11 +852,9 @@ try {
   await test("YAML frontmatter renders as a Properties panel with chips", async () => {
     const fcm = featCm || (await featuresFrame());
     assert.ok(fcm, "features.md frame found");
-    // Move the cursor OUT of the frontmatter (it opens at the top, inside it →
-    // reveal-gated to raw YAML for editing). With the cursor in the body, the
-    // Properties panel renders.
-    await fcm.locator(".cm-line").filter({ hasText: "body only" }).first().click();
-    await win.waitForTimeout(400);
+    // The panel is ALWAYS shown (not reveal-gated), so it's present even with the
+    // cursor at the top of the file where it just opened.
+    await fcm.locator(".ofm-properties").first().waitFor({ state: "attached", timeout: 5000 });
     const r = await fcm.evaluate(() => {
       const panel = document.querySelector(".ofm-properties");
       const keys = [...document.querySelectorAll(".ofm-prop-key")].map((e) => e.textContent);
