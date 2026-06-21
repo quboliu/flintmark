@@ -38,9 +38,12 @@ Markdown,移开后重新渲染。
 
 ### 属性(frontmatter)
 
-YAML frontmatter 渲染成清爽的**属性面板**——每个键配上它的值,列表 / 标签值做成
-chips,而不是原始的 `---` 文本。光标移入即可编辑原始 YAML,移开后面板恢复。(轻量
-解析器无法识别的复杂 YAML 会回退为变暗的原始块。)
+YAML frontmatter 渲染成清爽的**属性面板**——顶部一个 “Properties” 标题,每个键前
+带一个类型图标(文本 / 列表 / 标签 / 日期),配上它的值,列表 / 标签值做成 chips,
+而不是原始的 `---` 文本。面板始终显示(与 Obsidian 的实时预览一致);要改原始 YAML
+就切到代码视图(`</>`)。(轻量解析器无法识别的复杂 YAML 会回退为变暗的原始块。)
+
+![frontmatter 属性面板](media/shots/properties.png)
 
 ### 自动补全与折叠
 

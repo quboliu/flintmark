@@ -41,10 +41,14 @@ render too — `[/]` in progress, `[-]` cancelled (struck through), `[>]` forwar
 
 ### Properties (frontmatter)
 
-YAML frontmatter renders as a clean **Properties panel** — each key with its value,
-and list/tag values shown as chips — instead of raw `---` text. Put the cursor in it
-to edit the raw YAML; move away and the panel returns. (Complex YAML the lightweight
-parser doesn't recognize falls back to the dimmed raw block.)
+YAML frontmatter renders as a clean **Properties panel** — a "Properties" header,
+then each key with a leading type icon (text, list, tags, date) and its value, with
+list/tag values shown as chips — instead of raw `---` text. The panel is always
+shown (like Obsidian's Live Preview); edit the raw YAML in the Code view (`</>`).
+(Complex YAML the lightweight parser doesn't recognize falls back to the dimmed raw
+block.)
+
+![Frontmatter Properties panel](media/shots/properties.png)
 
 ### Autocomplete & folding
 
