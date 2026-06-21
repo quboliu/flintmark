@@ -2,7 +2,7 @@
   "name": "flintmark",
   "displayName": "Flintmark",
   "description": "Obsidian-compatible Live Preview Markdown editing in VS Code. Not affiliated with Obsidian.",
-  "version": "0.30.2",
+  "version": "0.31.0",
   "publisher": "quboliu",
   "license": "MIT",
   "repository": {
@@ -24,7 +24,7 @@
     "customEditors": [
       {
         "viewType": "ofm.livePreview",
-        "displayName": "Markdown Live Preview",
+        "displayName": "Flintmark Live Preview",
         "selector": [
           {
             "filenamePattern": "*.md"
@@ -108,7 +108,7 @@
       }
     ],
     "configuration": {
-      "title": "Markdown Live Preview",
+      "title": "Flintmark",
       "properties": {
         "ofm.theme": {
           "type": "string",
@@ -119,7 +119,7 @@
             "Things — by @kepano / @colineckert (MIT)"
           ],
           "default": "things",
-          "description": "Built-in theme for the Markdown Live Preview editor."
+          "description": "Built-in theme for the Flintmark Live Preview editor."
         },
         "ofm.fontFamily": {
           "type": "string",
@@ -189,10 +189,10 @@
         },
         "ofm.lineWidth": {
           "type": "number",
-          "default": 75,
-          "minimum": 20,
+          "default": 0,
+          "minimum": 0,
           "maximum": 240,
-          "markdownDescription": "Readable column width of the Live Preview, in `rem` (1rem ≈ 16px). Larger = wider text column = smaller left/right page margins. Default 75."
+          "markdownDescription": "Readable text-column width in `rem` (1rem ≈ 16px). `0` (default) fills the editor width with a fixed side margin — native-style, the margin does **not** grow as the pane widens. A value of `20`–`240` instead caps a **centered** readable column of that width (Obsidian-style; the side margins then grow as the pane widens)."
         },
         "ofm.ai.debugLog": {
           "type": "boolean",

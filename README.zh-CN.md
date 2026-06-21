@@ -134,7 +134,7 @@ code --install-extension flintmark-0.28.0.vsix
 | 设置项 | 默认 | 说明 |
 | --- | --- | --- |
 | `ofm.theme` | `things` | 内置实时预览主题。 |
-| `ofm.lineWidth` | `75` | 可读列宽,单位 `rem`。越大正文越宽、页边距越小。 |
+| `ofm.lineWidth` | `0` | `0`(默认)填满编辑器宽度、保留固定边距;`20`–`240` 则居中为该宽度的可读栏(单位 `rem`)。 |
 | `ofm.fontFamily` | _(主题)_ | 渲染 Markdown 的正文字体(正文 + 标题),独立于编辑器字体。留空 = 主题 / 界面字体。 |
 | `ofm.fontSize` | `0` | 正文字号(px)。`0` = 编辑器字号 + 2px。 |
 | `ofm.monospaceFontFamily` | _(编辑器)_ | 代码字体(代码块、行内代码、frontmatter)。留空 = 编辑器字体。 |

@@ -5,8 +5,10 @@
 
 import type { Settings } from "./protocol";
 
-// Readable column width (rem) bounds — mirror package.json's `ofm.lineWidth`.
-export const DEFAULT_LINE_WIDTH = 75;
+// Readable column width (rem) — mirror package.json's `ofm.lineWidth`.
+// 0 = fill the editor width with a fixed margin (default, native-style); a
+// positive value caps a centered readable column, clamped to [MIN, MAX].
+export const DEFAULT_LINE_WIDTH = 0;
 export const MIN_LINE_WIDTH = 20;
 export const MAX_LINE_WIDTH = 240;
 
@@ -52,10 +54,14 @@ export function sanitizeFontFamily(raw: unknown): string | undefined {
  * can tell "follow the theme/editor" apart from an explicit value.
  */
 export function normalizeSettings(raw: RawSettings): Settings {
-  const lineWidth =
-    typeof raw.lineWidth === "number" && Number.isFinite(raw.lineWidth)
-      ? clamp(raw.lineWidth, MIN_LINE_WIDTH, MAX_LINE_WIDTH)
-      : DEFAULT_LINE_WIDTH;
+  // 0 (or negative) = fill the editor width; a positive value caps a centered
+  // readable column, clamped to [MIN, MAX]. Non-numbers fall back to the default.
+  let lineWidth: number;
+  if (typeof raw.lineWidth === "number" && Number.isFinite(raw.lineWidth)) {
+    lineWidth = raw.lineWidth <= 0 ? 0 : clamp(raw.lineWidth, MIN_LINE_WIDTH, MAX_LINE_WIDTH);
+  } else {
+    lineWidth = DEFAULT_LINE_WIDTH;
+  }
 
   const settings: Settings = { lineWidth };
 

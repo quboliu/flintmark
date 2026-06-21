@@ -144,7 +144,7 @@ Missed the first-run prompt? Set it any time — open the Command Palette and ru
 | Setting | Default | Description |
 | --- | --- | --- |
 | `ofm.theme` | `things` | Bundled Live Preview theme. |
-| `ofm.lineWidth` | `75` | Readable column width, in `rem`. Larger = wider text, smaller margins. |
+| `ofm.lineWidth` | `0` | `0` fills the editor width with a fixed margin (default); `20`–`240` caps a centered readable column of that width, in `rem`. |
 | `ofm.fontFamily` | _(theme)_ | Prose font (body + headings) for rendered Markdown, independent of the editor font. Empty = theme / UI font. |
 | `ofm.fontSize` | `0` | Prose font size in px. `0` = editor font size + 2px. |
 | `ofm.monospaceFontFamily` | _(editor)_ | Code font (fenced blocks, inline code, frontmatter). Empty = editor font. |

@@ -3,6 +3,16 @@
 All notable changes to Flintmark are documented here. Versions are pre-1.0 while
 the editor stabilizes for the Marketplace.
 
+## 0.31.0
+
+- **Comfortable, stable page margins.** The Live Preview now fills the editor
+  width with a fixed side margin by default, instead of sitting nearly edge-to-edge
+  in a narrow pane — and without the big side gutters that used to appear when the
+  pane was very wide. `ofm.lineWidth` is now: `0` (default) = fill with a fixed
+  margin; `20`–`240` = a centered readable column of that many `rem`.
+- **Branding.** The Settings section and the custom editor now read **Flintmark**
+  (previously "Markdown Live Preview").
+
 ## 0.30.2
 
 - Pasting/dropping an image over the 24 MB cap now shows a visible warning

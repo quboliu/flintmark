@@ -221,7 +221,10 @@ export class OfmCustomTextEditorProvider
     );
     // Initial paint only — the webview re-applies the full settings (incl. fonts)
     // from the `init` message onto the document root, which overrides this.
+    // lineWidth 0 = fill the editor width (no cap); >0 = centered column of N rem.
     const lineWidth = readSettings().lineWidth ?? DEFAULT_LINE_WIDTH;
+    const lineWidthRule =
+      lineWidth > 0 ? `:root { --file-line-width: ${lineWidth}rem; }` : "";
 
     // CSP: scripts only from our nonce; styles inline (CM6 needs this);
     // images and fonts restricted to webview cspSource.
@@ -257,15 +260,17 @@ export class OfmCustomTextEditorProvider
          left/right margins (margin:auto on .cm-content is unreliable in flex). */
       justify-content: center;
     }
-    /* Obsidian-like readable, centered column with comfortable margins. The
-       column width follows --file-line-width (settable); padding keeps text off
-       the edges. Disable centering by setting --ofm-align: flex-start. */
+    /* Layout: by default the text FILLS the editor width with a comfortable,
+       FIXED side margin (native-style — the margin doesn't grow when the pane
+       widens). Setting ofm.lineWidth > 0 caps a centered readable column of that
+       many rem (Obsidian-style). --file-line-width is only set when capping;
+       otherwise max-width is none (fill). Disable centering with --ofm-align. */
     .cm-editor .cm-scroller { justify-content: var(--ofm-align, center); }
-    :root { --file-line-width: ${lineWidth}rem; }
+    ${lineWidthRule}
     .cm-content {
-      max-width: var(--file-line-width, 46rem);
+      max-width: var(--file-line-width, none);
       width: 100%;
-      padding: 2rem 2.5rem 40vh;
+      padding: 2rem 3.5rem 40vh;
       box-sizing: border-box;
     }
   </style>

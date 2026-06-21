@@ -50,6 +50,13 @@ test("lineWidth: exactly MIN and MAX pass through unchanged", () => {
   assert.equal(normalizeSettings({ lineWidth: MAX_LINE_WIDTH }).lineWidth, MAX_LINE_WIDTH);
 });
 
+test("lineWidth: 0 / negative = fill (0); a small positive clamps up to MIN", () => {
+  assert.equal(normalizeSettings({ lineWidth: 0 }).lineWidth, 0);
+  assert.equal(normalizeSettings({ lineWidth: -5 }).lineWidth, 0);
+  assert.equal(normalizeSettings({ lineWidth: 10 }).lineWidth, MIN_LINE_WIDTH);
+  assert.equal(DEFAULT_LINE_WIDTH, 0); // default is now "fill"
+});
+
 test("lineWidth: Infinity is not finite → default", () => {
   assert.equal(normalizeSettings({ lineWidth: Infinity }).lineWidth, DEFAULT_LINE_WIDTH);
 });
