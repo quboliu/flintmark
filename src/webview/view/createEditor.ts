@@ -18,6 +18,7 @@ import { createAiButton, type AiButtonHandle } from "./aiSelectionButton";
 import { markdownTheme } from "./markdownTheme";
 import { taskToggleFacet } from "./widgets/checkboxWidget";
 import { imageMapField } from "./widgets/imageWidget";
+import { formatKeymap, handlePasteLink } from "./formatCommands";
 
 // ---------------------------------------------------------------------------
 // Annotation: marks dispatches originated by the host so we don't re-send
@@ -105,6 +106,10 @@ export function createEditor(
           { key: "Backspace", run: deleteMarkupBackward },
         ]),
 
+        // Inline formatting shortcuts (Mod-b/i/e, Mod-Shift-x, Mod-k) — before
+        // defaultKeymap so they win for those keys.
+        keymap.of([...formatKeymap]),
+
         // Basic editing keys (Enter, Backspace, Delete, arrows, etc.)
         keymap.of(defaultKeymap),
 
@@ -152,6 +157,9 @@ export function createEditor(
             }
             return false;
           },
+          // Smart paste: URL over a selection → [selection](url). Falls through
+          // to the default paste when it's not a URL-over-selection.
+          paste: (event, view) => handlePasteLink(event, view),
         }),
 
         // Listen for user edits: only forward transactions that

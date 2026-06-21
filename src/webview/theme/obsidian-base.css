@@ -104,3 +104,49 @@
   -webkit-mask-repeat: no-repeat;
   mask-repeat: no-repeat;
 }
+
+/*
+ * Extended Obsidian task states. The GFM parser only tags `[ ]` / `[x]`; the
+ * other single-char markers ([/], [-], [>], [?], …) are detected off the list
+ * mark (markdownDecorations) and carry `data-task` on both the box and the
+ * `.HyperMD-task-line`. These rules give the common ones a distinct look without
+ * touching the core [ ]/[x] appearance.
+ */
+.ofm-task-checkbox[data-task="/"] {
+  /* in progress — half-filled */
+  background-image: linear-gradient(
+    90deg,
+    var(--checkbox-color, var(--interactive-accent, #4a7dff)) 50%,
+    transparent 50%
+  );
+  border-color: var(--checkbox-color, var(--interactive-accent, #4a7dff));
+}
+.ofm-task-checkbox[data-task="-"] {
+  /* cancelled — filled muted */
+  background-color: var(--text-faint, rgba(128, 128, 128, 0.5));
+  border-color: var(--text-faint, rgba(128, 128, 128, 0.5));
+}
+.HyperMD-task-line[data-task="-"] {
+  text-decoration: line-through;
+  text-decoration-color: var(--text-faint, rgba(128, 128, 128, 0.6));
+  color: var(--text-muted, rgba(128, 128, 128, 0.85));
+}
+.ofm-task-checkbox[data-task=">"]::after,
+.ofm-task-checkbox[data-task="?"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85em;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--checkbox-color, var(--interactive-accent, #4a7dff));
+}
+.ofm-task-checkbox[data-task=">"]::after {
+  content: "\203A"; /* › forwarded/scheduled */
+}
+.ofm-task-checkbox[data-task="?"]::after {
+  content: "?"; /* question / needs decision */
+}

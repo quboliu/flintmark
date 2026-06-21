@@ -28,6 +28,15 @@ Put the cursor on a line to edit its raw Markdown; move away and it renders agai
 
 ![Live Preview close-up](media/shots/hero.png)
 
+### Editing shortcuts
+
+Toggle markup around the selection: **bold** `Ctrl/⌘-B`, *italic* `Ctrl/⌘-I`,
+inline code `Ctrl/⌘-E`, ~~strikethrough~~ `Ctrl/⌘-Shift-X`, and link `Ctrl/⌘-K`.
+Paste a URL over selected text to turn it into `[selection](url)`. Every rendered
+code block gets a **Copy** button. Beyond `[ ]`/`[x]`, the extended task markers
+render too — `[/]` in progress, `[-]` cancelled (struck through), `[>]` forwarded,
+`[?]` question.
+
 ### Callouts
 
 The full Obsidian callout set — `[!note]`, `[!tip]`, `[!warning]`, `[!important]`,
@@ -61,7 +70,8 @@ diagrams, lazy-loaded so they cost nothing until one appears.
 ### Wikilinks, tags, highlights, footnotes
 
 `[[wikilinks]]`, `#tags`, `==highlights==`, `[^footnotes]` (superscript), and
-`%% comments %%` (hidden in preview).
+`%% comments %%` (hidden in preview). Click an unresolved `[[wikilink]]` to create
+that note next to the current one.
 
 ![Inline syntax](media/shots/inline.png)
 

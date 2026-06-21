@@ -34,6 +34,7 @@ import { EditorState, Range, StateField } from "@codemirror/state";
 import type { SyntaxNodeRef } from "@lezer/common";
 import { computeDecorationPlan, type ConstructInfo } from "../kernel/decorate";
 import { shouldRevealConstruct, type SelectionRange } from "../kernel/reveal";
+import { detectExtendedTask } from "./editActions";
 import { BulletWidget } from "./widgets/bulletWidget";
 import { CalloutTitleWidget } from "./widgets/calloutTitleWidget";
 import { CheckboxWidget } from "./widgets/checkboxWidget";
@@ -541,6 +542,25 @@ function addListMarkDecoration(
     return;
   }
 
+  // Extended Obsidian task states ([/], [-], [>], [?], …): the GFM parser only
+  // tags [ ] / [x] as Tasks, so detect the other single-char markers off the
+  // list mark and render a checkbox + a data-task line for theme styling.
+  const ext = detectExtendedTask(docText, node.to);
+  if (ext) {
+    decos.push(
+      Decoration.replace({
+        widget: new CheckboxWidget(false, ext.from, ext.to, ext.char),
+      }).range(node.from, ext.to)
+    );
+    decos.push(
+      Decoration.line({
+        class: "HyperMD-task-line",
+        attributes: { "data-task": ext.char },
+      }).range(line.from)
+    );
+    return;
+  }
+
   if (ordered) return; // keep the number
 
   decos.push(
@@ -698,13 +718,14 @@ function addFencedCodeDecorations(
     decos.push(
       Decoration.line({ class: "ofm-codeblock-end" }).range(state.doc.line(lastInner).from)
     );
-    if (lang) {
-      // side:-1 → at the very start of the first code line; CSS positions it
-      // absolutely in the block's top-right corner.
-      decos.push(
-        Decoration.widget({ widget: new CodeLangWidget(lang), side: -1 }).range(firstLine.from)
-      );
-    }
+    // side:-1 → at the very start of the first code line; CSS positions the
+    // flair (optional language label + Copy button) in the block's top-right
+    // corner. Added for every block (even without a language) so the Copy
+    // button is always available.
+    const code = codeFrom >= 0 ? docText.slice(codeFrom, codeTo) : "";
+    decos.push(
+      Decoration.widget({ widget: new CodeLangWidget(lang, code), side: -1 }).range(firstLine.from)
+    );
   } else {
     // Empty block (no code lines): keep the open line as the rounded box.
     decos.push(

@@ -7,6 +7,7 @@ import { openSourceWithSelection, triggerNativeAi, addSelectionToChat } from "./
 import { aiLog } from "./ai/aiLog";
 import { clampOffsetRange } from "../shared/ranges";
 import { DEFAULT_LINE_WIDTH, normalizeSettings } from "../shared/settings";
+import { resolveNewNoteName } from "./vault/newNote";
 import { SerialQueue } from "./serialQueue";
 import type {
   HostMsg,
@@ -302,8 +303,7 @@ export class OfmCustomTextEditorProvider
         return this.handleToggleTask(document, msg.from, msg.to);
 
       case "openLink":
-        // Slice 1: naive file-open by name within workspace.
-        return this.handleOpenLink(msg.target);
+        return this.handleOpenLink(document, msg.target);
 
       case "aiEditSelection":
         aiLog(
@@ -436,7 +436,10 @@ export class OfmCustomTextEditorProvider
   // Handle openLink — naive filename match in workspace (Slice 1)
   // -----------------------------------------------------------------------
 
-  private async handleOpenLink(target: string): Promise<void> {
+  private async handleOpenLink(
+    document: vscode.TextDocument,
+    target: string
+  ): Promise<void> {
     if (!target) return;
 
     // External links ([text](https://…), <mailto:…>, autolinks): open in the
@@ -450,8 +453,15 @@ export class OfmCustomTextEditorProvider
       return;
     }
 
+    // A wikilink target may carry a heading/block anchor (`#…`) and/or an alias
+    // (`|…`) — strip them before resolving so `[[Foo#Section]]` resolves to Foo
+    // (not searched-for as `Foo#Section.md`, which would miss and wrongly offer
+    // to create a duplicate). An anchor-only `[[#heading]]` has no note to open.
+    const note = target.split("|")[0].split("#")[0].trim();
+    if (!note) return;
+
     // Prefer the Vault Index (case-insensitive basename match, alias-aware).
-    const viaIndex = this.vault?.resolveLinkUri(target);
+    const viaIndex = this.vault?.resolveLinkUri(note);
     if (viaIndex) {
       await vscode.commands.executeCommand(
         "vscode.openWith",
@@ -463,7 +473,7 @@ export class OfmCustomTextEditorProvider
 
     // Fallback: naive workspace filename match.
     const files = await vscode.workspace.findFiles(
-      `**/${target}.md`,
+      `**/${note}.md`,
       undefined,
       1
     );
@@ -473,9 +483,60 @@ export class OfmCustomTextEditorProvider
         files[0],
         "ofm.livePreview"
       );
-    } else {
-      vscode.window.showInformationMessage(`Could not find note: ${target}`);
+      return;
     }
+
+    // Unresolved: offer to create the note next to the current one (Obsidian-like).
+    await this.offerCreateNote(document, note);
+  }
+
+  /**
+   * Create-on-click for an unresolved `[[wikilink]]`: confirm, write a stub
+   * `<basename>.md` in the current note's folder, then open it. The filename is
+   * derived by the pure `resolveNewNoteName` (basename only — no directories,
+   * no path traversal).
+   */
+  private async offerCreateNote(
+    document: vscode.TextDocument,
+    target: string
+  ): Promise<void> {
+    const filename = resolveNewNoteName(target);
+    if (!filename) {
+      vscode.window.showInformationMessage(`Could not find note: ${target}`);
+      return;
+    }
+    const dir = vscode.Uri.joinPath(document.uri, "..");
+    const fileUri = vscode.Uri.joinPath(dir, filename);
+
+    // Already on disk (e.g. resolver miss / race) → just open it.
+    let exists = false;
+    try {
+      await vscode.workspace.fs.stat(fileUri);
+      exists = true;
+    } catch {
+      /* not found — we'll offer to create */
+    }
+
+    if (!exists) {
+      const CREATE = "Create note";
+      const choice = await vscode.window.showInformationMessage(
+        `"${target}" doesn't exist yet. Create it?`,
+        CREATE
+      );
+      if (choice !== CREATE) return;
+      const title = filename.replace(/\.md$/i, "");
+      const content = new TextEncoder().encode(`# ${title}\n\n`);
+      try {
+        await vscode.workspace.fs.writeFile(fileUri, content);
+      } catch (e) {
+        vscode.window.showErrorMessage(
+          `Flintmark: couldn't create ${filename}: ${(e as Error).message}`
+        );
+        return;
+      }
+    }
+
+    await vscode.commands.executeCommand("vscode.openWith", fileUri, "ofm.livePreview");
   }
 
   // -----------------------------------------------------------------------

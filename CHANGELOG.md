@@ -3,6 +3,22 @@
 All notable changes to Flintmark are documented here. Versions are pre-1.0 while
 the editor stabilizes for the Marketplace.
 
+## 0.29.0
+
+- **Editing shortcuts.** Toggle inline markup around the selection — bold
+  (`Ctrl/⌘-B`), italic (`Ctrl/⌘-I`), inline code (`Ctrl/⌘-E`), strikethrough
+  (`Ctrl/⌘-Shift-X`), and link (`Ctrl/⌘-K`). Paste a URL over selected text to
+  turn it into `[selection](url)`.
+- **Code-block Copy button** on every rendered fenced block.
+- **Extended task states.** Beyond GFM `[ ]`/`[x]`: `[/]` in progress, `[-]`
+  cancelled (struck through), `[>]` forwarded, `[?]` question render as styled
+  checkboxes.
+- **Create note on click.** Clicking an unresolved `[[wikilink]]` offers to create
+  that note next to the current one; heading/block anchors and aliases are now
+  stripped before resolving so existing anchored links aren't treated as missing.
+- All new logic is unit-tested (pure helpers at 100% coverage) with webview e2e
+  for the interactive paths.
+
 ## 0.28.1
 
 - **Custom fonts for rendered Markdown.** Three new settings let the Live Preview

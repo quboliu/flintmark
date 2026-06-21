@@ -154,19 +154,49 @@ export const markdownTheme = EditorView.theme({
   },
   /* Collapse the ``` fence lines when not editing the block */
   ".cm-line.ofm-codeblock-fence": { display: "none" },
-  /* Language label in the code block's top-right corner */
-  ".ofm-code-lang": {
+  /* Flair (language label + Copy button) in the code block's top-right corner */
+  ".ofm-code-flair": {
     position: "absolute",
     top: "0.15em",
     right: "0.7em",
-    fontSize: "0.75em",
+    display: "flex",
+    alignItems: "center",
+    gap: "0.5em",
     lineHeight: "1.6",
+    pointerEvents: "none", // let text selection pass through; the button re-enables
+    zIndex: "1",
+  },
+  ".ofm-code-lang": {
+    fontSize: "0.75em",
     textTransform: "uppercase",
     letterSpacing: "0.05em",
     color: "var(--code-comment, var(--text-muted, var(--vscode-descriptionForeground)))",
     opacity: "0.75",
     userSelect: "none",
-    pointerEvents: "none",
+  },
+  ".ofm-code-copy": {
+    pointerEvents: "auto",
+    cursor: "pointer",
+    font: "inherit",
+    fontSize: "0.7em",
+    lineHeight: "1.4",
+    padding: "0.05em 0.55em",
+    color: "var(--text-muted, var(--vscode-descriptionForeground))",
+    background: "var(--background-secondary, rgba(128, 128, 128, 0.12))",
+    border: "1px solid var(--background-modifier-border, rgba(128, 128, 128, 0.25))",
+    borderRadius: "4px",
+    opacity: "0.45",
+    transition: "opacity 100ms ease, color 100ms ease, background 100ms ease",
+    userSelect: "none",
+  },
+  ".ofm-code-copy:hover, .ofm-code-copy:focus-visible": {
+    opacity: "1",
+  },
+  ".ofm-code-copy.is-copied": {
+    opacity: "1",
+    color: "var(--text-on-accent, #fff)",
+    background: "var(--interactive-accent, var(--vscode-focusBorder, #4a7dff))",
+    borderColor: "var(--interactive-accent, var(--vscode-focusBorder, #4a7dff))",
   },
 
   /* Collapsed setext underline line (=== / ---) when not editing */

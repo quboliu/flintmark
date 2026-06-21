@@ -56,7 +56,7 @@ writeFileSync(
 );
 const notePath = join(work, "note.md");
 const INITIAL =
-  "# Hello World\n\nThis is **bold** text.\n\n### Subheading (Things: blue)\n\n#### Sub-subheading (Things: yellow)\n\n> [!warning] Heads up\n> be careful\n\n- [ ] my task\n\n- apple\n- banana\n\n1. first\n2. second\n\nTags: #project ==important== [[Other Note]]\n\nEmbed note ![[Other Note]] and image ![[pixel.png]]\n\n![pixel](pixel.png)\n\nMath: $e=mc^2$\n\n| Feature | Status |\n| --- | --- |\n| **Tables** | `yes` |\n\n| Trail | Col |\n|-------|-----| \n| ok | done |\n\n```rust\nfn main() {\n    let x = 42;\n}\n```\n\n```mermaid\ngraph TD\n  A[Start] --> B[Done]\n```\n\nA [real link](https://example.com) here.\n\n> plain quote\n> second\n\nSetext Two\n----------\n\n---\n\nplain line\n\n> [!important] Key\n> aliased callout type\n";
+  "# Hello World\n\nThis is **bold** text.\n\n### Subheading (Things: blue)\n\n#### Sub-subheading (Things: yellow)\n\n> [!warning] Heads up\n> be careful\n\n- [ ] my task\n\n- apple\n- banana\n\n1. first\n2. second\n\nTags: #project ==important== [[Other Note]]\n\nEmbed note ![[Other Note]] and image ![[pixel.png]]\n\n![pixel](pixel.png)\n\nMath: $e=mc^2$\n\n| Feature | Status |\n| --- | --- |\n| **Tables** | `yes` |\n\n| Trail | Col |\n|-------|-----| \n| ok | done |\n\n```rust\nfn main() {\n    let x = 42;\n}\n```\n\n```mermaid\ngraph TD\n  A[Start] --> B[Done]\n```\n\nA [real link](https://example.com) here.\n\n> plain quote\n> second\n\nSetext Two\n----------\n\n---\n\nplain line\n\n> [!important] Key\n> aliased callout type\n\nformatword\n\npasteword\n\n- [/] in progress task\n- [-] cancelled task\n\nzzz end\n";
 
 // 1x1 transparent PNG, written into the workspace so the image can resolve.
 const PIXEL_PNG_B64 =
@@ -278,6 +278,19 @@ try {
     const kw = cm.locator(".cm-keyword");
     await kw.first().waitFor({ state: "attached", timeout: 6000 });
     assert.ok((await kw.count()) > 0, "expected highlighted .cm-keyword tokens in code");
+  });
+
+  await test("rendered code blocks show a Copy button", async () => {
+    // Cursor off the code block (in the heading) so it renders boxed with flair.
+    await cm.locator(".cm-line").first().click();
+    await win.waitForTimeout(400);
+    const copy = cm.locator(".ofm-code-copy");
+    await copy.first().waitFor({ state: "attached", timeout: 5000 });
+    assert.ok((await copy.count()) > 0, "expected a .ofm-code-copy button on the rendered code block");
+    // Clicking it must not throw (clipboard may be unavailable headless — we only
+    // assert the wiring works and the button stays in the DOM).
+    await copy.first().click();
+    assert.ok((await copy.count()) > 0, "copy button remains after click");
   });
 
   await test("body text uses a proportional font, code stays monospace", async () => {
@@ -525,6 +538,67 @@ try {
   await win.screenshot({ path: join(REPO, "out", "e2e-livepreview.png") });
 
   // note.md is still active here (has headings) → Outline panel lists them.
+  await test("Mod-B wraps the selection in ** (formatting shortcut)", async () => {
+    // Select the whole 'formatword' paragraph line, then Ctrl/Cmd-B.
+    await cm.locator(".cm-line").filter({ hasText: "formatword" }).first().click();
+    await win.keyboard.press("Home");
+    await win.keyboard.press("Shift+End");
+    await win.keyboard.press("Control+b");
+    await win.waitForTimeout(800);
+    await win.keyboard.press("Control+S");
+    await win.waitForTimeout(1200);
+    const onDisk = readFileSync(notePath, "utf8");
+    assert.ok(
+      onDisk.includes("**formatword**"),
+      `Mod-B should wrap the selection in **; file is:\n${onDisk}`
+    );
+  });
+
+  await test("pasting a URL over a selection makes a markdown link", async () => {
+    await cm.locator(".cm-line").filter({ hasText: "pasteword" }).first().click();
+    await win.keyboard.press("Home");
+    await win.keyboard.press("Shift+End");
+    // Dispatch a real paste event carrying a URL (Chromium supports clipboardData
+    // in the ClipboardEvent constructor); the CM6 paste handler transforms it.
+    await cm.evaluate(() => {
+      const dt = new DataTransfer();
+      dt.setData("text/plain", "https://example.com");
+      const ev = new ClipboardEvent("paste", {
+        clipboardData: dt,
+        bubbles: true,
+        cancelable: true,
+      });
+      document.querySelector(".cm-content").dispatchEvent(ev);
+    });
+    await win.waitForTimeout(800);
+    await win.keyboard.press("Control+S");
+    await win.waitForTimeout(1200);
+    const onDisk = readFileSync(notePath, "utf8");
+    assert.ok(
+      onDisk.includes("[pasteword](https://example.com)"),
+      `URL paste over selection should produce a markdown link; file is:\n${onDisk}`
+    );
+  });
+
+  await test("extended task states ([/], [-]) render checkboxes + strike cancelled", async () => {
+    // Click the trailing 'zzz end' line so the task lines above render unrevealed.
+    await cm.locator(".cm-line").filter({ hasText: "zzz end" }).first().click();
+    await win.waitForTimeout(500);
+    const inprog = cm.locator('.ofm-task-checkbox[data-task="/"]');
+    const cancelled = cm.locator('.ofm-task-checkbox[data-task="-"]');
+    await inprog.first().waitFor({ state: "attached", timeout: 5000 });
+    assert.ok((await inprog.count()) > 0, "expected an in-progress [/] checkbox");
+    assert.ok((await cancelled.count()) > 0, "expected a cancelled [-] checkbox");
+    const struck = await cm.evaluate(() => {
+      const line = document.querySelector('.HyperMD-task-line[data-task="-"]');
+      return line ? getComputedStyle(line).textDecorationLine : "";
+    });
+    assert.ok(
+      /line-through/.test(struck),
+      `cancelled task line should be struck through, got: ${struck}`
+    );
+  });
+
   await test("Outline panel lists the note's headings", async () => {
     await openFlintmark();
     const pane = win.locator(".pane").filter({ hasText: /Outline/i }).first();
