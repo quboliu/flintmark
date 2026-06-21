@@ -3,6 +3,20 @@
 All notable changes to Flintmark are documented here. Versions are pre-1.0 while
 the editor stabilizes for the Marketplace.
 
+## 0.30.1
+
+- Fixes from an adversarial (Codex) review of 0.30.0:
+  - `[[#` now switches from note to heading completion (it previously reused the
+    note list); heading completion **excludes YAML frontmatter** and **includes
+    Setext headings**.
+  - Wikilinks with `#`/`^` anchors and existing `.markdown` notes resolve before
+    the unresolved-link flow offers to create a duplicate.
+  - Image paste **replaces the selection**; an oversize image is rejected **before**
+    it's read (no webview freeze); attachment names strip wikilink-breaking
+    characters (`#` `[` `]` `^`); the de-dup loop never overwrites an existing file.
+- Test integrity: the new pure modules (`settings`, `newNote`) joined the
+  mutation-testing gate (90%+ test strength); a dead defensive branch was removed.
+
 ## 0.30.0
 
 - **Autocomplete.** Type `[[` to complete vault notes, `#` to complete tags, and

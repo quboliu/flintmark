@@ -45,6 +45,15 @@ test("lineWidth: clamps below MIN and above MAX", () => {
   assert.equal(normalizeSettings({ lineWidth: 9999 }).lineWidth, MAX_LINE_WIDTH);
 });
 
+test("lineWidth: exactly MIN and MAX pass through unchanged", () => {
+  assert.equal(normalizeSettings({ lineWidth: MIN_LINE_WIDTH }).lineWidth, MIN_LINE_WIDTH);
+  assert.equal(normalizeSettings({ lineWidth: MAX_LINE_WIDTH }).lineWidth, MAX_LINE_WIDTH);
+});
+
+test("lineWidth: Infinity is not finite → default", () => {
+  assert.equal(normalizeSettings({ lineWidth: Infinity }).lineWidth, DEFAULT_LINE_WIDTH);
+});
+
 // --- normalizeSettings: fontFamily / monospaceFontFamily ---------------------
 
 test("fontFamily: omitted when empty / whitespace / non-string", () => {
@@ -52,6 +61,13 @@ test("fontFamily: omitted when empty / whitespace / non-string", () => {
   assert.equal(normalizeSettings({ fontFamily: "" }).fontFamily, undefined);
   assert.equal(normalizeSettings({ fontFamily: "   " }).fontFamily, undefined);
   assert.equal(normalizeSettings({ fontFamily: 42 }).fontFamily, undefined);
+});
+
+test("font keys are ABSENT (not set to undefined) when there's no override", () => {
+  const s = normalizeSettings({});
+  assert.ok(!("fontFamily" in s), "fontFamily key should be absent");
+  assert.ok(!("monospaceFontFamily" in s), "monospaceFontFamily key should be absent");
+  assert.ok(!("fontSize" in s), "fontSize key should be absent");
 });
 
 test("fontFamily: a real font-family list is kept (trimmed)", () => {
@@ -81,9 +97,15 @@ test("fontSize: at/above MIN takes effect, clamped to MAX", () => {
   assert.equal(normalizeSettings({ fontSize: 9999 }).fontSize, MAX_FONT_SIZE);
 });
 
-test("fontSize: non-number / NaN → omitted", () => {
+test("fontSize: non-number / NaN / Infinity → omitted", () => {
   assert.equal(normalizeSettings({ fontSize: "16" }).fontSize, undefined);
   assert.equal(normalizeSettings({ fontSize: NaN }).fontSize, undefined);
+  assert.equal(normalizeSettings({ fontSize: Infinity }).fontSize, undefined);
+});
+
+test("fontSize: exactly MAX passes; above MAX clamps to MAX", () => {
+  assert.equal(normalizeSettings({ fontSize: MAX_FONT_SIZE }).fontSize, MAX_FONT_SIZE);
+  assert.equal(normalizeSettings({ fontSize: MAX_FONT_SIZE + 10 }).fontSize, MAX_FONT_SIZE);
 });
 
 // --- sanitizeFontFamily ------------------------------------------------------
@@ -158,10 +180,15 @@ test("cssVars: monospaceFontFamily present → set; absent → null", () => {
   assert.equal(valueOf(settingsToCssVars({}), "--ofm-font-monospace"), null);
 });
 
-test("cssVars: fontSize → px; absent/0 → null", () => {
+test("cssVars: fontSize → px; absent/0/negative → null", () => {
   assert.equal(valueOf(settingsToCssVars({ fontSize: 16 }), "--ofm-font-size"), "16px");
   assert.equal(valueOf(settingsToCssVars({ fontSize: 0 }), "--ofm-font-size"), null);
+  assert.equal(valueOf(settingsToCssVars({ fontSize: -5 }), "--ofm-font-size"), null);
   assert.equal(valueOf(settingsToCssVars({}), "--ofm-font-size"), null);
+});
+
+test("cssVars: lineWidth 0 / negative → null (not '0rem')", () => {
+  assert.equal(valueOf(settingsToCssVars({ lineWidth: -1 }), "--file-line-width"), null);
 });
 
 test("cssVars: a full settings object round-trips end to end", () => {

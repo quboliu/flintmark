@@ -23,6 +23,11 @@ test("spaces in the name are preserved", () => {
   assert.equal(resolveNewNoteName("My Great Note"), "My Great Note.md");
 });
 
+test("leading/trailing whitespace is trimmed (not preserved)", () => {
+  assert.equal(resolveNewNoteName("  Foo  "), "Foo.md");
+  assert.equal(resolveNewNoteName("a/  Foo  "), "Foo.md"); // basename then trim
+});
+
 test("alias (|…) is stripped", () => {
   assert.equal(resolveNewNoteName("Foo|Bar"), "Foo.md");
 });

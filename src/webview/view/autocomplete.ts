@@ -55,12 +55,23 @@ export function analyzeCompletion(before: string, after: string): CompletionQuer
 }
 
 /** Extract heading titles (ATX `#…` and Setext `Title`/`===`/`---`) from a
- *  document, ignoring `#`/underlines inside fenced code. */
+ *  document, ignoring `#`/underlines inside fenced code and a leading YAML
+ *  frontmatter block (whose closing `---` must not read as a Setext underline). */
 export function docHeadings(text: string): string[] {
   const out: string[] = [];
   const lines = text.split(/\r?\n/);
+  let start = 0;
+  // Skip a leading frontmatter block: --- … (--- | ...) at the very top.
+  if (/^---\s*$/.test(lines[0] ?? "")) {
+    for (let i = 1; i < lines.length; i++) {
+      if (/^(---|\.\.\.)\s*$/.test(lines[i])) {
+        start = i + 1;
+        break;
+      }
+    }
+  }
   let inFence = false;
-  for (let i = 0; i < lines.length; i++) {
+  for (let i = start; i < lines.length; i++) {
     const line = lines[i];
     if (/^\s*(```|~~~)/.test(line)) {
       inFence = !inFence;

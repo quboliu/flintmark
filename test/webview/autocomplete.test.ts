@@ -110,6 +110,15 @@ test("docHeadings: an underline with no text line above is not a heading", () =>
   assert.deepEqual(docHeadings("\n---\n"), []);
 });
 
+test("docHeadings: skips leading frontmatter (closing --- is not a Setext underline)", () => {
+  assert.deepEqual(
+    docHeadings("---\ntitle: X\ntags: [a]\n---\n\n# Real Heading"),
+    ["Real Heading"]
+  );
+  // The pathological case from review: value line immediately above closing ---.
+  assert.deepEqual(docHeadings("---\ntitle: X\n---\n# H"), ["H"]);
+});
+
 if (failed > 0) {
   console.error(`\n${failed} autocomplete test(s) FAILED`);
   process.exit(1);

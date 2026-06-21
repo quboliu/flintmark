@@ -12,12 +12,11 @@
  */
 export function resolveNewNoteName(target: string): string | null {
   if (typeof target !== "string") return null;
-  // Drop alias and heading/block anchor, then take the basename.
+  // Drop alias and heading/block anchor, then take the basename. `split` always
+  // yields ≥1 element so `pop()` is defined (no dead undefined branch).
   let name = target.split("|")[0].split("#")[0].trim();
   if (!name) return null;
-  const base = name.split(/[/\\]/).pop();
-  if (base === undefined) return null;
-  name = base.trim();
+  name = name.split(/[/\\]/).pop()!.trim();
   if (!name || name === "." || name === "..") return null;
   // A user-typed extension is stripped; we always create a .md note.
   name = name.replace(/\.(md|markdown)$/i, "").trim();

@@ -31,6 +31,39 @@ test("extension comes from MIME when the filename has none", () => {
   assert.equal(attachmentName("clip", "image/webp", "S"), "clip.webp");
 });
 
+test("every supported MIME type maps to its extension", () => {
+  const cases: [string, string][] = [
+    ["image/png", "png"],
+    ["image/jpeg", "jpg"],
+    ["image/jpg", "jpg"],
+    ["image/gif", "gif"],
+    ["image/webp", "webp"],
+    ["image/svg+xml", "svg"],
+    ["image/bmp", "bmp"],
+    ["image/avif", "avif"],
+  ];
+  for (const [mime, ext] of cases) {
+    assert.equal(attachmentName("clip", mime, "S"), `clip.${ext}`, `MIME ${mime}`);
+  }
+});
+
+test("every supported extension is recognized from the filename (no MIME)", () => {
+  for (const ext of ["png", "gif", "webp", "svg", "bmp", "avif"]) {
+    assert.equal(attachmentName(`pic.${ext}`, "", "S"), `pic.${ext}`, `ext .${ext}`);
+  }
+  assert.equal(attachmentName("pic.jpg", "", "S"), "pic.jpg");
+  assert.equal(attachmentName("pic.jpeg", "", "S"), "pic.jpg"); // jpeg → jpg
+});
+
+test("leading/trailing whitespace in the base name is trimmed", () => {
+  assert.equal(attachmentName("  shot .png", "image/png", "S"), "shot.png");
+});
+
+test("only the LAST extension is used (anchored match)", () => {
+  // foo.bar.png → ext png, base 'foo.bar'.
+  assert.equal(attachmentName("foo.bar.png", "image/png", "S"), "foo.bar.png");
+});
+
 test("non-image input → null (host refuses to write it)", () => {
   assert.equal(attachmentName("doc.pdf", "application/pdf", "S"), null);
   assert.equal(attachmentName("evil.exe", "application/octet-stream", "S"), null);

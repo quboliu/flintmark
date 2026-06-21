@@ -472,11 +472,12 @@ export class OfmCustomTextEditorProvider
       return;
     }
 
-    // A wikilink target may carry a heading/block anchor (`#…`) and/or an alias
-    // (`|…`) — strip them before resolving so `[[Foo#Section]]` resolves to Foo
-    // (not searched-for as `Foo#Section.md`, which would miss and wrongly offer
-    // to create a duplicate). An anchor-only `[[#heading]]` has no note to open.
-    const note = target.split("|")[0].split("#")[0].trim();
+    // A wikilink target may carry a heading anchor (`#…`), a block anchor
+    // (`#^id` or the bare `^id`), and/or an alias (`|…`) — strip them all before
+    // resolving so `[[Foo#Section]]` / `[[Foo^abc]]` resolve to Foo (not searched
+    // as `Foo#Section.md`, which would miss and wrongly offer to create a
+    // duplicate). An anchor-only `[[#heading]]` / `[[^id]]` has no note to open.
+    const note = target.split("|")[0].split("#")[0].split("^")[0].trim();
     if (!note) return;
 
     // Prefer the Vault Index (case-insensitive basename match, alias-aware).
@@ -490,9 +491,10 @@ export class OfmCustomTextEditorProvider
       return;
     }
 
-    // Fallback: naive workspace filename match.
+    // Fallback: naive workspace filename match — both supported extensions, so
+    // an existing `Foo.markdown` isn't treated as missing (the index scans .md).
     const files = await vscode.workspace.findFiles(
-      `**/${note}.md`,
+      `**/${note}.{md,markdown}`,
       undefined,
       1
     );
@@ -598,6 +600,14 @@ export class OfmCustomTextEditorProvider
     for (let i = 1; i < 1000 && (await this.uriExists(target)); i++) {
       finalName = dedupeName(name, i);
       target = vscode.Uri.joinPath(dir, finalName);
+    }
+    // The loop can exit at the cap with the last candidate still taken — never
+    // overwrite an existing attachment in that (pathological) case.
+    if (await this.uriExists(target)) {
+      vscode.window.showErrorMessage(
+        "Flintmark: too many attachments with that name — rename and retry."
+      );
+      return;
     }
 
     try {

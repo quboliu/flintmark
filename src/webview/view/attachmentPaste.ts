@@ -12,6 +12,10 @@ export interface SaveAttachmentPayload {
 }
 export type AttachmentPoster = (payload: SaveAttachmentPayload) => void;
 
+/** Size cap mirrored from the host — checked BEFORE reading the file so a huge
+ *  paste/drop can't freeze the webview building a base64 string. */
+export const MAX_ATTACHMENT_BYTES = 24 * 1024 * 1024;
+
 let requestCounter = 0;
 /** requestId → document range the embed should replace on reply (a caret when
  *  from === to). */
@@ -61,7 +65,13 @@ export function queueImageSave(
   file: File,
   range: { from: number; to: number },
   post: AttachmentPoster
-): void {
+): boolean {
+  // Reject oversize BEFORE reading — don't build a ~32 MB base64 string for a
+  // file the host will refuse anyway.
+  if (file.size > MAX_ATTACHMENT_BYTES) {
+    console.warn(`[ofm] image too large to attach: ${file.size} bytes`);
+    return false;
+  }
   const requestId = ++requestCounter;
   pendingInserts.set(requestId, range);
   void file
@@ -77,6 +87,7 @@ export function queueImageSave(
     .catch(() => {
       pendingInserts.delete(requestId);
     });
+  return true;
 }
 
 /** Insert the embed `![[name]]` once the host confirms the save. */
