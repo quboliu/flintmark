@@ -26,6 +26,7 @@ import {
   imageFromPaste,
   imageFromDrop,
   queueImageSave,
+  MAX_ATTACHMENT_BYTES,
   type AttachmentPoster,
 } from "./attachmentPaste";
 
@@ -59,7 +60,11 @@ export interface EditorCallbacks {
   getVaultData: () => VaultData;
   /** Called to save a pasted/dropped image; the host replies via attachmentSaved. */
   onSaveAttachment: AttachmentPoster;
+  /** Called to show the user a warning the webview can't surface itself. */
+  onNotify: (message: string) => void;
 }
+
+const MAX_ATTACHMENT_MB = Math.round(MAX_ATTACHMENT_BYTES / (1024 * 1024));
 
 /** The current selection (or caret position) as document offsets. */
 export function currentSelectionRange(view: EditorView): { from: number; to: number } {
@@ -184,7 +189,9 @@ export function createEditor(
               event.preventDefault();
               const sel = view.state.selection.main;
               // Replace the selection (like a normal paste); a caret if empty.
-              queueImageSave(img, { from: sel.from, to: sel.to }, callbacks.onSaveAttachment);
+              if (!queueImageSave(img, { from: sel.from, to: sel.to }, callbacks.onSaveAttachment)) {
+                callbacks.onNotify(`Image is too large to attach (max ${MAX_ATTACHMENT_MB} MB).`);
+              }
               return true;
             }
             return handlePasteLink(event, view);
@@ -197,7 +204,9 @@ export function createEditor(
             const at =
               view.posAtCoords({ x: event.clientX, y: event.clientY }) ??
               view.state.selection.main.head;
-            queueImageSave(img, { from: at, to: at }, callbacks.onSaveAttachment);
+            if (!queueImageSave(img, { from: at, to: at }, callbacks.onSaveAttachment)) {
+              callbacks.onNotify(`Image is too large to attach (max ${MAX_ATTACHMENT_MB} MB).`);
+            }
             return true;
           },
         }),

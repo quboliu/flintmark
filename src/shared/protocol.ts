@@ -36,7 +36,10 @@ export type WebviewMsg =
       mime: string;
       dataBase64: string;
     }
-  | { type: "log"; level: "info" | "warn" | "error"; msg: string };
+  | { type: "log"; level: "info" | "warn" | "error"; msg: string }
+  // A user-facing warning the webview can't show itself (e.g. an oversize image
+  // paste it rejected before reading) — the host surfaces it via the UI.
+  | { type: "warn"; message: string };
 
 // ---------------------------------------------------------------------------
 // Host → Webview

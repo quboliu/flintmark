@@ -332,6 +332,10 @@ export class OfmCustomTextEditorProvider
       case "log":
         console.log(`[webview:${msg.level}] ${msg.msg}`);
         return;
+
+      case "warn":
+        vscode.window.showWarningMessage(`Flintmark: ${msg.message}`);
+        return;
     }
   }
 

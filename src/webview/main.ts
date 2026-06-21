@@ -145,6 +145,9 @@ function handleInit(msg: Extract<HostMsg, { type: "init" }>): void {
     onSaveAttachment: (payload) => {
       messenger.post({ type: "saveAttachment", ...payload });
     },
+    onNotify: (message) => {
+      messenger.post({ type: "warn", message });
+    },
   });
 }
 

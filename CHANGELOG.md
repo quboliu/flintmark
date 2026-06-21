@@ -3,6 +3,12 @@
 All notable changes to Flintmark are documented here. Versions are pre-1.0 while
 the editor stabilizes for the Marketplace.
 
+## 0.30.2
+
+- Pasting/dropping an image over the 24 MB cap now shows a visible warning
+  instead of failing silently (follow-up to the 0.30.1 oversize guard, which had
+  traded the freeze for a silent drop).
+
 ## 0.30.1
 
 - Fixes from an adversarial (Codex) review of 0.30.0:
