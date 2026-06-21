@@ -348,6 +348,20 @@ try {
     );
   });
 
+  await test("page layout applies a real side margin (not edge-to-edge)", async () => {
+    // Regression guard: .cm-content padding MUST come from the CM6 theme layer so
+    // it isn't overridden by CM6's base theme (which made the page edge-to-edge).
+    // Default ofm.lineWidth = 0 → fill width + fixed 3.5rem (≈56px) side padding.
+    const pad = await cm.evaluate(() => {
+      const cs = getComputedStyle(document.querySelector(".cm-content"));
+      return { left: parseFloat(cs.paddingLeft), right: parseFloat(cs.paddingRight) };
+    });
+    assert.ok(
+      pad.left >= 48 && pad.right >= 48,
+      `expected a real side margin (~56px), got left=${pad.left} right=${pad.right}`
+    );
+  });
+
   await test("headings use the theme's graduated sizes (h1 > h6 > 0)", async () => {
     const sizes = await cm.evaluate(() => {
       const px = (sel) => {
@@ -518,6 +532,8 @@ try {
   await test("clicking below block widgets lands the caret on the right line", async () => {
     await win.waitForTimeout(500); // let the mermaid re-measure settle
     const target = cm.locator(".cm-line").filter({ hasText: "plain line" }).first();
+    await target.scrollIntoViewIfNeeded(); // must be on-screen to click its box
+    await win.waitForTimeout(200);
     const box = await target.boundingBox();
     await cm.page().mouse.click(box.x + 20, box.y + box.height / 2);
     await win.waitForTimeout(300);

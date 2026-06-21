@@ -10,6 +10,18 @@
 import { EditorView } from "@codemirror/view";
 
 export const markdownTheme = EditorView.theme({
+  /* Editor shell + scroller live here (the theme layer), not the host <style>,
+     so they reliably outrank CM6's base theme. */
+  "&": { height: "100%", outline: "none" },
+  ".cm-scroller": {
+    overflow: "auto",
+    fontFamily: "var(--vscode-editor-font-family, monospace)",
+    fontSize: "var(--vscode-editor-font-size, 14px)",
+    lineHeight: "var(--vscode-editor-line-height, 1.6)",
+    /* Flex row; centering lays out the readable column with balanced margins
+       (margin:auto on .cm-content is unreliable inside the flex scroller). */
+    justifyContent: "var(--ofm-align, center)",
+  },
   /* Body text font: follow the theme's text font (Things = system sans), with
      the VS Code UI font as fallback. Code/inline-code/frontmatter set their own
      monospace and so are unaffected.
@@ -23,6 +35,16 @@ export const markdownTheme = EditorView.theme({
     // (em) ride up with this.
     fontSize:
       "var(--ofm-font-size, calc(var(--vscode-editor-font-size, 14px) + 2px))",
+    // Page layout. This MUST live in the theme layer (not the host <style>): CM6's
+    // base theme also sets `.cm-content` padding and, injected later at equal
+    // specificity, would override a host-stylesheet rule — which is why the page
+    // looked edge-to-edge. The theme layer outranks the base theme.
+    // max-width none = fill the width with the fixed side padding below (default);
+    // --file-line-width (set when ofm.lineWidth > 0) caps a centered column.
+    maxWidth: "var(--file-line-width, none)",
+    width: "100%",
+    padding: "2rem 3.5rem 40vh",
+    boxSizing: "border-box",
   },
   /* Headings (1-6) — size & weight follow the theme (--hN-size/--hN-weight);
      colors come from the theme (--hN-color). Fallbacks preserve our look when a

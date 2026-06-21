@@ -3,6 +3,15 @@
 All notable changes to Flintmark are documented here. Versions are pre-1.0 while
 the editor stabilizes for the Marketplace.
 
+## 0.31.1
+
+- **Fix: the page margin from 0.31.0 wasn't actually applied** — the preview still
+  read edge-to-edge. Root cause: `.cm-content` padding/layout was set in the host
+  stylesheet, where CodeMirror's own base theme (injected later at equal CSS
+  specificity) silently overrode it. All `.cm-*` editor styling now lives in the
+  CM6 theme layer (`EditorView.theme`, the standard place), which outranks the base
+  theme. An e2e test now asserts the computed side margin so it can't regress.
+
 ## 0.31.0
 
 - **Comfortable, stable page margins.** The Live Preview now fills the editor

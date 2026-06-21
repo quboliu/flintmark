@@ -247,32 +247,13 @@ export class OfmCustomTextEditorProvider
     #editor {
       height: 100%;
     }
-    .cm-editor {
-      height: 100%;
-      outline: none;
-    }
-    .cm-editor .cm-scroller {
-      overflow: auto;
-      font-family: var(--vscode-editor-font-family, monospace);
-      font-size: var(--vscode-editor-font-size, 14px);
-      line-height: var(--vscode-editor-line-height, 1.6);
-      /* .cm-scroller is a flex row; centering the content here gives balanced
-         left/right margins (margin:auto on .cm-content is unreliable in flex). */
-      justify-content: center;
-    }
-    /* Layout: by default the text FILLS the editor width with a comfortable,
-       FIXED side margin (native-style — the margin doesn't grow when the pane
-       widens). Setting ofm.lineWidth > 0 caps a centered readable column of that
-       many rem (Obsidian-style). --file-line-width is only set when capping;
-       otherwise max-width is none (fill). Disable centering with --ofm-align. */
-    .cm-editor .cm-scroller { justify-content: var(--ofm-align, center); }
+    /* NOTE: all .cm-* editor styling lives in the CM6 theme layer (markdownTheme,
+       via EditorView.theme) — NOT here. A host stylesheet rule for .cm-content /
+       .cm-scroller ties on specificity with CM6's own base theme but loses on
+       order (CM6 injects later), so it would be silently overridden (that bug made
+       the page read edge-to-edge). The host only owns the page container above and
+       the dynamic readable-column variable below. */
     ${lineWidthRule}
-    .cm-content {
-      max-width: var(--file-line-width, none);
-      width: 100%;
-      padding: 2rem 3.5rem 40vh;
-      box-sizing: border-box;
-    }
   </style>
   <link rel="stylesheet" href="${cssUri}">
   <meta name="ofm-nonce" content="${nonce}">
