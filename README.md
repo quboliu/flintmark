@@ -37,11 +37,15 @@ code block gets a **Copy** button. Beyond `[ ]`/`[x]`, the extended task markers
 render too — `[/]` in progress, `[-]` cancelled (struck through), `[>]` forwarded,
 `[?]` question.
 
+![Editing — task states, code Copy button, fold gutter](media/shots/editing.png)
+
 ### Autocomplete & folding
 
 Type `[[` to autocomplete vault notes, `#` for tags, and `[[#` for the current
 note's headings — backed by the vault index. Headings fold: click the gutter
 arrow or press `Ctrl/⌘-Shift-[` / `]` to collapse and expand a section.
+
+![Autocomplete from the vault index](media/shots/autocomplete.png)
 
 ### Callouts
 
