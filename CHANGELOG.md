@@ -3,6 +3,17 @@
 All notable changes to Flintmark are documented here. Versions are pre-1.0 while
 the editor stabilizes for the Marketplace.
 
+## 0.32.0
+
+- **Properties panel for frontmatter.** YAML frontmatter renders as an
+  Obsidian-style Properties panel (each key with its value, list/tag values as
+  chips) instead of dimmed raw `---` text. Put the cursor in it to edit the raw
+  YAML; move away and the panel returns. Backed by a minimal, dependency-free YAML
+  parser (scalars, block lists, inline arrays, quoted values, blank-line-tolerant)
+  that falls back to the raw block on anything more complex. The frontmatter region
+  is now excluded from the Markdown passes, so YAML is no longer half-rendered
+  (list items as bullets, numbers colored).
+
 ## 0.31.1
 
 - **Fix: the page margin from 0.31.0 wasn't actually applied** — the preview still

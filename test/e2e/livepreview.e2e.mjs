@@ -73,7 +73,7 @@ writeFileSync(join(work, "Other Note.md"), "# Other Note\n\nlinked content\n");
 // main note.md, whose line positions the click-offset test depends on).
 writeFileSync(
   join(work, "features.md"),
-  "# Features\n\n> [!note]\n> body only, no custom title\n\nVisible %%secretcomment%% visible.\n\nA claim[^1] needs a source.\n\n[^1]: the footnote definition.\n\n```sql\nSELECT id FROM users WHERE active = true;\n```\n\nVault image ![[deep.png]] from a subfolder.\n"
+  "---\ntitle: Features\ntags:\n  - demo\n  - test\n---\n\n# Features\n\n> [!note]\n> body only, no custom title\n\nVisible %%secretcomment%% visible.\n\nA claim[^1] needs a source.\n\n[^1]: the footnote definition.\n\n```sql\nSELECT id FROM users WHERE active = true;\n```\n\nVault image ![[deep.png]] from a subfolder.\n"
 );
 
 const app = await electron.launch({
@@ -847,6 +847,25 @@ try {
       return el ? el.textContent : null;
     });
     assert.equal(label, "Note", "[!note] with no title should display 'Note'");
+  });
+
+  await test("YAML frontmatter renders as a Properties panel with chips", async () => {
+    const fcm = featCm || (await featuresFrame());
+    assert.ok(fcm, "features.md frame found");
+    // Move the cursor OUT of the frontmatter (it opens at the top, inside it →
+    // reveal-gated to raw YAML for editing). With the cursor in the body, the
+    // Properties panel renders.
+    await fcm.locator(".cm-line").filter({ hasText: "body only" }).first().click();
+    await win.waitForTimeout(400);
+    const r = await fcm.evaluate(() => {
+      const panel = document.querySelector(".ofm-properties");
+      const keys = [...document.querySelectorAll(".ofm-prop-key")].map((e) => e.textContent);
+      const chips = [...document.querySelectorAll(".ofm-prop-chip")].map((e) => e.textContent);
+      return { hasPanel: !!panel, keys, chips };
+    });
+    assert.ok(r.hasPanel, "expected an .ofm-properties panel");
+    assert.ok(r.keys.includes("title") && r.keys.includes("tags"), `keys: ${JSON.stringify(r.keys)}`);
+    assert.ok(r.chips.includes("demo") && r.chips.includes("test"), `tag chips: ${JSON.stringify(r.chips)}`);
   });
 
   await test("%% comments are hidden in preview (cursor elsewhere)", async () => {

@@ -39,6 +39,13 @@ render too — `[/]` in progress, `[-]` cancelled (struck through), `[>]` forwar
 
 ![Editing — task states, code Copy button, fold gutter](media/shots/editing.png)
 
+### Properties (frontmatter)
+
+YAML frontmatter renders as a clean **Properties panel** — each key with its value,
+and list/tag values shown as chips — instead of raw `---` text. Put the cursor in it
+to edit the raw YAML; move away and the panel returns. (Complex YAML the lightweight
+parser doesn't recognize falls back to the dimmed raw block.)
+
 ### Autocomplete & folding
 
 Type `[[` to autocomplete vault notes, `#` for tags, and `[[#` for the current

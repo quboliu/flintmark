@@ -49,6 +49,8 @@ import {
   isMermaidRendered,
 } from "./widgets/mermaidWidget";
 import { TableWidget } from "./widgets/tableWidget";
+import { FrontmatterWidget } from "./widgets/frontmatterWidget";
+import { parseFrontmatter } from "./frontmatter";
 
 // ---------------------------------------------------------------------------
 // Markdown node type names from @lezer/markdown (CommonMark + GFM)
@@ -290,6 +292,9 @@ export function buildDecorations(
 
   // 3. Inline content styling (always on, regardless of reveal).
   const inlineEnter = (node: SyntaxNodeRef): void => {
+    // Frontmatter is YAML, not Markdown — never apply inline Markdown styling
+    // inside it (that's what made `- x` / numbers render as list/colored).
+    if (node.from < fmEnd) return;
     const name = node.type.name;
     // Carry Obsidian's cm-* token classes so the active theme (Things) colors
     // them — e.g. cm-strong/cm-em are how Things applies its signature pink.
@@ -310,6 +315,8 @@ export function buildDecorations(
   // 5. Callouts (styled blockquotes) and horizontal rules.
   const blockEnter = (node: SyntaxNodeRef): void => {
     {
+      // Frontmatter is YAML — skip block Markdown (lists/bullets, etc.) inside it.
+      if (node.from < fmEnd) return;
       const name = node.type.name;
       if (name === "TaskMarker") {
         const marker = docText.slice(node.from, node.to);
@@ -1139,6 +1146,26 @@ function buildBlockWidgets(state: EditorState): DecorationSet {
     to: r.to,
   }));
   const decos: Range<Decoration>[] = [];
+
+  // Frontmatter → Properties panel (Obsidian-style) when not being edited. While
+  // the cursor is inside it (reveal) or when the YAML is beyond the parser's
+  // simple subset, we fall back to the raw dimmed YAML the ViewPlugin renders.
+  const fm = FRONTMATTER_RE.exec(docText);
+  if (fm) {
+    const fmEnd = fm[0].length;
+    const closeLine = state.doc.lineAt(Math.max(0, fmEnd - 1));
+    if (!shouldRevealConstruct(0, closeLine.to, selections)) {
+      const props = parseFrontmatter(docText.slice(0, fmEnd));
+      if (props && props.length > 0) {
+        decos.push(
+          Decoration.replace({
+            widget: new FrontmatterWidget(props),
+            block: true,
+          }).range(0, closeLine.to)
+        );
+      }
+    }
+  }
 
   // Mermaid (fenced code) via the Lezer tree — fenced code is parsed reliably.
   tree.iterate({

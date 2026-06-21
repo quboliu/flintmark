@@ -46,6 +46,45 @@ export const markdownTheme = EditorView.theme({
     padding: "2rem 3.5rem 40vh",
     boxSizing: "border-box",
   },
+  /* Frontmatter Properties panel (FrontmatterWidget). */
+  ".ofm-properties": {
+    margin: "0 0 1.2em",
+    padding: "0.3em 0 0.7em",
+    borderBottom: "1px solid var(--background-modifier-border, rgba(128, 128, 128, 0.2))",
+    fontSize: "0.85em",
+  },
+  ".ofm-prop-row": {
+    display: "flex",
+    alignItems: "baseline",
+    gap: "0.75em",
+    padding: "0.15em 0",
+  },
+  ".ofm-prop-key": {
+    flex: "0 0 9em",
+    color: "var(--text-muted, var(--vscode-descriptionForeground))",
+    fontWeight: "500",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  ".ofm-prop-value": {
+    flex: "1 1 auto",
+    display: "flex",
+    flexWrap: "wrap",
+    gap: "0.35em",
+    alignItems: "center",
+    minWidth: "0",
+    color: "var(--text-normal, var(--vscode-editor-foreground))",
+  },
+  ".ofm-prop-chip": {
+    display: "inline-block",
+    padding: "0.05em 0.6em",
+    borderRadius: "0.85em",
+    fontSize: "0.92em",
+    background: "var(--tag-background, rgba(78, 161, 255, 0.13))",
+    color: "var(--tag-color, var(--text-accent, var(--vscode-textLink-foreground)))",
+  },
+  ".ofm-prop-empty": { color: "var(--text-faint, rgba(128, 128, 128, 0.5))" },
   /* Headings (1-6) — size & weight follow the theme (--hN-size/--hN-weight);
      colors come from the theme (--hN-color). Fallbacks preserve our look when a
      theme leaves a var unset. */
