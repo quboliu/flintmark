@@ -832,6 +832,14 @@ try {
     return null;
   };
   let featCm = null;
+  const showFeatureProperties = async () => {
+    const fcm = featCm || (await featuresFrame());
+    assert.ok(fcm, "features.md frame found");
+    await fcm.locator(".cm-line").filter({ hasText: "body only" }).first().click();
+    await win.waitForTimeout(300);
+    await fcm.locator(".ofm-properties").first().waitFor({ state: "attached", timeout: 5000 });
+    return fcm;
+  };
   await test("callout with no custom title shows the capitalized type name", async () => {
     // Earlier tests called openFlintmark(), which replaced the Explorer with our
     // container — reopen the Explorer so the features.md row exists to click.
@@ -850,11 +858,7 @@ try {
   });
 
   await test("YAML frontmatter renders as a Properties panel with chips", async () => {
-    const fcm = featCm || (await featuresFrame());
-    assert.ok(fcm, "features.md frame found");
-    // The panel is ALWAYS shown (not reveal-gated), so it's present even with the
-    // cursor at the top of the file where it just opened.
-    await fcm.locator(".ofm-properties").first().waitFor({ state: "attached", timeout: 5000 });
+    const fcm = await showFeatureProperties();
     const r = await fcm.evaluate(() => {
       const panel = document.querySelector(".ofm-properties");
       const header = document.querySelector(".ofm-properties-header");
@@ -869,6 +873,46 @@ try {
     assert.ok(r.chips.includes("demo") && r.chips.includes("test"), `tag chips: ${JSON.stringify(r.chips)}`);
     // One leading type icon per property row.
     assert.equal(r.icons, r.keys.length, `expected ${r.keys.length} icons, got ${r.icons}`);
+  });
+
+  await test("clicking the YAML Properties panel reveals editable frontmatter source", async () => {
+    const fcm = await showFeatureProperties();
+    const panel = fcm.locator(".ofm-properties").first();
+    await panel.waitFor({ state: "attached", timeout: 5000 });
+    await panel.click();
+    await win.waitForTimeout(300);
+    await fcm
+      .locator(".cm-line")
+      .filter({ hasText: "title: Features" })
+      .first()
+      .waitFor({ state: "visible", timeout: 5000 });
+    assert.equal(await fcm.locator(".ofm-properties").count(), 0, "panel hides while YAML source is active");
+
+    await fcm.locator(".cm-line").filter({ hasText: "body only" }).first().click();
+    await win.waitForTimeout(300);
+    await fcm.locator(".ofm-properties").first().waitFor({ state: "attached", timeout: 5000 });
+  });
+
+  await test("clicking below YAML Properties lands the caret on the clicked line", async () => {
+    const fcm = await showFeatureProperties();
+    const heading = fcm.locator(".cm-line.ofm-heading-1").first();
+    await heading.scrollIntoViewIfNeeded();
+    await win.waitForTimeout(200);
+    const box = await heading.boundingBox();
+    assert.ok(box, "# Features heading should have a box");
+    await fcm.page().mouse.click(box.x + 20, box.y + box.height / 2);
+    await win.waitForTimeout(300);
+    const landed = await fcm.evaluate(() => {
+      const s = window.getSelection();
+      let n = s && s.focusNode;
+      while (n && n.nodeType !== 1) n = n.parentElement;
+      const l = n ? n.closest(".cm-line") : null;
+      return l ? (l.textContent || "").replace(/\n/g, "") : "(none)";
+    });
+    assert.ok(
+      landed.includes("Features"),
+      `caret must land on the clicked heading below frontmatter, got: ${JSON.stringify(landed)}`
+    );
   });
 
   await test("%% comments are hidden in preview (cursor elsewhere)", async () => {

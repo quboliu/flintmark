@@ -1,9 +1,9 @@
 // Block widget that renders parsed YAML frontmatter as an Obsidian-style
 // Properties panel: a "Properties" header, then one row per key — a leading
-// type icon, the key, and the value (list/tags as chips). Read-only display;
-// the raw YAML is edited in the Code view (the </> toggle), mirroring Obsidian's
-// Source mode. Styling lives in markdownTheme (the CM6 theme layer).
-import { WidgetType } from "@codemirror/view";
+// type icon, the key, and the value (list/tags as chips). Clicking the panel
+// moves the caret into the source range; the decoration layer then reveals the
+// raw YAML for normal in-place editing. Styling lives in markdownTheme.
+import { EditorView, WidgetType } from "@codemirror/view";
 import { propIconType, type FrontmatterProp, type PropIcon } from "../frontmatter";
 
 // Lucide-style glyphs (Obsidian uses Lucide), drawn with currentColor stroke so
@@ -23,18 +23,29 @@ function iconEl(type: PropIcon): HTMLElement {
 }
 
 export class FrontmatterWidget extends WidgetType {
-  constructor(readonly props: FrontmatterProp[]) {
+  constructor(
+    readonly props: FrontmatterProp[],
+    readonly from: number
+  ) {
     super();
   }
 
   eq(other: FrontmatterWidget): boolean {
-    return JSON.stringify(other.props) === JSON.stringify(this.props);
+    return other.from === this.from && JSON.stringify(other.props) === JSON.stringify(this.props);
   }
 
-  toDOM(): HTMLElement {
+  toDOM(view: EditorView): HTMLElement {
     const root = document.createElement("div");
     root.className = "ofm-properties";
     root.setAttribute("aria-label", "Note properties");
+    root.addEventListener("mousedown", (event) => {
+      event.preventDefault();
+      view.focus();
+      view.dispatch({
+        selection: { anchor: this.from },
+        scrollIntoView: true,
+      });
+    });
 
     const header = document.createElement("div");
     header.className = "ofm-properties-header";
@@ -82,8 +93,8 @@ export class FrontmatterWidget extends WidgetType {
     return root;
   }
 
-  // Let clicks reach the editor so the cursor can be placed; the panel stays put
-  // (it's always shown — raw YAML is edited in the Code view).
+  // The widget handles mousedown by moving the caret into the replaced source
+  // range. Other events can still reach CM6 normally.
   ignoreEvent(): boolean {
     return false;
   }

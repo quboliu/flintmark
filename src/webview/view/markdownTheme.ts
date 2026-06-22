@@ -48,8 +48,11 @@ export const markdownTheme = EditorView.theme({
   },
   /* Frontmatter Properties panel (FrontmatterWidget). */
   ".ofm-properties": {
-    margin: "0 0 1.2em",
-    padding: "0.3em 0 0.7em",
+    // This is a CM6 block-widget root. Keep spacing inside its border box:
+    // margins are invisible to CM6's height map and break click/caret mapping
+    // for all lines below the YAML properties panel.
+    margin: "0",
+    padding: "0.3em 0 1.9em",
     borderBottom: "1px solid var(--background-modifier-border, rgba(128, 128, 128, 0.2))",
     fontSize: "0.85em",
   },

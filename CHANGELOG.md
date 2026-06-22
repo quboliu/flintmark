@@ -3,6 +3,16 @@
 All notable changes to Flintmark are documented here. Versions are pre-1.0 while
 the editor stabilizes for the Marketplace.
 
+## 0.32.3
+
+- **Fix: YAML Properties no longer breaks click targeting.** The Properties
+  panel now follows CodeMirror's block-widget measurement rules, so clicking
+  lines below frontmatter lands the caret on the clicked line instead of the next
+  line or a blank line.
+- **Editable Properties panel.** Clicking the Properties panel now reveals the
+  raw YAML frontmatter in place; move the cursor back into the note body and the
+  panel returns.
+
 ## 0.32.2
 
 - **Properties panel, closer to Obsidian.** The panel now has a **"Properties"
