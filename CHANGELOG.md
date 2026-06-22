@@ -9,6 +9,12 @@ the editor stabilizes for the Marketplace.
   YAML frontmatter now initialize the caret just after the frontmatter block, so
   the Properties panel appears immediately on open while still revealing editable
   YAML when the panel itself is clicked.
+- **Fix: long documents keep preview stable while fast-scrolling.** Live Preview
+  decorations no longer rebuild from viewport-only ranges on every scroll; this
+  keeps CodeMirror's height map stable for code-heavy notes and prevents the
+  temporary source/blank rendering seen when scrolling quickly through long
+  documents. Very large files above the full-preview cutoff now keep a stable
+  source view instead of attempting partial layout-affecting preview.
 
 ## 0.32.3
 

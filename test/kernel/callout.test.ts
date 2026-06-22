@@ -99,9 +99,10 @@ test("horizontal rule shows source when the cursor is on it", () => {
   assert.ok(!hasHrWidget(buildDecorations(mkState(doc, onRule))));
 });
 
-test("fenced code block: bg on all lines, fences collapsed, ends rounded (not editing)", () => {
+test("fenced code block: bg on all lines, fence text hidden, ends rounded (not editing)", () => {
   const doc = "t\n\n```js\nconst x = 1;\nconst y = 2;\n```\n\nafter";
-  const lc = lineClasses(buildDecorations(mkState(doc, doc.length)));
+  const set = buildDecorations(mkState(doc, doc.length));
+  const lc = lineClasses(set);
   assert.equal(
     lc.filter((c) => c.includes("HyperMD-codeblock-bg")).length,
     4,
@@ -110,10 +111,32 @@ test("fenced code block: bg on all lines, fences collapsed, ends rounded (not ed
   assert.equal(
     lc.filter((c) => c.includes("ofm-codeblock-fence")).length,
     2,
-    "both ``` fence lines collapsed when not editing"
+    "both ``` fence lines are marked when not editing"
   );
+  assert.ok(hiddenEmptyCount(set) >= 2, "the ``` marker text should be hidden");
   assert.ok(lc.some((c) => c.includes("ofm-codeblock-begin")), "first code line rounded");
   assert.ok(lc.some((c) => c.includes("ofm-codeblock-end")), "last code line rounded");
+});
+
+test("empty fenced code block keeps fence rows stable while hiding markers", () => {
+  const doc = "t\n\n```js\n```\n\nafter";
+  const set = buildDecorations(mkState(doc, doc.length));
+  const lc = lineClasses(set);
+  assert.equal(
+    lc.filter((c) => c.includes("HyperMD-codeblock-bg")).length,
+    2,
+    "empty fenced block keeps both fence rows in the height map"
+  );
+  assert.equal(
+    lc.filter((c) => c.includes("ofm-codeblock-fence")).length,
+    2,
+    "both fence rows are marked when not editing"
+  );
+  assert.ok(hiddenEmptyCount(set) >= 2, "the empty block's fence text should be hidden");
+  assert.ok(
+    lc.some((c) => c.includes("ofm-codeblock-begin") && c.includes("ofm-codeblock-end")),
+    "the opening fence row carries the rounded empty-block box"
+  );
 });
 
 test("frontmatter is dimmed; its --- are not rules but a body --- still is", () => {

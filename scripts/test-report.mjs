@@ -101,7 +101,7 @@ L.push(
   `| **Visual** | ${visual ? (visual.failed ? "❌" : "✅") : "—"} | ${visual ? `${visual.snapshots} snapshots · max diff ${(visual.maxDiffRatio * 100).toFixed(2)}%` : "not run"} | ${ms(visual?.durationMs)} |`
 );
 L.push(
-  `| **Perf** | ${perf ? "📈" : "—"} | ${perf ? `${perf.sizes.length} sizes · viewport ${perf.viewportChars} chars` : "not run"} | ${ms(perf?.durationMs)} |`
+  `| **Perf** | ${perf ? "📈" : "—"} | ${perf ? `${perf.sizes.length} sizes · whole-document/fallback` : "not run"} | ${ms(perf?.durationMs)} |`
 );
 L.push("");
 L.push(`_Total test wall time (unit + e2e + visual): **${ms(totalTestMs)}**_`);
@@ -139,10 +139,14 @@ if (mut) {
 
 if (perf) {
   L.push("");
-  L.push(`## 📈 Perf — buildDecorations viewport median`);
-  L.push(`| Document | Median |`);
-  L.push(`| --- | --- |`);
-  for (const s of perf.sizes) L.push(`| ${s.label} (${s.docChars.toLocaleString()} chars) | ${s.medianMs} ms |`);
+  L.push(`## 📈 Perf — buildDecorations median`);
+  L.push(`| Document | Mode | Median |`);
+  L.push(`| --- | --- | --- |`);
+  for (const s of perf.sizes) {
+    L.push(
+      `| ${s.label} (${s.docChars.toLocaleString()} chars) | ${s.previewActive === false ? "source fallback" : "whole-document preview"} | ${s.medianMs} ms |`
+    );
+  }
 }
 
 const report = L.join("\n") + "\n";

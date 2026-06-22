@@ -7,14 +7,18 @@ import { EditorSelection, EditorState, Annotation, Transaction } from "@codemirr
 import { defaultKeymap } from "@codemirror/commands";
 import type { VaultData } from "../../shared/protocol";
 import { search, searchKeymap } from "@codemirror/search";
-import { syntaxHighlighting } from "@codemirror/language";
+import { forceParsing, syntaxHighlighting } from "@codemirror/language";
 import {
   insertNewlineContinueMarkup,
   deleteMarkupBackward,
 } from "@codemirror/lang-markdown";
 import { ofmMarkdown, ofmHighlightStyle } from "../kernel/obsidianSyntax";
 import type { DocChange } from "../../shared/protocol";
-import { markdownDecorationsPlugin, blockWidgetsField } from "./markdownDecorations";
+import {
+  markdownDecorationsPlugin,
+  blockWidgetsField,
+  LIVE_PREVIEW_DECORATION_CHAR_LIMIT,
+} from "./markdownDecorations";
 import { createAiButton, type AiButtonHandle } from "./aiSelectionButton";
 import { markdownTheme } from "./markdownTheme";
 import { taskToggleFacet } from "./widgets/checkboxWidget";
@@ -66,6 +70,7 @@ export interface EditorCallbacks {
 }
 
 const MAX_ATTACHMENT_MB = Math.round(MAX_ATTACHMENT_BYTES / (1024 * 1024));
+const FORCE_PARSE_ON_OPEN_TIMEOUT_MS = 500;
 
 /** The current selection (or caret position) as document offsets. */
 export function currentSelectionRange(view: EditorView): { from: number; to: number } {
@@ -238,6 +243,25 @@ export function createEditor(
     }),
     parent,
   });
+
+  // Live Preview has layout-affecting decorations (headings, code block boxes,
+  // tables). For documents below the decoration cutoff, publish a complete
+  // syntax tree before the user starts fast-scrolling so CM6 does not have to
+  // adjust the height map while the viewport is moving.
+  if (initialText.length <= LIVE_PREVIEW_DECORATION_CHAR_LIMIT) {
+    const parsedOnOpen = forceParsing(
+      view,
+      view.state.doc.length,
+      FORCE_PARSE_ON_OPEN_TIMEOUT_MS
+    );
+    if (!parsedOnOpen) {
+      setTimeout(() => {
+        if (view.state.doc.length <= LIVE_PREVIEW_DECORATION_CHAR_LIMIT) {
+          forceParsing(view, view.state.doc.length, 100);
+        }
+      }, 0);
+    }
+  }
 
   // Floating selection toolbar (Edit with AI / Add to Chat) — created after the
   // view (not as a ViewPlugin, which CM6 would tear down if any update() threw).

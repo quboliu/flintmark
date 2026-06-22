@@ -75,6 +75,27 @@ writeFileSync(
   join(work, "features.md"),
   "---\ntitle: Features\ntags:\n  - demo\n  - test\n---\n\n# Features\n\n> [!note]\n> body only, no custom title\n\nVisible %%secretcomment%% visible.\n\nA claim[^1] needs a source.\n\n[^1]: the footnote definition.\n\n```sql\nSELECT id FROM users WHERE active = true;\n```\n\nVault image ![[deep.png]] from a subfolder.\n"
 );
+const LONG_SCROLL = Array.from({ length: 1100 }, (_, i) =>
+  [
+    `## Long Scroll Section ${i}`,
+    "",
+    "A paragraph with **bold** text, #tag, and [[Other Note]] so inline decorations exist.",
+    "",
+    "```c",
+    "#include <stdio.h>",
+    "int main(void) {",
+    `    printf(\"section ${i}\\n\");`,
+    "    return 0;",
+    "}",
+    "```",
+    "",
+    "| IPC | Status |",
+    "| --- | --- |",
+    `| section-${i} | ok |`,
+    "",
+  ].join("\n")
+).join("\n");
+writeFileSync(join(work, "long-scroll.md"), LONG_SCROLL);
 
 const app = await electron.launch({
   executablePath: VSCODE,
@@ -91,6 +112,11 @@ const app = await electron.launch({
 
 try {
   const win = await app.firstWindow();
+  const viewportWarnings = [];
+  win.on("console", (msg) => {
+    const text = msg.text();
+    if (text.includes("Viewport failed to stabilize")) viewportWarnings.push(text);
+  });
   await win.waitForSelector(".monaco-workbench", { timeout: 30000 });
   await win.waitForTimeout(4500); // let the workbench become interactive
 
@@ -970,6 +996,73 @@ try {
     assert.ok(
       src && /attachments\/deep\.png/.test(src) && /^(https?:|vscode-webview:)/.test(src),
       `bare ![[deep.png]] should resolve vault-wide to attachments/deep.png, got: ${src}`
+    );
+  });
+
+  await test("fast scrolling a long code-heavy note keeps the viewport stable", async () => {
+    viewportWarnings.length = 0;
+    await palette("Control+P", "long-scroll.md");
+    let longCm = null;
+    const deadline = Date.now() + 10000;
+    while (Date.now() < deadline && !longCm) {
+      for (const f of win.frames()) {
+        try {
+          if ((await f.locator(".cm-content").count()) === 0) continue;
+          const text = await f.locator(".cm-content").first().innerText();
+          if (text.includes("Long Scroll Section")) {
+            longCm = f;
+            break;
+          }
+        } catch {}
+      }
+      if (!longCm) await win.waitForTimeout(250);
+    }
+    assert.ok(longCm, "long-scroll.md opened in Live Preview");
+
+    const scroller = longCm.locator(".cm-scroller").first();
+    const box = await scroller.boundingBox();
+    assert.ok(box, "long-scroll editor scroller should have a box");
+    await win.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    for (let i = 0; i < 80; i++) {
+      await win.mouse.wheel(0, 1800);
+      await win.waitForTimeout(25);
+    }
+    await win.waitForTimeout(400);
+    const visible = await longCm.evaluate(() => {
+      const lineEls = [...document.querySelectorAll(".cm-line")];
+      const lines = lineEls.map((e) => e.textContent || "");
+      const headingTexts = [...document.querySelectorAll(".cm-line.ofm-heading-2")].map(
+        (e) => e.textContent || ""
+      );
+      const maxSection = Math.max(
+        -1,
+        ...headingTexts.map((t) => Number(/Long Scroll Section (\d+)/.exec(t)?.[1] ?? -1))
+      );
+      return {
+        lineCount: lines.length,
+        nonEmpty: lines.filter((t) => t.trim()).length,
+        headingTexts,
+        maxSection,
+        codeblockLines: document.querySelectorAll(".cm-line.ofm-codeblock").length,
+        text: (document.querySelector(".cm-content")?.textContent || "").slice(0, 500),
+      };
+    });
+    assert.ok(
+      visible.lineCount > 0 && visible.nonEmpty > 0,
+      `long note viewport should not be blank: ${JSON.stringify(visible)}`
+    );
+    assert.ok(
+      visible.maxSection >= 300,
+      `fast scroll should reach a middle/late heading rendered with Live Preview classes: ${JSON.stringify(visible)}`
+    );
+    assert.ok(
+      visible.codeblockLines > 0,
+      `visible code block lines should keep Live Preview codeblock classes: ${JSON.stringify(visible)}`
+    );
+    assert.equal(
+      viewportWarnings.length,
+      0,
+      `CM6 viewport should stabilize while fast-scrolling long docs: ${viewportWarnings.join("\n")}`
     );
   });
 } finally {

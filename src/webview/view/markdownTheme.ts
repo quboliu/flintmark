@@ -234,8 +234,11 @@ export const markdownTheme = EditorView.theme({
     borderBottomRightRadius: "6px",
     paddingBottom: "0.4em",
   },
-  /* Collapse the ``` fence lines when not editing the block */
-  ".cm-line.ofm-codeblock-fence": { display: "none" },
+  /* Fence marker text is hidden by replace decorations, not by display:none:
+     removing whole lines via CSS makes CM6's height map unstable on fast scroll. */
+  ".cm-line.ofm-codeblock-fence": {
+    color: "var(--text-faint, var(--vscode-disabledForeground))",
+  },
   /* Flair (language label + Copy button) in the code block's top-right corner */
   ".ofm-code-flair": {
     position: "absolute",

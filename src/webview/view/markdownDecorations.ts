@@ -197,24 +197,24 @@ function collectConstructs(
 // Build DecorationSet from state (tree + selection)
 // ---------------------------------------------------------------------------
 
-/** A half-open document range to decorate. The ViewPlugin passes the editor's
- *  visibleRanges so per-keystroke cost is O(viewport), not O(document). */
+/** A half-open document range to decorate. Kept as a parameter so tests can
+ *  exercise small windows; the live editor uses the whole document for layout
+ *  stability. */
 export interface VisibleRange {
   from: number;
   to: number;
 }
 
-/** Hard ceiling: above this, decoration cost (string allocation + tree walk)
- *  outweighs the benefit even with viewport rendering, so fall back to plain
- *  source. Viewport rendering keeps decoration COUNT bounded, so this can be
- *  generous compared with the pre-viewport 300k cliff. */
-const LARGE_FILE_CHARS = 2_000_000;
+/** Hard ceiling: above this, full-document Live Preview falls back to stable
+ *  source text. Layout-affecting decorations must not depend on the viewport,
+ *  and fresh-open full-tree parsing must stay comfortably bounded. */
+export const LIVE_PREVIEW_DECORATION_CHAR_LIMIT = 300_000;
 
 export function buildDecorations(
   state: EditorState,
   ranges?: VisibleRange[]
 ): DecorationSet {
-  if (state.doc.length > LARGE_FILE_CHARS) return Decoration.none;
+  if (state.doc.length > LIVE_PREVIEW_DECORATION_CHAR_LIMIT) return Decoration.none;
   const tree = syntaxTree(state);
   const docText = state.doc.toString();
   const imageMap = state.field(imageMapField, false) ?? {};
@@ -691,6 +691,11 @@ function addFencedCodeDecorations(
   const open = state.doc.lineAt(node.from); // ```lang
   const close = state.doc.lineAt(Math.max(node.from, node.to - 1)); // ```
   const revealed = shouldRevealConstruct(node.from, node.to, selections);
+  const hideLineText = (line: { from: number; to: number }) => {
+    if (line.from < line.to) {
+      decos.push(Decoration.replace({}).range(line.from, line.to));
+    }
+  };
 
   // Background + monospace on EVERY line. HyperMD-codeblock-bg lets the theme
   // paint its dedicated --code-block-background (Things) on the whole box.
@@ -709,11 +714,14 @@ function addFencedCodeDecorations(
     return;
   }
 
-  // Not editing: collapse the ``` fence lines and present a clean boxed block
-  // with a language label, like Obsidian's reading-flavored code block.
+  // Not editing: hide the ``` marker text while keeping those lines in layout.
+  // Collapsing them with display:none makes CM6's height map unstable when
+  // fast-scrolling through many code blocks.
   decos.push(Decoration.line({ class: "ofm-codeblock-fence" }).range(open.from));
+  hideLineText(open);
   if (close.number !== open.number) {
     decos.push(Decoration.line({ class: "ofm-codeblock-fence" }).range(close.from));
+    hideLineText(close);
   }
   const firstInner = open.number + 1;
   const lastInner = close.number - 1;
@@ -917,18 +925,8 @@ function addInlineContentDecor(
 // ViewPlugin
 // ---------------------------------------------------------------------------
 
-/**
- * The editor's visible ranges, each snapped outward to whole lines. CM6 already
- * pads `visibleRanges` with a render margin; snapping to line bounds guarantees
- * a block construct (heading / callout / code fence) that straddles the
- * viewport edge is iterated in full, so its line decorations are not clipped.
- */
-function visibleRangesOf(view: EditorView): VisibleRange[] {
-  const doc = view.state.doc;
-  return view.visibleRanges.map(({ from, to }) => ({
-    from: doc.lineAt(from).from,
-    to: doc.lineAt(to).to,
-  }));
+function wholeDocumentRange(state: EditorState): VisibleRange[] {
+  return [{ from: 0, to: state.doc.length }];
 }
 
 const markdownDecorationsPlugin = ViewPlugin.fromClass(
@@ -936,22 +934,25 @@ const markdownDecorationsPlugin = ViewPlugin.fromClass(
     decorations: DecorationSet;
 
     constructor(view: EditorView) {
-      this.decorations = buildDecorations(view.state, visibleRangesOf(view));
+      this.decorations = buildDecorations(view.state, wholeDocumentRange(view.state));
     }
 
     update(update: ViewUpdate) {
+      const treeChanged = syntaxTree(update.startState) !== syntaxTree(update.state);
       const imageMapChanged = update.transactions.some((tr) =>
         tr.effects.some((e) => e.is(setImageMap))
       );
       if (
         update.docChanged ||
         update.selectionSet ||
-        update.viewportChanged ||
+        treeChanged ||
         imageMapChanged
       ) {
-        // Viewport-limited: only decorate visible ranges (+CM6's own margin) so
-        // per-keystroke cost is O(viewport), not O(document).
-        this.decorations = buildDecorations(update.state, visibleRangesOf(update.view));
+        // Full-document decorations keep line heights stable during fast
+        // scrolling. Rebuilding only on document/selection/resource changes
+        // avoids CM6 viewport feedback loops while still revealing source when
+        // the caret moves into a construct.
+        this.decorations = buildDecorations(update.state, wholeDocumentRange(update.state));
       }
     }
   },
@@ -1136,7 +1137,7 @@ export function findFootnotes(
 }
 
 function buildBlockWidgets(state: EditorState): DecorationSet {
-  if (state.doc.length > LARGE_FILE_CHARS) return Decoration.none;
+  if (state.doc.length > LIVE_PREVIEW_DECORATION_CHAR_LIMIT) return Decoration.none;
   const tree = syntaxTree(state);
   const docText = state.doc.toString();
   const selections: SelectionRange[] = state.selection.ranges.map((r) => ({
@@ -1213,11 +1214,13 @@ function buildBlockWidgets(state: EditorState): DecorationSet {
 const blockWidgetsField = StateField.define<DecorationSet>({
   create: (state) => buildBlockWidgets(state),
   update(value, tr) {
+    const treeChanged = syntaxTree(tr.startState) !== syntaxTree(tr.state);
     // Also rebuild when a mermaid diagram finishes rendering, so its widget is
     // re-created and re-measured at the final (post-render) height.
     if (
       tr.docChanged ||
       tr.selection ||
+      treeChanged ||
       tr.effects.some((e) => e.is(mermaidRenderedEffect))
     ) {
       return buildBlockWidgets(tr.state);
