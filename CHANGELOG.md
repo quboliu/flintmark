@@ -3,6 +3,13 @@
 All notable changes to Flintmark are documented here. Versions are pre-1.0 while
 the editor stabilizes for the Marketplace.
 
+## 0.32.4
+
+- **Fresh-open YAML defaults to Properties preview.** Notes that start with
+  YAML frontmatter now initialize the caret just after the frontmatter block, so
+  the Properties panel appears immediately on open while still revealing editable
+  YAML when the panel itself is clicked.
+
 ## 0.32.3
 
 - **Fix: YAML Properties no longer breaks click targeting.** The Properties

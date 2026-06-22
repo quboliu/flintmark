@@ -1,7 +1,11 @@
 // L1 unit tests for the minimal frontmatter YAML parser (the Properties panel).
 // Pure, no CM6/DOM. Falls back to null on anything beyond the supported subset.
 import assert from "node:assert";
-import { parseFrontmatter, propIconType } from "../../src/webview/view/frontmatter";
+import {
+  findFrontmatterRange,
+  parseFrontmatter,
+  propIconType,
+} from "../../src/webview/view/frontmatter";
 
 let failed = 0;
 function test(name: string, fn: () => void): void {
@@ -18,6 +22,24 @@ test("scalar key: value", () => {
   assert.deepEqual(parseFrontmatter("---\ntype: blog\n---"), [
     { key: "type", items: ["blog"], list: false },
   ]);
+});
+
+test("findFrontmatterRange includes the newline after the closing fence", () => {
+  const text = "---\ntitle: Features\n---\n# Features";
+  assert.deepEqual(findFrontmatterRange(text), { from: 0, to: 24 });
+  assert.equal(text.slice(24), "# Features");
+});
+
+test("findFrontmatterRange supports ... closing fences and CRLF", () => {
+  const text = "---\r\ntitle: Features\r\n...\r\nbody";
+  const range = findFrontmatterRange(text);
+  assert.deepEqual(range, { from: 0, to: 27 });
+  assert.equal(text.slice(range!.to), "body");
+});
+
+test("findFrontmatterRange only matches a leading closed block", () => {
+  assert.equal(findFrontmatterRange("# Title\n---\ntitle: no\n---"), null);
+  assert.equal(findFrontmatterRange("---\ntitle: no close\nbody"), null);
 });
 
 test("block list", () => {

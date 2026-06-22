@@ -3,7 +3,7 @@ import {
   keymap,
   ViewUpdate,
 } from "@codemirror/view";
-import { EditorState, Annotation, Transaction } from "@codemirror/state";
+import { EditorSelection, EditorState, Annotation, Transaction } from "@codemirror/state";
 import { defaultKeymap } from "@codemirror/commands";
 import type { VaultData } from "../../shared/protocol";
 import { search, searchKeymap } from "@codemirror/search";
@@ -22,6 +22,7 @@ import { imageMapField } from "./widgets/imageWidget";
 import { formatKeymap, handlePasteLink } from "./formatCommands";
 import { markdownFolding } from "./folding";
 import { markdownAutocomplete } from "./autocomplete";
+import { findFrontmatterRange } from "./frontmatter";
 import {
   imageFromPaste,
   imageFromDrop,
@@ -72,6 +73,13 @@ export function currentSelectionRange(view: EditorView): { from: number; to: num
   return { from: r.from, to: r.to };
 }
 
+/** Freshly opened notes with YAML frontmatter should start in Live Preview mode:
+ *  keep the real caret just after the frontmatter so the Properties panel renders
+ *  immediately, without an after-open dispatch that could steal user input. */
+export function initialSelectionAnchor(initialText: string): number {
+  return findFrontmatterRange(initialText)?.to ?? 0;
+}
+
 // ---------------------------------------------------------------------------
 // Create the CM6 EditorView with Markdown language, Live Preview decorations,
 // and document sync to the TextDocument authority (ADR-0002).
@@ -115,6 +123,7 @@ export function createEditor(
   const view = new EditorView({
     state: EditorState.create({
       doc: initialText,
+      selection: EditorSelection.cursor(initialSelectionAnchor(initialText)),
       extensions: [
         // Markdown-aware Enter/Backspace: continue list/quote markers on Enter,
         // and remove them on Backspace at the line start (before defaultKeymap

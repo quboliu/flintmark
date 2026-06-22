@@ -50,7 +50,7 @@ import {
 } from "./widgets/mermaidWidget";
 import { TableWidget } from "./widgets/tableWidget";
 import { FrontmatterWidget } from "./widgets/frontmatterWidget";
-import { parseFrontmatter } from "./frontmatter";
+import { findFrontmatterRange, parseFrontmatter } from "./frontmatter";
 
 // ---------------------------------------------------------------------------
 // Markdown node type names from @lezer/markdown (CommonMark + GFM)
@@ -575,8 +575,6 @@ function addListMarkDecoration(
   );
 }
 
-const FRONTMATTER_RE = /^---\r?\n[\s\S]*?\r?\n(?:---|\.\.\.)[ \t]*(?:\r?\n|$)/;
-
 /**
  * If the document opens with a YAML frontmatter block (--- … ---), dim its lines
  * and return its end offset (so the delimiter `---` lines are not rendered as
@@ -587,9 +585,9 @@ function addFrontmatterDecorations(
   docText: string,
   decos: Range<Decoration>[]
 ): number {
-  const m = FRONTMATTER_RE.exec(docText);
-  if (!m) return 0;
-  const end = m[0].length;
+  const fm = findFrontmatterRange(docText);
+  if (!fm) return 0;
+  const end = fm.to;
   const firstLine = state.doc.lineAt(0);
   const lastLine = state.doc.lineAt(Math.max(0, end - 1));
   for (let n = firstLine.number; n <= lastLine.number; n++) {
@@ -1150,9 +1148,9 @@ function buildBlockWidgets(state: EditorState): DecorationSet {
   // Frontmatter → Properties panel (Obsidian-style), reveal-gated like the rest
   // of Live Preview: outside the YAML range, show the panel; when the cursor is
   // inside that range, show raw YAML so it can be edited in place.
-  const fm = FRONTMATTER_RE.exec(docText);
+  const fm = findFrontmatterRange(docText);
   if (fm) {
-    const fmEnd = fm[0].length;
+    const fmEnd = fm.to;
     const closeLine = state.doc.lineAt(Math.max(0, fmEnd - 1));
     const props = parseFrontmatter(docText.slice(0, fmEnd));
     if (props && props.length > 0 && !shouldRevealConstruct(0, closeLine.to, selections)) {

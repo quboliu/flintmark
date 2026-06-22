@@ -857,6 +857,14 @@ try {
     assert.equal(label, "Note", "[!note] with no title should display 'Note'");
   });
 
+  await test("fresh-open YAML frontmatter defaults to the Properties panel", async () => {
+    const fcm = featCm || (await featuresFrame());
+    assert.ok(fcm, "features.md frame found");
+    await fcm.locator(".ofm-properties").first().waitFor({ state: "attached", timeout: 5000 });
+    const sourceLines = await fcm.locator(".cm-line").filter({ hasText: "title: Features" }).count();
+    assert.equal(sourceLines, 0, "fresh open should not reveal raw YAML frontmatter source");
+  });
+
   await test("YAML frontmatter renders as a Properties panel with chips", async () => {
     const fcm = await showFeatureProperties();
     const r = await fcm.evaluate(() => {

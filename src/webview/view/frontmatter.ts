@@ -17,6 +17,14 @@ export interface FrontmatterProp {
 export type PropIcon = "text" | "list" | "tags" | "date";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2})?)?/;
+const FRONTMATTER_RE = /^---\r?\n[\s\S]*?\r?\n(?:---|\.\.\.)[ \t]*(?:\r?\n|$)/;
+
+/** Locate a leading YAML frontmatter block, including fences and the optional
+ *  newline after the closing fence. */
+export function findFrontmatterRange(text: string): { from: 0; to: number } | null {
+  const m = FRONTMATTER_RE.exec(text);
+  return m ? { from: 0, to: m[0].length } : null;
+}
 
 /** Infer the display icon for a property: tags/list for sequences, date for an
  *  ISO-ish scalar, else text. Pure → unit-testable. */
