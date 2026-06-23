@@ -3,7 +3,13 @@ import {
   keymap,
   ViewUpdate,
 } from "@codemirror/view";
-import { EditorSelection, EditorState, Annotation, Transaction } from "@codemirror/state";
+import {
+  EditorSelection,
+  EditorState,
+  Annotation,
+  Transaction,
+  Compartment,
+} from "@codemirror/state";
 import { defaultKeymap } from "@codemirror/commands";
 import type { VaultData } from "../../shared/protocol";
 import { search, searchKeymap } from "@codemirror/search";
@@ -69,6 +75,11 @@ export interface EditorCallbacks {
   onNotify: (message: string) => void;
 }
 
+export interface EditorHandle {
+  view: EditorView;
+  setThemeDark: (dark: boolean) => void;
+}
+
 const MAX_ATTACHMENT_MB = Math.round(MAX_ATTACHMENT_BYTES / (1024 * 1024));
 const FORCE_PARSE_ON_OPEN_TIMEOUT_MS = 500;
 
@@ -93,8 +104,9 @@ export function initialSelectionAnchor(initialText: string): number {
 export function createEditor(
   parent: HTMLElement,
   initialText: string,
-  callbacks: EditorCallbacks
-): EditorView {
+  callbacks: EditorCallbacks,
+  options: { dark: boolean }
+): EditorHandle {
   const undoRedoKeymap = keymap.of([
     {
       key: "Mod-z",
@@ -124,6 +136,7 @@ export function createEditor(
 
   // Assigned after view creation; referenced by the update listener above.
   let aiButton: AiButtonHandle | null = null;
+  const themeCompartment = new Compartment();
 
   const view = new EditorView({
     state: EditorState.create({
@@ -173,8 +186,9 @@ export function createEditor(
         // Block widgets (mermaid diagrams, tables) — must be a StateField.
         blockWidgetsField,
 
-        // CSS theme for OFM-specific classes.
-        markdownTheme,
+        // CSS theme for OFM-specific classes. Kept in a compartment so host
+        // light/dark changes can update CM6 polarity without rebuilding the editor.
+        themeCompartment.of(markdownTheme(options.dark)),
 
         // Provide the task-toggle callback to checkbox widgets.
         taskToggleFacet.of(callbacks.onToggleTask),
@@ -268,7 +282,14 @@ export function createEditor(
   aiButton = createAiButton(view, callbacks.onRequestAiEdit, callbacks.onRequestAddToChat);
   aiButton.reposition();
 
-  return view;
+  return {
+    view,
+    setThemeDark: (dark: boolean) => {
+      view.dispatch({
+        effects: themeCompartment.reconfigure(markdownTheme(dark)),
+      });
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------

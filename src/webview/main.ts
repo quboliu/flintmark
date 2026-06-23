@@ -9,7 +9,6 @@ import { EditorView } from "@codemirror/view";
 import type {
   DocVersion,
   HostMsg,
-  WebviewMsg,
   DocChange,
   ThemePayload,
   Settings,
@@ -17,7 +16,12 @@ import type {
 } from "../shared/protocol";
 import { settingsToCssVars } from "../shared/settings";
 import { createMessenger } from "./messaging/client";
-import { createEditor, hostOrigin, currentSelectionRange } from "./view/createEditor";
+import {
+  createEditor,
+  hostOrigin,
+  currentSelectionRange,
+  type EditorHandle,
+} from "./view/createEditor";
 import { setImageMap } from "./view/widgets/imageWidget";
 import { applyAttachmentSaved } from "./view/attachmentPaste";
 
@@ -26,9 +30,53 @@ import { applyAttachmentSaved } from "./view/attachmentPaste";
 // ---------------------------------------------------------------------------
 
 const messenger = createMessenger();
+let editorHandle: EditorHandle | null = null;
 let view: EditorView | null = null;
 let currentVersion: DocVersion = 0;
 let vaultData: VaultData = { notes: [], tags: [] };
+type ThemeMode = "dark" | "light";
+let currentThemeMode: ThemeMode | null = null;
+let themeObserver: MutationObserver | null = null;
+
+function readThemeMode(): ThemeMode {
+  const cls = document.body.classList;
+  if (cls.contains("vscode-light") || cls.contains("vscode-high-contrast-light")) {
+    return "light";
+  }
+  if (cls.contains("vscode-dark") || cls.contains("vscode-high-contrast")) {
+    return "dark";
+  }
+  return window.matchMedia?.("(prefers-color-scheme: dark)").matches
+    ? "dark"
+    : "light";
+}
+
+function applyEditorThemeMode(parent: HTMLElement, mode: ThemeMode): void {
+  parent.classList.toggle("theme-dark", mode === "dark");
+  parent.classList.toggle("theme-light", mode === "light");
+}
+
+function syncThemeMode(force = false): ThemeMode | null {
+  const parent = document.getElementById("editor");
+  if (!parent) return currentThemeMode;
+
+  const mode = readThemeMode();
+  if (!force && mode === currentThemeMode) return currentThemeMode;
+
+  applyEditorThemeMode(parent, mode);
+  editorHandle?.setThemeDark(mode === "dark");
+  currentThemeMode = mode;
+  return mode;
+}
+
+function ensureThemeObserver(): void {
+  if (themeObserver) return;
+  themeObserver = new MutationObserver(() => syncThemeMode());
+  themeObserver.observe(document.body, {
+    attributes: true,
+    attributeFilter: ["class"],
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Register message handler
@@ -88,6 +136,8 @@ function handleInit(msg: Extract<HostMsg, { type: "init" }>): void {
   if (view) {
     view.destroy();
   }
+  editorHandle = null;
+  view = null;
 
   const parent = document.getElementById("editor");
   if (!parent) {
@@ -97,7 +147,8 @@ function handleInit(msg: Extract<HostMsg, { type: "init" }>): void {
 
   // The editing surface is the `.ml-root` (CONTEXT.md), carrying the Obsidian
   // DOM classes that themes target (Obsidian's Live Preview is also CM6, so the
-  // .cm-* classes already match). Follow VS Code dark/light.
+  // .cm-* classes already match). VS Code owns document.body's vscode-* theme
+  // classes; Flintmark projects those onto #editor for Obsidian theme scopes.
   parent.classList.add(
     "ml-root",
     "markdown-source-view",
@@ -106,16 +157,12 @@ function handleInit(msg: Extract<HostMsg, { type: "init" }>): void {
     "markdown-rendered",
     "cm-s-obsidian" // CM5-era theme scope: Things' .cm-* token + codeblock rules live under it
   );
-  const dark =
-    document.body.classList.contains("vscode-dark") ||
-    document.body.classList.contains("vscode-high-contrast");
-  const mode = dark ? "theme-dark" : "theme-light";
-  parent.classList.add(mode);
-  document.body.classList.add(mode);
+  currentThemeMode = null;
+  const initialMode = syncThemeMode(true) ?? readThemeMode();
   applyTheme(msg.theme);
   applySettings(msg.settings);
 
-  view = createEditor(parent, msg.text, {
+  editorHandle = createEditor(parent, msg.text, {
     onUserEdit: (changes: DocChange[]) => {
       messenger.post({
         type: "edit",
@@ -148,7 +195,10 @@ function handleInit(msg: Extract<HostMsg, { type: "init" }>): void {
     onNotify: (message) => {
       messenger.post({ type: "warn", message });
     },
-  });
+  }, { dark: initialMode === "dark" });
+  view = editorHandle.view;
+  ensureThemeObserver();
+  syncThemeMode();
 }
 
 // ---------------------------------------------------------------------------

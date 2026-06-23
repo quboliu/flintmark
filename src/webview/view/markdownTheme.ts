@@ -8,11 +8,30 @@
  */
 
 import { EditorView } from "@codemirror/view";
+import type { Extension } from "@codemirror/state";
 
-export const markdownTheme = EditorView.theme({
+export function markdownTheme(dark: boolean): Extension {
+  return EditorView.theme({
   /* Editor shell + scroller live here (the theme layer), not the host <style>,
      so they reliably outrank CM6's base theme. */
-  "&": { height: "100%", outline: "none" },
+  "&": {
+    height: "100%",
+    outline: "none",
+    color: "var(--text-normal, var(--vscode-editor-foreground))",
+    backgroundColor: "var(--background-primary, var(--vscode-editor-background))",
+  },
+  ".cm-gutters": {
+    backgroundColor: "var(--background-primary, var(--vscode-editor-background))",
+    color: "var(--text-faint, var(--vscode-descriptionForeground))",
+    borderRight:
+      "1px solid var(--background-modifier-border, var(--vscode-editorWidget-border, rgba(128,128,128,0.3)))",
+  },
+  ".cm-gutter": {
+    backgroundColor: "transparent",
+  },
+  ".ofm-fold-marker": {
+    color: "var(--text-faint, var(--vscode-descriptionForeground))",
+  },
   ".cm-scroller": {
     overflow: "auto",
     fontFamily: "var(--vscode-editor-font-family, monospace)",
@@ -29,6 +48,8 @@ export const markdownTheme = EditorView.theme({
      so bump 2px above editor.fontSize (default 14 → 16). Headings are rem-based
      and unaffected; code blocks/inline are em-based and ride up with this. */
   ".cm-content": {
+    caretColor:
+      "var(--vscode-editorCursor-foreground, var(--interactive-accent, currentColor))",
     fontFamily: "var(--font-text, var(--vscode-font-family, sans-serif))",
     // --ofm-font-size (set by the webview from `ofm.fontSize`) wins when present;
     // else the editor font size + 2px. Headings (rem) are unaffected; code/inline
@@ -481,4 +502,5 @@ export const markdownTheme = EditorView.theme({
     padding: "0.1em 0.2em",
     fontSize: "0.9em",
   },
-});
+}, { dark });
+}
