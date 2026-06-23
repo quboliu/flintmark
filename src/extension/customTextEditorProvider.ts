@@ -60,6 +60,11 @@ function toDocChanges(
   }));
 }
 
+type PanelRecord = {
+  document: vscode.TextDocument;
+  panel: vscode.WebviewPanel;
+};
+
 // ---------------------------------------------------------------------------
 // CustomTextEditorProvider
 // ---------------------------------------------------------------------------
@@ -72,16 +77,14 @@ export class OfmCustomTextEditorProvider
    * document too so an image-index change can recompute the image map for every
    * open editor (not just on text edits).
    */
-  private panels: Map<
-    string,
-    { document: vscode.TextDocument; panel: vscode.WebviewPanel }
-  > = new Map();
+  private panels: Map<string, Map<vscode.WebviewPanel, PanelRecord>> =
+    new Map();
 
   /** Serializes webview edits per URI — the concurrent-edit corruption guard. */
   private editQueue = new SerialQueue();
 
-  /** Last image-map JSON sent per URI, to avoid redundant webview re-renders. */
-  private lastImageMap: Map<string, string> = new Map();
+  /** Last image-map JSON sent per panel, to avoid redundant webview re-renders. */
+  private lastImageMap: WeakMap<vscode.WebviewPanel, string> = new WeakMap();
 
   constructor(
     private readonly context: vscode.ExtensionContext,
@@ -102,7 +105,7 @@ export class OfmCustomTextEditorProvider
     if (this.imageIndex) {
       this.context.subscriptions.push(
         this.imageIndex.onDidChange(() => {
-          for (const { document, panel } of this.panels.values()) {
+          for (const { document, panel } of this.allPanelRecords()) {
             this.sendImageMap(document, panel);
           }
         })
@@ -116,7 +119,7 @@ export class OfmCustomTextEditorProvider
         this.vault.onDidChange(() => {
           const vault = this.vault!.getVaultData();
           const msg: HostMsg = { type: "vaultData", vault };
-          for (const { panel } of this.panels.values()) {
+          for (const { panel } of this.allPanelRecords()) {
             panel.webview.postMessage(msg);
           }
         })
@@ -127,7 +130,7 @@ export class OfmCustomTextEditorProvider
     this.context.subscriptions.push(
       vscode.workspace.onDidChangeConfiguration((e) => {
         if (e.affectsConfiguration("ofm.theme")) {
-          for (const { panel } of this.panels.values()) {
+          for (const { panel } of this.allPanelRecords()) {
             const msg: HostMsg = {
               type: "themeChanged",
               theme: this.buildThemePayload(panel.webview),
@@ -145,7 +148,7 @@ export class OfmCustomTextEditorProvider
           // font (omitted field → CSS variable removed) live, not just apply new
           // values.
           const settings: Settings = readSettings();
-          for (const { panel } of this.panels.values()) {
+          for (const { panel } of this.allPanelRecords()) {
             panel.webview.postMessage({ type: "settingsChanged", settings } as HostMsg);
           }
         }
@@ -169,6 +172,14 @@ export class OfmCustomTextEditorProvider
     return { id: theme?.id ?? id, cssUri };
   }
 
+  private *allPanelRecords(): Iterable<PanelRecord> {
+    for (const records of this.panels.values()) {
+      for (const record of records.values()) {
+        yield record;
+      }
+    }
+  }
+
   // -----------------------------------------------------------------------
   // resolveCustomTextEditor — called when VS Code opens our editor
   // -----------------------------------------------------------------------
@@ -181,12 +192,19 @@ export class OfmCustomTextEditorProvider
     const uri = document.uri.toString();
 
     // Register panel so we can route external changes to it.
-    this.panels.set(uri, { document, panel: webviewPanel });
+    let panelsForUri = this.panels.get(uri);
+    if (!panelsForUri) {
+      panelsForUri = new Map();
+      this.panels.set(uri, panelsForUri);
+    }
+    panelsForUri.set(webviewPanel, { document, panel: webviewPanel });
     webviewPanel.onDidDispose(() => {
-      this.panels.delete(uri);
+      const records = this.panels.get(uri);
+      records?.delete(webviewPanel);
+      if (records?.size === 0) this.panels.delete(uri);
       // Drop the dedup cache so a REOPENED webview (which starts with an empty
       // imageMap) is re-sent the map even if the document text is unchanged.
-      this.lastImageMap.delete(uri);
+      this.lastImageMap.delete(webviewPanel);
     });
 
     // Configure webview
@@ -354,7 +372,7 @@ export class OfmCustomTextEditorProvider
     // webview (view still null) yet updated lastImageMap, which would dedupe-skip
     // this send and leave the ready webview with no images. Clearing the cache
     // first guarantees delivery once the webview can actually apply it.
-    this.lastImageMap.delete(document.uri.toString());
+    this.lastImageMap.delete(panel);
     this.sendImageMap(document, panel);
   }
 
@@ -776,10 +794,15 @@ export class OfmCustomTextEditorProvider
     if (active instanceof vscode.TabInputCustom && active.viewType === "ofm.livePreview") {
       uri = active.uri.toString();
     }
-    const rec =
-      (uri ? this.panels.get(uri) : undefined) ??
-      (this.panels.size === 1 ? [...this.panels.values()][0] : undefined);
-    return rec?.panel;
+    const records = uri
+      ? [...(this.panels.get(uri)?.values() ?? [])]
+      : [...this.allPanelRecords()];
+    if (records.length === 0) return undefined;
+    return (
+      records.find((record) => record.panel.active)?.panel ??
+      records.find((record) => record.panel.visible)?.panel ??
+      records[0].panel
+    );
   }
 
   /** Palette/command entry: ask the active Live Preview panel for its selection
@@ -852,12 +875,11 @@ export class OfmCustomTextEditorProvider
       if (/\.(png|jpe?g|gif|svg|webp|bmp|avif)$/i.test(target)) put(target, target, true);
     }
 
-    const uri = document.uri.toString();
     // Stable serialization (sorted keys) so insertion-order churn never reposts;
     // a changed resolved URI for the same key still reposts (index events).
     const json = JSON.stringify(map, Object.keys(map).sort());
-    if (this.lastImageMap.get(uri) === json) return; // unchanged → skip
-    this.lastImageMap.set(uri, json);
+    if (this.lastImageMap.get(panel) === json) return; // unchanged → skip
+    this.lastImageMap.set(panel, json);
     const msg: HostMsg = { type: "imageMap", map };
     panel.webview.postMessage(msg);
   }
@@ -868,11 +890,13 @@ export class OfmCustomTextEditorProvider
 
   private onDocumentChanged(e: vscode.TextDocumentChangeEvent): void {
     const uri = e.document.uri.toString();
-    const panel = this.panels.get(uri)?.panel;
+    const records = [...(this.panels.get(uri)?.values() ?? [])];
 
     // Refresh image resolution on every change (images can be typed/edited);
     // sendImageMap only posts when the set of image srcs actually changed.
-    if (panel) this.sendImageMap(e.document, panel);
+    for (const { panel } of records) {
+      this.sendImageMap(e.document, panel);
+    }
 
     // Echo suppression: if this change originated from our own webview edit,
     // do NOT send it back (prevents echo loop and cursor jumps).
@@ -880,7 +904,7 @@ export class OfmCustomTextEditorProvider
       return;
     }
 
-    if (!panel) return;
+    if (records.length === 0) return;
 
     const changes = toDocChanges(e.contentChanges);
 
@@ -895,7 +919,9 @@ export class OfmCustomTextEditorProvider
           version: e.document.version,
           text,
         };
-        panel.webview.postMessage(replaceAllMsg);
+        for (const { panel } of records) {
+          panel.webview.postMessage(replaceAllMsg);
+        }
         return;
       }
     }
@@ -907,6 +933,8 @@ export class OfmCustomTextEditorProvider
       origin: "host",
       changes,
     };
-    panel.webview.postMessage(applyMsg);
+    for (const { panel } of records) {
+      panel.webview.postMessage(applyMsg);
+    }
   }
 }
