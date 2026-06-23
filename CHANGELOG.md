@@ -3,6 +3,14 @@
 All notable changes to Flintmark are documented here. Versions are pre-1.0 while
 the editor stabilizes for the Marketplace.
 
+## 0.32.5
+
+- **Fix: Live Preview now tracks VS Code theme changes.** The editor projects
+  VS Code's dark/light/high-contrast mode onto the Flintmark root instead of
+  mutating the webview body, and updates CodeMirror's theme polarity in place.
+  This fixes the dark-theme caret, removes the light gutter strip, and keeps
+  scroll position/selection intact when switching themes.
+
 ## 0.32.4
 
 - **Fresh-open YAML defaults to Properties preview.** Notes that start with
