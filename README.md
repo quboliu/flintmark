@@ -13,141 +13,90 @@ English · [简体中文](README.zh-CN.md)
 
 </div>
 
-![Flintmark — Markdown Live Preview in VS Code](media/shots/showcase.png)
+Flintmark renders Markdown in place as you type. The line under the cursor keeps
+its raw syntax; everything else becomes a readable preview. There is no split
+pane, no separate preview file, and nothing proprietary on disk: your notes stay
+plain Markdown.
 
-Flintmark renders Markdown in place as you type: the line under the cursor keeps
-its raw syntax, everything else renders. No source/preview split, and the file on
-disk stays plain, standard Markdown.
+## Preview
 
-## Features
+The screenshots below use a rewritten demo note inspired by the Go blog article
+[Go Concurrency Patterns: Pipelines and cancellation](https://go.dev/blog/pipelines).
+The demo adds frontmatter, callouts, a table, Go code, tags, highlights, and
+wikilinks so the editor can be shown on a realistic technical note.
 
-### Live Preview
+**Dark theme**
 
-Headings, emphasis, inline code, quotes, lists, and task checkboxes render inline.
-Put the cursor on a line to edit its raw Markdown; move away and it renders again.
+![Flintmark rendering a Go pipelines note in a dark VS Code theme](media/shots/go-pipelines-dark.png)
 
-![Live Preview close-up](media/shots/hero.png)
+**Light theme**
 
-### Editing shortcuts
+![Flintmark rendering a Go pipelines note in a light VS Code theme](media/shots/go-pipelines-light.png)
 
-Toggle markup around the selection: **bold** `Ctrl/⌘-B`, *italic* `Ctrl/⌘-I`,
-inline code `Ctrl/⌘-E`, ~~strikethrough~~ `Ctrl/⌘-Shift-X`, and link `Ctrl/⌘-K`.
-Paste a URL over selected text to turn it into `[selection](url)`. Every rendered
-code block gets a **Copy** button. Beyond `[ ]`/`[x]`, the extended task markers
-render too — `[/]` in progress, `[-]` cancelled (struck through), `[>]` forwarded,
-`[?]` question.
+## Highlights
 
-![Editing — task states, code Copy button, fold gutter](media/shots/editing.png)
+| Area | What Flintmark does |
+| --- | --- |
+| Live Preview | Renders headings, emphasis, inline code, quotes, lists, task checkboxes, wikilinks, tags, highlights, comments, footnotes, tables, math, diagrams, and images directly in the editor. |
+| Editing | Move the cursor onto a line to edit raw Markdown; move away and it renders again. Formatting shortcuts cover bold, italic, inline code, strike, and links. Pasting a URL over selected text creates a Markdown link. |
+| Frontmatter | YAML frontmatter becomes a Properties panel with type icons and chips for list/tag values. Complex YAML falls back to a dimmed raw block. |
+| Code | 30+ fenced-code languages are highlighted, including JS/TS, Python, Rust, Go, SQL, Shell, C/C++, C#, Java, PHP, Ruby, Kotlin, Swift, YAML, TOML, and Dockerfile. Rendered code blocks include a Copy button. |
+| Tables | GFM tables render as HTML tables and can be edited in place. |
+| Attachments | Local images and Obsidian embeds render inline. `![[image.png]]` resolves across the vault, and pasted or dropped images are saved next to the note. |
+| Navigation | `[[` autocompletes vault notes, `#` autocompletes tags, and `[[#` autocompletes headings in the current note. Flintmark also ships its own Outline and Backlinks views because VS Code's built-in Outline cannot see webview editors. |
+| Themes | The preview follows VS Code dark, light, and high-contrast themes without rebuilding the editor, so cursor position and scroll state survive theme changes. |
 
-### Properties (frontmatter)
+## Obsidian Syntax
 
-YAML frontmatter renders as a clean **Properties panel** — a "Properties" header,
-then each key with a leading type icon (text, list, tags, date) and its value, with
-list/tag values shown as chips — instead of raw `---` text. The panel is always
-shown (like Obsidian's Live Preview); edit the raw YAML in the Code view (`</>`).
-(Complex YAML the lightweight parser doesn't recognize falls back to the dimmed raw
-block.)
+Flintmark focuses on the Markdown syntax people already use in Obsidian-style
+vaults:
 
-![Frontmatter Properties panel](media/shots/properties.png)
+- `[[wikilinks]]`, including unresolved links that can create a new note.
+- `#tags`, `==highlights==`, and hidden `%% comments %%`.
+- Callouts such as `[!note]`, `[!tip]`, `[!warning]`, `[!important]`, `[!todo]`,
+  and the rest of the common Obsidian set.
+- Task states beyond GitHub Markdown: `[/]` in progress, `[-]` cancelled,
+  `[>]` forwarded, and `[?]` question.
+- Image embeds with optional sizing: `![[image.png|200]]` or
+  `![[image.png|200x120]]`.
 
-### Autocomplete & folding
+## Reuse Your Editor's AI
 
-Type `[[` to autocomplete vault notes, `#` for tags, and `[[#` for the current
-note's headings — backed by the vault index. Headings fold: click the gutter
-arrow or press `Ctrl/⌘-Shift-[` / `]` to collapse and expand a section.
+Flintmark ships no AI of its own. A webview editor hides its selection from the
+host, so Copilot, Cursor, and similar tools cannot naturally see what you select
+inside Live Preview. Flintmark bridges that gap:
 
-![Autocomplete from the vault index](media/shots/autocomplete.png)
+- **Edit** relocates the selection into the real source editor and triggers the
+  host's inline AI command.
+- **Add to Chat** sends the selection to the host's chat or composer command.
 
-### Callouts
-
-The full Obsidian callout set — `[!note]`, `[!tip]`, `[!warning]`, `[!important]`,
-`[!abstract]`, `[!todo]`, … — with custom or auto-generated titles.
-
-![Callouts](media/shots/callouts.png)
-
-### Syntax-highlighted code
-
-30+ languages — JS/TS, Python, Rust, Go, **SQL**, Shell, C/C++, C#, Java, PHP,
-Ruby, Kotlin, Swift, YAML, TOML, Dockerfile, and more — each block tagged with its
-language.
-
-![Code blocks](media/shots/code.png)
-
-### Tables
-
-Rendered as HTML and **editable in place** — click a cell, type, commit.
-
-![Tables](media/shots/table.png)
-
-### Math & diagrams
-
-Inline and block math via [KaTeX](https://katex.org/); [Mermaid](https://mermaid.js.org/)
-diagrams, lazy-loaded so they cost nothing until one appears.
-
-![Math](media/shots/math.png)
-
-![Mermaid](media/shots/mermaid.png)
-
-### Wikilinks, tags, highlights, footnotes
-
-`[[wikilinks]]`, `#tags`, `==highlights==`, `[^footnotes]` (superscript), and
-`%% comments %%` (hidden in preview). Click an unresolved `[[wikilink]]` to create
-that note next to the current one.
-
-![Inline syntax](media/shots/inline.png)
-
-### Images & attachments
-
-Local images and Obsidian embeds render inline. `![[image.png]]` resolves **across
-your vault** — keep attachments in any folder and reference them by bare name, just
-like Obsidian — and `![[image.png|200]]` / `|200x120` sizes them. **Paste or drag an
-image** into the note to save it next to the file and insert the embed.
-
-![Images and attachments](media/shots/images.png)
-
-### Outline & Backlinks
-
-A dedicated side container. VS Code's built-in Outline can't see webview editors,
-so Flintmark ships its own — plus Backlinks for the active note.
-
-<img src="media/shots/outline.png" width="280" alt="Outline and Backlinks" />
-
-### Reuse your editor's AI
-
-Flintmark ships **no AI of its own**. A webview editor hides its selection from the
-host, so Copilot / Cursor can't see what you select in Live Preview. The selection
-bridge fixes that — select text, then:
-
-![AI selection bridge](media/shots/ai.png)
-
-- **✨ Edit** — relocates the selection into the real source editor and triggers the
-  host's inline AI (Copilot inline chat, Cursor `⌘K`).
-- **💬 Add to Chat** — sends the selection to the host's AI chat / composer.
-
-Command IDs are detected per host (verified on VS Code + Copilot, Cursor, and
-VSCodium) and overridable via settings. Run **Flintmark: Show AI Log** to trace the
-hand-off if a host's commands differ.
+Command IDs are detected per host, with settings for overrides. Run
+**Flintmark: Show AI Log** when diagnosing a host whose command names differ.
 
 ## Install
 
-Download `flintmark-<version>.vsix` from the
-[Releases](https://github.com/quboliu/Flintmark/releases) page, then install it —
-in VS Code: **Extensions → ⋯ → Install from VSIX…**, or from a terminal:
+Download `flintmark-<version>.vsix` from
+[GitHub Releases](https://github.com/quboliu/Flintmark/releases), then install it
+from **Extensions -> ... -> Install from VSIX...** or from a terminal:
 
-```
-code --install-extension flintmark-0.28.0.vsix
+```sh
+code --install-extension flintmark-0.32.5.vsix
 ```
 
-Open any `.md` file and accept the prompt to make Live Preview the default, or run
-**Flintmark: Switch to Live View**. Toggle back any time with **Switch to Code View**.
+Open any `.md` file and accept the prompt to make Flintmark the default Markdown
+editor, or run **Flintmark: Switch to Live View**. You can switch back with
+**Switch to Code View** at any time.
 
 ### Set as the default Markdown editor
 
-Missed the first-run prompt? Set it any time — open the Command Palette and run
-**Flintmark: Set Live Preview as Default Markdown Editor**. Or add to your settings:
+Missed the first-run prompt? Run
+**Flintmark: Set Live Preview as Default Markdown Editor**, or add this setting:
 
 ```json
-"workbench.editorAssociations": { "*.md": "ofm.livePreview", "*.markdown": "ofm.livePreview" }
+"workbench.editorAssociations": {
+  "*.md": "ofm.livePreview",
+  "*.markdown": "ofm.livePreview"
+}
 ```
 
 ## Settings
@@ -155,30 +104,38 @@ Missed the first-run prompt? Set it any time — open the Command Palette and ru
 | Setting | Default | Description |
 | --- | --- | --- |
 | `ofm.theme` | `things` | Bundled Live Preview theme. |
-| `ofm.lineWidth` | `0` | `0` fills the editor width with a fixed margin (default); `20`–`240` caps a centered readable column of that width, in `rem`. |
-| `ofm.fontFamily` | _(theme)_ | Prose font (body + headings) for rendered Markdown, independent of the editor font. Empty = theme / UI font. |
-| `ofm.fontSize` | `0` | Prose font size in px. `0` = editor font size + 2px. |
-| `ofm.monospaceFontFamily` | _(editor)_ | Code font (fenced blocks, inline code, frontmatter). Empty = editor font. |
-| `ofm.ai.chatBridge` | `split` | How *Add to Chat* relocates the selection (`split` keeps the Live tab; `inplace` flips it). |
-| `ofm.ai.sourceLayout` | `replace` | Where *Edit* opens the source (`replace` / `beside`). |
-| `ofm.ai.trigger` | `auto` | Auto-trigger the native inline AI, or `manual`. |
-| `ofm.ai.chatCommand`, `ofm.ai.triggerCommand` | _(auto)_ | Override the native command IDs for your host. |
+| `ofm.lineWidth` | `0` | `0` fills the editor width with a fixed margin; `20`-`240` caps a centered readable column in `rem`. |
+| `ofm.fontFamily` | _(theme)_ | Prose font for rendered Markdown, independent of the editor font. |
+| `ofm.fontSize` | `0` | Prose font size in px. `0` means editor font size + 2px. |
+| `ofm.monospaceFontFamily` | _(editor)_ | Code font for fenced blocks, inline code, and frontmatter. |
+| `ofm.ai.chatBridge` | `split` | How Add to Chat relocates the selection: `split` keeps the Live tab, `inplace` flips it. |
+| `ofm.ai.sourceLayout` | `replace` | Where Edit opens the source editor: `replace` or `beside`. |
+| `ofm.ai.trigger` | `auto` | Auto-trigger native inline AI, or leave it manual. |
+| `ofm.ai.chatCommand`, `ofm.ai.triggerCommand` | _(auto)_ | Override native command IDs for your host. |
+
+## Demo Source
+
+The Markdown source used for the two screenshots lives at
+[media/demo/go-pipelines.md](media/demo/go-pipelines.md). It is a rewritten demo
+based on ideas from the Go blog post linked above, not a mirror of the original
+article.
 
 ## Disclaimer
 
 Not affiliated with, endorsed by, or sponsored by Obsidian or Dynalist Inc.
 "Obsidian" is a trademark of Dynalist Inc., referenced here only descriptively to
-state Markdown/visual compatibility.
+state Markdown and visual compatibility.
 
 ## Credits
 
-- **Things** theme — © Stephan Ango ([@kepano](https://github.com/kepano)), Obsidian
-  port by Colin Eckert ([@colineckert](https://github.com/colineckert)). Bundled as
-  the default theme, vendored verbatim under the MIT License
+- **Things** theme - © Stephan Ango ([@kepano](https://github.com/kepano)),
+  Obsidian port by Colin Eckert ([@colineckert](https://github.com/colineckert)).
+  Bundled as the default theme under the MIT License
   ([source](https://github.com/colineckert/obsidian-things)). Full notice:
   [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
-- Built on [CodeMirror 6](https://codemirror.net/), [Lezer](https://lezer.codemirror.net/),
-  [KaTeX](https://katex.org/), and [Mermaid](https://mermaid.js.org/).
+- Built on [CodeMirror 6](https://codemirror.net/),
+  [Lezer](https://lezer.codemirror.net/), [KaTeX](https://katex.org/), and
+  [Mermaid](https://mermaid.js.org/).
 
 ## License
 
