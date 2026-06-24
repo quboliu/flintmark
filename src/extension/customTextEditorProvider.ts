@@ -367,6 +367,7 @@ export class OfmCustomTextEditorProvider
     };
 
     panel.webview.postMessage(initMsg);
+    this.imageIndex?.ensureFreshForDocument(document.uri, "webview-ready");
     // FORCE the image map to this freshly-ready webview: a pre-ready send (e.g.
     // an imageIndex.onDidChange that fired before `ready`) is dropped by the
     // webview (view still null) yet updated lastImageMap, which would dedupe-skip
@@ -627,6 +628,7 @@ export class OfmCustomTextEditorProvider
       return;
     }
 
+    this.imageIndex?.ensureFreshForDocument(document.uri, "attachment-saved");
     const reply: HostMsg = { type: "attachmentSaved", requestId: msg.requestId, embed: finalName };
     panel.webview.postMessage(reply);
   }

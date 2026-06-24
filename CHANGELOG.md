@@ -3,6 +3,14 @@
 All notable changes to Flintmark are documented here. Versions are pre-1.0 while
 the editor stabilizes for the Marketplace.
 
+## 0.32.6
+
+- **Fix: local images survive parent-folder renames and bulk attachment changes.**
+  Flintmark now treats VS Code file watcher events as invalidation hints and
+  rebuilds image/note indexes from a reconciled workspace snapshot. This fixes
+  broken images after renaming a folder that contains a note and its `assets/`
+  directory, and covers nested attachment trees created outside VS Code.
+
 ## 0.32.5
 
 - **Fix: Live Preview now tracks VS Code theme changes.** The editor projects

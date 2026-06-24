@@ -80,7 +80,7 @@ Download `flintmark-<version>.vsix` from
 from **Extensions -> ... -> Install from VSIX...** or from a terminal:
 
 ```sh
-code --install-extension flintmark-0.32.5.vsix
+code --install-extension flintmark-0.32.6.vsix
 ```
 
 Open any `.md` file and accept the prompt to make Flintmark the default Markdown

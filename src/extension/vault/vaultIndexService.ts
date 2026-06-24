@@ -15,19 +15,31 @@
 import * as vscode from "vscode";
 import { buildVaultIndex, NoteEntry, NoteInput, VaultIndex } from "./vaultIndex";
 import type { VaultData } from "../../shared/protocol";
+import {
+  WorkspaceIndexDriver,
+  type WorkspaceIndexHandle,
+} from "./workspaceIndexDriver";
 
-const MD_GLOB = "**/*.md";
+const MD_GLOB = "**/*.{md,markdown}";
 const EXCLUDE_GLOB = "**/{node_modules,.git}/**";
 const REBUILD_DEBOUNCE_MS = 50;
 
+interface VaultRootSnapshot {
+  inputs: NoteInput[];
+  uris: Map<string, vscode.Uri>;
+}
+
+function emptyRootSnapshot(): VaultRootSnapshot {
+  return { inputs: [], uris: new Map() };
+}
+
 export class VaultIndexService implements vscode.Disposable {
-  /** path (uri.toString()) → current text. The single source the index is built from. */
-  private readonly texts = new Map<string, string>();
-  /** path → Uri, so resolved paths can be turned back into openable Uris. */
-  private readonly uris = new Map<string, vscode.Uri>();
+  private readonly driver: WorkspaceIndexDriver;
+  private readonly ownsDriver: boolean;
+  private readonly handle: WorkspaceIndexHandle<VaultRootSnapshot>;
   private index: VaultIndex = buildVaultIndex([]);
-  private watcher: vscode.FileSystemWatcher | undefined;
-  private rebuildTimer: ReturnType<typeof setTimeout> | undefined;
+  private uris = new Map<string, vscode.Uri>();
+  private readonly refreshSub: vscode.Disposable;
   private readonly decoder = new TextDecoder();
 
   /** Fires after every (debounced) rebuild so views can refresh (e.g. push
@@ -35,16 +47,29 @@ export class VaultIndexService implements vscode.Disposable {
   private readonly _onDidChange = new vscode.EventEmitter<void>();
   readonly onDidChange = this._onDidChange.event;
 
+  constructor(driver?: WorkspaceIndexDriver) {
+    this.driver = driver ?? new WorkspaceIndexDriver();
+    this.ownsDriver = driver === undefined;
+    this.handle = this.driver.registerSpec<VaultRootSnapshot>({
+      kind: "note",
+      include: MD_GLOB,
+      exclude: EXCLUDE_GLOB,
+      debounceMs: REBUILD_DEBOUNCE_MS,
+      watchContent: true,
+      notReady: emptyRootSnapshot,
+      disabled: emptyRootSnapshot,
+      build: (root, files) => this.buildSnapshot(root, files),
+    });
+    this.refreshSub = this.driver.onDidRefresh((event) => {
+      if (event.kind !== "note") return;
+      this.rebuildGlobalSnapshot();
+      this._onDidChange.fire();
+    });
+  }
+
   /** Scan the workspace and start watching. Safe to await once at activation. */
   async initialize(): Promise<void> {
-    const files = await vscode.workspace.findFiles(MD_GLOB, EXCLUDE_GLOB);
-    await Promise.all(files.map((uri) => this.loadFile(uri)));
-    this.rebuildNow();
-
-    this.watcher = vscode.workspace.createFileSystemWatcher(MD_GLOB);
-    this.watcher.onDidCreate((uri) => this.onChanged(uri));
-    this.watcher.onDidChange((uri) => this.onChanged(uri));
-    this.watcher.onDidDelete((uri) => this.onDeleted(uri));
+    await this.driver.initialize();
   }
 
   // ----- queries (delegate straight to the pure core) --------------------
@@ -85,54 +110,43 @@ export class VaultIndexService implements vscode.Disposable {
     return path ? this.uris.get(path) : undefined;
   }
 
-  // ----- watcher plumbing ------------------------------------------------
-
-  private async onChanged(uri: vscode.Uri): Promise<void> {
-    if (isExcluded(uri)) return;
-    await this.loadFile(uri);
-    this.scheduleRebuild();
-  }
-
-  private onDeleted(uri: vscode.Uri): void {
-    const key = uri.toString();
-    this.texts.delete(key);
-    this.uris.delete(key);
-    this.scheduleRebuild();
-  }
-
-  private async loadFile(uri: vscode.Uri): Promise<void> {
-    if (isExcluded(uri)) return;
-    try {
-      const bytes = await vscode.workspace.fs.readFile(uri);
-      this.texts.set(uri.toString(), this.decoder.decode(bytes));
-      this.uris.set(uri.toString(), uri);
-    } catch {
-      // Unreadable (deleted mid-flight, perms): drop it from the index.
-      this.texts.delete(uri.toString());
-      this.uris.delete(uri.toString());
-    }
-  }
-
-  /** Coalesce bursts (save storms, multi-file ops) into one rebuild. */
-  private scheduleRebuild(): void {
-    if (this.rebuildTimer) clearTimeout(this.rebuildTimer);
-    this.rebuildTimer = setTimeout(() => {
-      this.rebuildTimer = undefined;
-      this.rebuildNow();
-    }, REBUILD_DEBOUNCE_MS);
-  }
-
-  private rebuildNow(): void {
+  private async buildSnapshot(
+    _root: vscode.Uri,
+    files: readonly vscode.Uri[]
+  ): Promise<VaultRootSnapshot> {
     const inputs: NoteInput[] = [];
-    for (const [path, text] of this.texts) inputs.push({ path, text });
+    const uris = new Map<string, vscode.Uri>();
+    await Promise.all(
+      files.map(async (uri) => {
+        if (isExcluded(uri)) return;
+        try {
+          const bytes = await vscode.workspace.fs.readFile(uri);
+          const key = uri.toString();
+          inputs.push({ path: key, text: this.decoder.decode(bytes) });
+          uris.set(key, uri);
+        } catch {
+          // Unreadable/deleted mid-scan: omit it from this reconciled snapshot.
+        }
+      })
+    );
+    return { inputs, uris };
+  }
+
+  private rebuildGlobalSnapshot(): void {
+    const inputs: NoteInput[] = [];
+    const uris = new Map<string, vscode.Uri>();
+    for (const { snapshot } of this.handle.snapshots()) {
+      inputs.push(...snapshot.inputs);
+      for (const [key, uri] of snapshot.uris) uris.set(key, uri);
+    }
     this.index = buildVaultIndex(inputs);
-    this._onDidChange.fire();
+    this.uris = uris;
   }
 
   dispose(): void {
-    if (this.rebuildTimer) clearTimeout(this.rebuildTimer);
-    this.watcher?.dispose();
+    this.refreshSub.dispose();
     this._onDidChange.dispose();
+    if (this.ownsDriver) this.driver.dispose();
   }
 }
 

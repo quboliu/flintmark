@@ -73,7 +73,7 @@ Copilot、Cursor 这类工具没法直接拿到你在实时预览里选中的内
 **Extensions -> ... -> Install from VSIX...** 安装；也可以用命令行：
 
 ```sh
-code --install-extension flintmark-0.32.5.vsix
+code --install-extension flintmark-0.32.6.vsix
 ```
 
 打开任意 `.md` 文件，按提示把 Flintmark 设为默认 Markdown 编辑器；也可以从命令面板运行
