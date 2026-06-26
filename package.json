@@ -7,7 +7,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/quboliu/Flintmark"
+    "url": "https://github.com/quboliu/flintmark"
   },
   "engines": {
     "vscode": "^1.89.0"
@@ -331,9 +331,9 @@
     "editor",
     "preview"
   ],
-  "homepage": "https://github.com/quboliu/Flintmark#readme",
+  "homepage": "https://github.com/quboliu/flintmark#readme",
   "bugs": {
-    "url": "https://github.com/quboliu/Flintmark/issues"
+    "url": "https://github.com/quboliu/flintmark/issues"
   },
   "qna": false
 }

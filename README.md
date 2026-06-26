@@ -8,7 +8,7 @@
 
 English · [简体中文](README.zh-CN.md)
 
-[![Release](https://img.shields.io/github/v/release/quboliu/Flintmark?label=release)](https://github.com/quboliu/Flintmark/releases)
+[![Release](https://img.shields.io/github/v/release/quboliu/flintmark?label=release)](https://github.com/quboliu/flintmark/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 </div>
@@ -76,7 +76,7 @@ Command IDs are detected per host, with settings for overrides. Run
 ## Install
 
 Download `flintmark-<version>.vsix` from
-[GitHub Releases](https://github.com/quboliu/Flintmark/releases), then install it
+[GitHub Releases](https://github.com/quboliu/flintmark/releases), then install it
 from **Extensions -> ... -> Install from VSIX...** or from a terminal:
 
 ```sh

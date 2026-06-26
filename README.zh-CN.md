@@ -8,7 +8,7 @@
 
 [English](README.md) · 简体中文
 
-[![Release](https://img.shields.io/github/v/release/quboliu/Flintmark?label=release)](https://github.com/quboliu/Flintmark/releases)
+[![Release](https://img.shields.io/github/v/release/quboliu/flintmark?label=release)](https://github.com/quboliu/flintmark/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 </div>
@@ -68,7 +68,7 @@ Copilot、Cursor 这类工具没法直接拿到你在实时预览里选中的内
 
 ## 安装
 
-到 [GitHub Releases](https://github.com/quboliu/Flintmark/releases) 下载
+到 [GitHub Releases](https://github.com/quboliu/flintmark/releases) 下载
 `flintmark-<version>.vsix`，然后在 VS Code 里通过
 **Extensions -> ... -> Install from VSIX...** 安装；也可以用命令行：
 
