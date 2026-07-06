@@ -31,7 +31,7 @@
 }
 
 .theme-light {
-  --background-primary: hsl(var(--base-h, 220), var(--base-s, 12%), var(--base-l, 96%));
+  --background-primary: var(--color-base-00, #ffffff);
   --background-primary-alt: hsl(var(--base-h, 220), var(--base-s, 12%), calc(var(--base-l, 96%) - 2%));
   --background-secondary: hsl(var(--base-h, 220), var(--base-s, 12%), calc(var(--base-l, 96%) - 3%));
   --background-secondary-alt: hsl(var(--base-h, 220), var(--base-s, 12%), calc(var(--base-l, 96%) - 5%));

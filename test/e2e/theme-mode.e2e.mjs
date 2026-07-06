@@ -78,6 +78,8 @@ function assertLightSurface(s, label) {
   assertNoBodyObsidianTheme(s.bodyClass);
   assert.ok(hasClass(s.editorClass, "theme-light"), `${label}: #editor should have theme-light; got ${s.editorClass}`);
   assert.ok(!hasClass(s.editorClass, "theme-dark"), `${label}: #editor should not have theme-dark; got ${s.editorClass}`);
+  assert.equal(s.editorBg, "rgb(255, 255, 255)", `${label}: editor background should be pure white, got ${s.editorBg}`);
+  assert.equal(s.contentBg, "rgba(0, 0, 0, 0)", `${label}: content should stay transparent over the white editor, got ${s.contentBg}`);
   assert.ok((luminance(s.gutterBg) ?? 0) > 180, `${label}: gutter should be light, got ${s.gutterBg}`);
 }
 

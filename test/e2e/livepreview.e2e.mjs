@@ -304,6 +304,9 @@ try {
     const kw = cm.locator(".cm-keyword");
     await kw.first().waitFor({ state: "attached", timeout: 6000 });
     assert.ok((await kw.count()) > 0, "expected highlighted .cm-keyword tokens in code");
+    const color = await kw.first().evaluate((el) => getComputedStyle(el).color);
+    const bodyColor = await cm.locator(".cm-content").first().evaluate((el) => getComputedStyle(el).color);
+    assert.notEqual(color, bodyColor, `keyword token should be theme-colored, got ${color}`);
   });
 
   await test("rendered code blocks show a Copy button", async () => {

@@ -3,6 +3,14 @@
 All notable changes to Flintmark are documented here. Versions are pre-1.0 while
 the editor stabilizes for the Marketplace.
 
+## 0.32.8
+
+- **Fix: light mode uses a pure white editor background.** The light surface now
+  resolves to the theme's white base instead of a slightly grey derived fallback.
+- **Regression coverage: code tokens must receive theme colors.** The Live
+  Preview e2e suite now fails if fenced-code tokens exist but are visually
+  uncolored, protecting the bundled theme CSS path used by syntax highlighting.
+
 ## 0.32.7
 
 - **Inline SVG blocks render in Live Preview.** Flintmark now renders raw
