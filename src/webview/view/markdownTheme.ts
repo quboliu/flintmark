@@ -216,6 +216,24 @@ export function markdownTheme(dark: boolean): Extension {
     textAlign: "center",
     padding: "0.5em 0",
   },
+  ".ofm-svg-block": {
+    display: "block",
+    textAlign: "center",
+    overflowX: "auto",
+    padding: "0.5em 0",
+  },
+  ".ofm-svg-block-image": {
+    display: "inline-block",
+    maxWidth: "100%",
+    height: "auto",
+    verticalAlign: "middle",
+  },
+  ".ofm-svg-error": {
+    color: "var(--vscode-errorForeground, #e05252)",
+    whiteSpace: "pre-wrap",
+    textAlign: "left",
+    fontFamily: "var(--font-monospace, var(--vscode-editor-font-family, monospace))",
+  },
   ".ofm-table-wrap": { overflowX: "auto", padding: "0.5em 0" },
   ".ofm-table": { borderCollapse: "collapse" },
   ".ofm-table th": {

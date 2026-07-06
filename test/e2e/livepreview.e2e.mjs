@@ -73,7 +73,7 @@ writeFileSync(join(work, "Other Note.md"), "# Other Note\n\nlinked content\n");
 // main note.md, whose line positions the click-offset test depends on).
 writeFileSync(
   join(work, "features.md"),
-  "---\ntitle: Features\ntags:\n  - demo\n  - test\n---\n\n# Features\n\n> [!note]\n> body only, no custom title\n\nVisible %%secretcomment%% visible.\n\nA claim[^1] needs a source.\n\n[^1]: the footnote definition.\n\n```sql\nSELECT id FROM users WHERE active = true;\n```\n\nVault image ![[deep.png]] from a subfolder.\n"
+  "---\ntitle: Features\ntags:\n  - demo\n  - test\n---\n\n# Features\n\n<div>\n<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"80\" height=\"40\" viewBox=\"0 0 80 40\" onload=\"window.__ofmSvgUnsafe = true\">\n  <script>window.__ofmSvgUnsafe = true</script>\n  <rect x=\"4\" y=\"4\" width=\"72\" height=\"32\" fill=\"red\" onclick=\"window.__ofmSvgUnsafe = true\" />\n  <text x=\"40\" y=\"25\" font-size=\"14\" text-anchor=\"middle\">SVG</text>\n</svg>\n</div>\n\n> [!note]\n> body only, no custom title\n\nVisible %%secretcomment%% visible.\n\nA claim[^1] needs a source.\n\n[^1]: the footnote definition.\n\n```sql\nSELECT id FROM users WHERE active = true;\n```\n\nVault image ![[deep.png]] from a subfolder.\n"
 );
 const LONG_SCROLL = Array.from({ length: 1100 }, (_, i) =>
   [
@@ -881,6 +881,44 @@ try {
       return el ? el.textContent : null;
     });
     assert.equal(label, "Note", "[!note] with no title should display 'Note'");
+  });
+
+  await test("inline SVG HTML block renders as a sanitized image", async () => {
+    const fcm = featCm || (await featuresFrame());
+    assert.ok(fcm, "features.md frame found");
+    await fcm.locator("img.ofm-svg-block-image").first().waitFor({ state: "attached", timeout: 5000 });
+    await fcm.evaluate(() => {
+      delete (window).__ofmSvgUnsafe;
+      const img = document.querySelector("img.ofm-svg-block-image");
+      if (img instanceof HTMLImageElement) img.src = img.src;
+    });
+    for (let i = 0; i < 20; i++) {
+      const loaded = await fcm.evaluate(() => {
+        const img = document.querySelector("img.ofm-svg-block-image");
+        return img instanceof HTMLImageElement && img.complete && img.naturalWidth > 0;
+      });
+      if (loaded) break;
+      await win.waitForTimeout(250);
+    }
+    const r = await fcm.evaluate(() => {
+      const img = document.querySelector("img.ofm-svg-block-image");
+      const src = img?.getAttribute("src") ?? "";
+      const payload = src.includes(",") ? decodeURIComponent(src.slice(src.indexOf(",") + 1)) : "";
+      return {
+        hasImg: !!img,
+        loaded: img instanceof HTMLImageElement && img.complete && img.naturalWidth > 0,
+        srcPrefix: src.slice(0, 30),
+        payload,
+        visibleText: document.querySelector(".cm-content")?.textContent ?? "",
+        unsafeRan: Boolean((window).__ofmSvgUnsafe),
+      };
+    });
+    assert.ok(r.hasImg, "expected SVG block to render as an <img>");
+    assert.ok(r.loaded, "sanitized SVG image should load");
+    assert.ok(r.srcPrefix.startsWith("data:image/svg+xml"), `unexpected src: ${r.srcPrefix}`);
+    assert.ok(!r.visibleText.includes("<svg"), "raw SVG source should be hidden while unrevealed");
+    assert.ok(!/script|onload|onclick|javascript:/i.test(r.payload), `unsafe SVG payload leaked: ${r.payload}`);
+    assert.equal(r.unsafeRan, false, "unsafe SVG script/event handlers must not run");
   });
 
   await test("fresh-open YAML frontmatter defaults to the Properties panel", async () => {

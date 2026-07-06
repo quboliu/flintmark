@@ -50,6 +50,7 @@ import {
 } from "./widgets/mermaidWidget";
 import { TableWidget } from "./widgets/tableWidget";
 import { FrontmatterWidget } from "./widgets/frontmatterWidget";
+import { SvgWidget, extractSvgFromHtmlBlock } from "./widgets/svgWidget";
 import { findFrontmatterRange, parseFrontmatter } from "./frontmatter";
 
 // ---------------------------------------------------------------------------
@@ -1145,6 +1146,7 @@ function buildBlockWidgets(state: EditorState): DecorationSet {
     to: r.to,
   }));
   const decos: Range<Decoration>[] = [];
+  const htmlBlockRanges: { from: number; to: number }[] = [];
 
   // Frontmatter → Properties panel (Obsidian-style), reveal-gated like the rest
   // of Live Preview: outside the YAML range, show the panel; when the cursor is
@@ -1196,10 +1198,30 @@ function buildBlockWidgets(state: EditorState): DecorationSet {
     },
   });
 
+  // Inline SVG as raw HTML: keep this intentionally narrow (single <svg>,
+  // optionally wrapped in a plain <div>) so raw HTML remains source by default.
+  tree.iterate({
+    enter: (node) => {
+      if (node.type.name !== "HTMLBlock") return undefined;
+      htmlBlockRanges.push({ from: node.from, to: node.to });
+      if (shouldRevealConstruct(node.from, node.to, selections)) return undefined;
+      const svg = extractSvgFromHtmlBlock(docText.slice(node.from, node.to));
+      if (!svg) return undefined;
+      decos.push(
+        Decoration.replace({
+          widget: new SvgWidget(svg, node.from),
+          block: true,
+        }).range(node.from, node.to)
+      );
+      return undefined;
+    },
+  });
+
   // Tables: detected OURSELVES, tolerantly (GFM/Obsidian accept a delimiter row
   // with surrounding whitespace; @lezer/markdown rejects it, which dropped real
   // tables). Always rendered (editable in place, never reverted to source).
   for (const b of findTableBlocks(docText)) {
+    if (overlapsAny(b, htmlBlockRanges)) continue;
     decos.push(
       Decoration.replace({
         widget: new TableWidget(docText.slice(b.from, b.to), b.from),
@@ -1209,6 +1231,13 @@ function buildBlockWidgets(state: EditorState): DecorationSet {
   }
 
   return Decoration.set(decos, true);
+}
+
+function overlapsAny(
+  range: { from: number; to: number },
+  ranges: { from: number; to: number }[]
+): boolean {
+  return ranges.some((r) => range.from < r.to && r.from < range.to);
 }
 
 const blockWidgetsField = StateField.define<DecorationSet>({
@@ -1230,4 +1259,4 @@ const blockWidgetsField = StateField.define<DecorationSet>({
   provide: (f) => EditorView.decorations.from(f),
 });
 
-export { markdownDecorationsPlugin, blockWidgetsField };
+export { markdownDecorationsPlugin, blockWidgetsField, buildBlockWidgets };

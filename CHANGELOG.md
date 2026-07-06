@@ -3,6 +3,14 @@
 All notable changes to Flintmark are documented here. Versions are pre-1.0 while
 the editor stabilizes for the Marketplace.
 
+## 0.32.7
+
+- **Inline SVG blocks render in Live Preview.** Flintmark now renders raw
+  `<svg>...</svg>` HTML blocks, including the common plain `<div>` wrapper used
+  by Obsidian notes, as preview images instead of showing the source. The renderer
+  is intentionally narrow: only a single SVG block is accepted, the caret reveals
+  editable source, and unsafe SVG markup is stripped before the image is loaded.
+
 ## 0.32.6
 
 - **Fix: local images survive parent-folder renames and bulk attachment changes.**
