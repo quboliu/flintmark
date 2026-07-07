@@ -520,14 +520,6 @@ export function markdownTheme(dark: boolean): Extension {
     minWidth: "26px",
     padding: "2px 6px",
   },
-  ".ofm-external-search-hit": {
-    backgroundColor:
-      "var(--vscode-editor-findMatchBackground, var(--text-highlight-bg-active, rgba(255, 180, 0, 0.35)))",
-    outline:
-      "1px solid var(--vscode-editor-findMatchBorder, rgba(255, 180, 0, 0.55))",
-    outlineOffset: "-1px",
-    borderRadius: "2px",
-  },
   ".cm-textfield": {
     backgroundColor: "var(--vscode-input-background, #3c3c3c)",
     color: "var(--vscode-input-foreground, inherit)",

@@ -3,27 +3,13 @@
 All notable changes to Flintmark are documented here. Versions are pre-1.0 while
 the editor stabilizes for the Marketplace.
 
-## 0.32.10
-
-- **Fix: native global Search results can bridge back into Live Preview.** When
-  VS Code opens a Markdown source editor from an existing Live Preview tab with
-  a non-empty Search selection, Flintmark now automatically returns to Live,
-  scrolls to the selected source range, and highlights the current hit. This
-  covers the public-API path where native Search opens source first; if Markdown
-  is configured to open custom editors directly, VS Code does not expose the
-  Search hit range to extensions.
-- **Regression coverage: real Search sidebar result clicks.** The E2E suite now
-  drives VS Code's global Search UI and fails unless the clicked result is
-  revealed and highlighted in Live Preview.
-
 ## 0.32.9
 
-- **Global Search bridge: source hits return to Live Preview with context.** When
-  a native Markdown source selection/search hit is switched back to Live View,
-  Flintmark now scrolls to the matching source range and marks the current hit
-  inside the Live Preview.
 - **Larger in-file search panel.** The Live Preview find/replace panel is roomier,
   with wider inputs, larger controls, and wrapping layout for narrow panes.
+- **Regression coverage: Enter advances Live Preview search.** The E2E suite now
+  verifies the CodeMirror search panel keeps Enter/Shift+Enter navigation active
+  after the panel styling changes.
 
 ## 0.32.8
 

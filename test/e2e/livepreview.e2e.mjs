@@ -433,12 +433,36 @@ try {
   });
 
   await test("in-editor find panel opens on Mod-F (@codemirror/search)", async () => {
+    const selectedMatchLineText = () =>
+      cm.evaluate(() => {
+        const match = document.querySelector(".cm-searchMatch-selected");
+        return match?.closest(".cm-line")?.textContent ?? "";
+      });
+
     await cm.locator(".cm-line").filter({ hasText: "plain line" }).first().click();
+    await win.keyboard.press("Control+Home");
     await win.waitForTimeout(200);
     await win.keyboard.press("Control+f");
     const panel = cm.locator(".cm-panel.cm-search");
     await panel.first().waitFor({ state: "visible", timeout: 4000 });
     assert.ok((await panel.count()) > 0, "the search panel should open");
+    await panel.locator("input[name='search']").first().waitFor({ state: "visible", timeout: 4000 });
+    await win.keyboard.press("Control+a");
+    await win.keyboard.type("plain");
+    await win.keyboard.press("Enter");
+    await win.waitForTimeout(300);
+    const firstActive = await selectedMatchLineText();
+    assert.ok(
+      firstActive.includes("> plain quote"),
+      `Enter should jump to the first match, active line was: ${JSON.stringify(firstActive)}`
+    );
+    await win.keyboard.press("Enter");
+    await win.waitForTimeout(300);
+    const secondActive = await selectedMatchLineText();
+    assert.ok(
+      secondActive.includes("plain line"),
+      `Enter should jump to the next match, active line was: ${JSON.stringify(secondActive)}`
+    );
     await win.keyboard.press("Escape"); // close so it doesn't shift later layout
     await win.waitForTimeout(200);
   });
@@ -793,66 +817,6 @@ try {
     assert.ok(
       txt.includes("**bold**"),
       `source editor should show RAW markdown (** markers), got: ${JSON.stringify(txt.slice(0, 80))}`
-    );
-  });
-
-  await test("source search hit is revealed and highlighted when switching back to Live", async () => {
-    const lines = win.locator(".monaco-editor .view-lines");
-    await lines.first().waitFor({ state: "visible", timeout: 6000 });
-
-    await win.keyboard.press("Control+f");
-    await win.waitForTimeout(300);
-    await win.keyboard.press("Control+a");
-    await win.keyboard.type("formatword");
-    await win.waitForTimeout(700);
-    await win.keyboard.press("Escape");
-    await win.waitForTimeout(300);
-    const sourceHit = win.locator(".monaco-editor .view-line", { hasText: "formatword" }).first();
-    await sourceHit.waitFor({ state: "visible", timeout: 5000 });
-    await sourceHit.click();
-    await win.keyboard.press("End");
-    for (let i = 0; i < 14; i++) await win.keyboard.press("Shift+ArrowLeft");
-    await win.waitForTimeout(300);
-
-    await win.locator('.editor-actions [aria-label*="Live View"]').first().click();
-    const deadline = Date.now() + 8000;
-    let highlighted = false;
-    const debug = [];
-    while (Date.now() < deadline && !highlighted) {
-      for (const f of win.frames()) {
-        try {
-          const hit = f.locator(".ofm-external-search-hit", { hasText: "formatword" }).first();
-          if ((await hit.count()) > 0 && (await hit.isVisible())) {
-            highlighted = true;
-            break;
-          }
-        } catch {
-          /* cross-origin / detached frame */
-        }
-      }
-      if (!highlighted) await win.waitForTimeout(300);
-    }
-    if (!highlighted) {
-      for (const f of win.frames()) {
-        try {
-          debug.push(
-            await f.evaluate(() => ({
-              url: location.href,
-              cm: document.querySelectorAll(".cm-content").length,
-              hit: document.querySelectorAll(".ofm-external-search-hit").length,
-              selection: window.getSelection()?.toString() ?? "",
-              hasFormatword: document.body.innerText.includes("formatword"),
-              text: document.body.innerText.slice(0, 120),
-            }))
-          );
-        } catch {
-          /* cross-origin / detached frame */
-        }
-      }
-    }
-    assert.ok(
-      highlighted,
-      `switching source→Live should reveal and highlight the source search selection; frames=${JSON.stringify(debug)}`
     );
   });
 

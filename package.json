@@ -2,7 +2,7 @@
   "name": "flintmark",
   "displayName": "Flintmark",
   "description": "Obsidian-compatible Live Preview Markdown editing in VS Code. Not affiliated with Obsidian.",
-  "version": "0.32.10",
+  "version": "0.32.9",
   "publisher": "quboliu",
   "license": "MIT",
   "repository": {
@@ -194,11 +194,6 @@
           "maximum": 240,
           "markdownDescription": "Readable text-column width in `rem` (1rem ≈ 16px). `0` (default) fills the editor width with a fixed side margin — native-style, the margin does **not** grow as the pane widens. A value of `20`–`240` instead caps a **centered** readable column of that width (Obsidian-style; the side margins then grow as the pane widens)."
         },
-        "ofm.globalSearchBridge": {
-          "type": "boolean",
-          "default": true,
-          "markdownDescription": "When a native VS Code Search result opens a Markdown **source** editor from an existing Live Preview tab, automatically return to Live Preview and highlight the selected search hit. Requires Markdown search results to open source first; VS Code does not expose Search hit ranges when it opens a custom editor directly."
-        },
         "ofm.ai.debugLog": {
           "type": "boolean",
           "default": false,
@@ -267,7 +262,7 @@
     "test:report": "node scripts/test-report.mjs",
     "build:test": "node esbuild.test.mjs",
     "test:integration": "npm run compile && npm run build:test && xvfb-run -a node out/test/runTest.js",
-    "test:e2e": "npm run compile && xvfb-run -a node test/e2e/livepreview.e2e.mjs && xvfb-run -a node test/e2e/global-search.e2e.mjs && xvfb-run -a node test/e2e/external-update.e2e.mjs && xvfb-run -a node test/e2e/theme-mode.e2e.mjs && xvfb-run -a node test/e2e/image-index-lifecycle.e2e.mjs",
+    "test:e2e": "npm run compile && xvfb-run -a node test/e2e/livepreview.e2e.mjs && xvfb-run -a node test/e2e/external-update.e2e.mjs && xvfb-run -a node test/e2e/theme-mode.e2e.mjs && xvfb-run -a node test/e2e/image-index-lifecycle.e2e.mjs",
     "test:visual": "npm run compile && xvfb-run -a node test/e2e/visual.e2e.mjs",
     "test:visual:update": "npm run compile && xvfb-run -a node test/e2e/visual.e2e.mjs --update",
     "shots:go-pipelines": "npm run compile && xvfb-run -a node scripts/capture-go-pipelines-shots.mjs",

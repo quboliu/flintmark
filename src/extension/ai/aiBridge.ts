@@ -16,7 +16,6 @@ import * as vscode from "vscode";
 
 import { selectHostAdapter, type HostContext } from "./hostAdapters";
 import { aiLog } from "./aiLog";
-import { suppressAutoSourceReveal } from "../sourceRevealBridge";
 
 const MANUAL_HINT = "Flintmark: selection is ready in source — invoke your AI (e.g. ⌘K / Ctrl+K).";
 
@@ -44,7 +43,6 @@ export async function openSourceWithSelection(
 ): Promise<vscode.TextEditor | null> {
   const uriStr = document.uri.toString();
   aiLog(`openSource: layout=${layout} uri=${document.uri.fsPath}`);
-  suppressAutoSourceReveal(document.uri);
   if (layout === "replace") {
     try {
       await vscode.commands.executeCommand("vscode.openWith", document.uri, "default");

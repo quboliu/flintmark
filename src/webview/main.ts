@@ -6,7 +6,6 @@ import "katex/dist/katex.min.css";
 import "./theme/obsidian-variables.css";
 import "./theme/obsidian-base.css";
 import { EditorView } from "@codemirror/view";
-import { EditorSelection } from "@codemirror/state";
 import type {
   DocVersion,
   HostMsg,
@@ -23,7 +22,6 @@ import {
   currentSelectionRange,
   type EditorHandle,
 } from "./view/createEditor";
-import { setExternalRevealRange } from "./view/externalReveal";
 import { setImageMap } from "./view/widgets/imageWidget";
 import { applyAttachmentSaved } from "./view/attachmentPaste";
 
@@ -36,7 +34,6 @@ let editorHandle: EditorHandle | null = null;
 let view: EditorView | null = null;
 let currentVersion: DocVersion = 0;
 let vaultData: VaultData = { notes: [], tags: [] };
-let pendingRevealRange: { from: number; to: number } | null = null;
 type ThemeMode = "dark" | "light";
 let currentThemeMode: ThemeMode | null = null;
 let themeObserver: MutationObserver | null = null;
@@ -122,10 +119,6 @@ messenger.onMessage((msg: HostMsg) => {
     case "revealLine":
       handleRevealLine(msg.line);
       break;
-    case "revealRange":
-      if (view) handleRevealRange(msg.from, msg.to);
-      else pendingRevealRange = { from: msg.from, to: msg.to };
-      break;
     case "conflict":
       handleConflict(msg.serverVersion);
       break;
@@ -206,11 +199,6 @@ function handleInit(msg: Extract<HostMsg, { type: "init" }>): void {
   view = editorHandle.view;
   ensureThemeObserver();
   syncThemeMode();
-  if (pendingRevealRange) {
-    const { from, to } = pendingRevealRange;
-    pendingRevealRange = null;
-    handleRevealRange(from, to);
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -263,29 +251,6 @@ function handleRevealLine(line: number): void {
   view.dispatch({
     selection: { anchor: pos },
     effects: EditorView.scrollIntoView(pos, { y: "start", yMargin: 8 }),
-  });
-}
-
-function handleRevealRange(from: number, to: number): void {
-  if (!view) return;
-  const len = view.state.doc.length;
-  const a = Math.max(0, Math.min(from, len));
-  const b = Math.max(0, Math.min(to, len));
-  const start = Math.min(a, b);
-  const end = Math.max(a, b);
-  const selection =
-    start === end ? EditorSelection.cursor(start) : EditorSelection.range(start, end);
-
-  view.focus();
-  view.dispatch({
-    selection,
-    effects: [
-      setExternalRevealRange.of(start === end ? null : { from: start, to: end }),
-      EditorView.scrollIntoView(selection, {
-        y: "center",
-        yMargin: 24,
-      }),
-    ],
   });
 }
 

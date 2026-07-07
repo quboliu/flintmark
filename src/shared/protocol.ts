@@ -76,9 +76,6 @@ export type HostMsg =
   | { type: "requestAiEdit"; mode: "edit" | "chat" }
   // Scroll/place the cursor at a 0-based line (Outline panel navigation).
   | { type: "revealLine"; line: number }
-  // Scroll to and select a source-offset range (used when switching from a
-  // native source editor selection/search hit back into Live Preview).
-  | { type: "revealRange"; from: number; to: number }
   | { type: "conflict"; serverVersion: DocVersion };
 
 // ---------------------------------------------------------------------------

@@ -65,11 +65,6 @@ type PanelRecord = {
   panel: vscode.WebviewPanel;
 };
 
-type RevealRange = {
-  from: number;
-  to: number;
-};
-
 // ---------------------------------------------------------------------------
 // CustomTextEditorProvider
 // ---------------------------------------------------------------------------
@@ -90,12 +85,6 @@ export class OfmCustomTextEditorProvider
 
   /** Last image-map JSON sent per panel, to avoid redundant webview re-renders. */
   private lastImageMap: WeakMap<vscode.WebviewPanel, string> = new WeakMap();
-
-  /** Webviews that have sent `ready` and can receive navigation messages. */
-  private readyPanels: WeakSet<vscode.WebviewPanel> = new WeakSet();
-
-  /** Source ranges to reveal once the corresponding Live Preview is ready. */
-  private pendingRevealRanges: Map<string, RevealRange> = new Map();
 
   constructor(
     private readonly context: vscode.ExtensionContext,
@@ -213,7 +202,6 @@ export class OfmCustomTextEditorProvider
       const records = this.panels.get(uri);
       records?.delete(webviewPanel);
       if (records?.size === 0) this.panels.delete(uri);
-      if (!records || records.size === 0) this.pendingRevealRanges.delete(uri);
       // Drop the dedup cache so a REOPENED webview (which starts with an empty
       // imageMap) is re-sent the map even if the document text is unchanged.
       this.lastImageMap.delete(webviewPanel);
@@ -363,7 +351,6 @@ export class OfmCustomTextEditorProvider
     document: vscode.TextDocument,
     panel: vscode.WebviewPanel
   ): void {
-    const uri = document.uri.toString();
     const text = document.getText();
     const version: DocVersion = document.version;
     const settings: Settings = readSettings();
@@ -371,7 +358,7 @@ export class OfmCustomTextEditorProvider
 
     const initMsg: HostMsg = {
       type: "init",
-      uri,
+      uri: document.uri.toString(),
       version,
       text,
       settings,
@@ -380,7 +367,6 @@ export class OfmCustomTextEditorProvider
     };
 
     panel.webview.postMessage(initMsg);
-    this.readyPanels.add(panel);
     this.imageIndex?.ensureFreshForDocument(document.uri, "webview-ready");
     // FORCE the image map to this freshly-ready webview: a pre-ready send (e.g.
     // an imageIndex.onDidChange that fired before `ready`) is dropped by the
@@ -389,7 +375,6 @@ export class OfmCustomTextEditorProvider
     // first guarantees delivery once the webview can actually apply it.
     this.lastImageMap.delete(panel);
     this.sendImageMap(document, panel);
-    this.flushPendingRevealRange(uri, panel);
   }
 
   // -----------------------------------------------------------------------
@@ -804,31 +789,6 @@ export class OfmCustomTextEditorProvider
     return true;
   }
 
-  /** Open Live Preview and select a source-offset range after the webview is ready. */
-  public async openLivePreviewAtOffsets(
-    uri: vscode.Uri,
-    range: RevealRange
-  ): Promise<void> {
-    const key = uri.toString();
-    this.pendingRevealRanges.set(key, range);
-    await vscode.commands.executeCommand("vscode.openWith", uri, "ofm.livePreview");
-    this.flushPendingRevealRange(key);
-  }
-
-  private flushPendingRevealRange(
-    uri: string,
-    preferredPanel?: vscode.WebviewPanel
-  ): boolean {
-    const range = this.pendingRevealRanges.get(uri);
-    if (!range) return false;
-    const panel = preferredPanel ?? this.panelForUri(uri);
-    if (!panel || !this.readyPanels.has(panel)) return false;
-    const msg: HostMsg = { type: "revealRange", from: range.from, to: range.to };
-    void panel.webview.postMessage(msg);
-    this.pendingRevealRanges.delete(uri);
-    return true;
-  }
-
   /** The webview panel for the active Live Preview tab (or the sole panel). */
   private activePanel(): vscode.WebviewPanel | undefined {
     const active = vscode.window.tabGroups.activeTabGroup.activeTab?.input;
@@ -836,21 +796,9 @@ export class OfmCustomTextEditorProvider
     if (active instanceof vscode.TabInputCustom && active.viewType === "ofm.livePreview") {
       uri = active.uri.toString();
     }
-    return uri ? this.panelForUri(uri) : this.anyPanel();
-  }
-
-  private panelForUri(uri: string): vscode.WebviewPanel | undefined {
     const records = uri
       ? [...(this.panels.get(uri)?.values() ?? [])]
       : [...this.allPanelRecords()];
-    return this.pickPanel(records);
-  }
-
-  private anyPanel(): vscode.WebviewPanel | undefined {
-    return this.pickPanel([...this.allPanelRecords()]);
-  }
-
-  private pickPanel(records: PanelRecord[]): vscode.WebviewPanel | undefined {
     if (records.length === 0) return undefined;
     return (
       records.find((record) => record.panel.active)?.panel ??
