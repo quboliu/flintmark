@@ -122,21 +122,32 @@ try {
 
   async function palette(combo, text) {
     const widget = win.locator(".quick-input-widget");
-    for (let attempt = 0; ; attempt++) {
-      await win.keyboard.press(combo);
+    const input = widget.locator("input").first();
+    const openers = combo === "Control+Shift+P" ? [combo, "F1"] : [combo];
+    let lastError = null;
+    for (let attempt = 0; attempt < 6; attempt++) {
+      await win.bringToFront().catch(() => {});
+      await win
+        .locator(".tab.active")
+        .first()
+        .click({ position: { x: 14, y: 12 }, timeout: 1000 })
+        .catch(() => {});
+      await win.keyboard.press("Escape").catch(() => {});
+      await win.waitForTimeout(150);
+      await win.keyboard.press(openers[attempt % openers.length]);
       try {
-        await widget.waitFor({ state: "visible", timeout: 5000 });
-        break;
+        await widget.waitFor({ state: "visible", timeout: 3000 });
+        await input.waitFor({ state: "visible", timeout: 2000 });
+        await input.fill(text);
+        await win.waitForTimeout(1200);
+        await win.keyboard.press("Enter");
+        await win.waitForTimeout(1500);
+        return;
       } catch (e) {
-        if (attempt >= 3) throw e;
-        await win.waitForTimeout(1000);
+        lastError = e;
       }
     }
-    await win.waitForTimeout(400);
-    await win.keyboard.type(text);
-    await win.waitForTimeout(1200);
-    await win.keyboard.press("Enter");
-    await win.waitForTimeout(1500);
+    throw lastError;
   }
   async function findCmFrame(ms) {
     const deadline = Date.now() + ms;
