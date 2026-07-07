@@ -490,8 +490,44 @@ export function markdownTheme(dark: boolean): Extension {
     color: "var(--vscode-editorWidget-foreground, var(--text-normal, inherit))",
     borderBottom: "1px solid var(--vscode-editorWidget-border, rgba(128,128,128,0.3))",
   },
-  ".cm-panel.cm-search": { padding: "6px 8px", fontSize: "0.85em" },
-  ".cm-panel.cm-search label": { fontSize: "0.85em" },
+  ".cm-panel.cm-search": {
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: "6px 8px",
+    padding: "8px 12px",
+    fontSize: "0.95em",
+    lineHeight: "1.35",
+  },
+  ".cm-panel.cm-search label": {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "4px",
+    whiteSpace: "nowrap",
+    fontSize: "0.95em",
+  },
+  ".cm-panel.cm-search .cm-textfield": {
+    minWidth: "min(18rem, calc(100vw - 9rem))",
+    minHeight: "26px",
+    fontSize: "1em",
+  },
+  ".cm-panel.cm-search .cm-button": {
+    minHeight: "26px",
+    fontSize: "0.95em",
+  },
+  ".cm-panel.cm-search button[name='close']": {
+    marginLeft: "auto",
+    minWidth: "26px",
+    padding: "2px 6px",
+  },
+  ".ofm-external-search-hit": {
+    backgroundColor:
+      "var(--vscode-editor-findMatchBackground, var(--text-highlight-bg-active, rgba(255, 180, 0, 0.35)))",
+    outline:
+      "1px solid var(--vscode-editor-findMatchBorder, rgba(255, 180, 0, 0.55))",
+    outlineOffset: "-1px",
+    borderRadius: "2px",
+  },
   ".cm-textfield": {
     backgroundColor: "var(--vscode-input-background, #3c3c3c)",
     color: "var(--vscode-input-foreground, inherit)",

@@ -2,7 +2,7 @@
   "name": "flintmark",
   "displayName": "Flintmark",
   "description": "Obsidian-compatible Live Preview Markdown editing in VS Code. Not affiliated with Obsidian.",
-  "version": "0.32.8",
+  "version": "0.32.9",
   "publisher": "quboliu",
   "license": "MIT",
   "repository": {

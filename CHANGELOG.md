@@ -3,6 +3,15 @@
 All notable changes to Flintmark are documented here. Versions are pre-1.0 while
 the editor stabilizes for the Marketplace.
 
+## 0.32.9
+
+- **Global Search bridge: source hits return to Live Preview with context.** When
+  a native Markdown source selection/search hit is switched back to Live View,
+  Flintmark now scrolls to the matching source range and marks the current hit
+  inside the Live Preview.
+- **Larger in-file search panel.** The Live Preview find/replace panel is roomier,
+  with wider inputs, larger controls, and wrapping layout for narrow panes.
+
 ## 0.32.8
 
 - **Fix: light mode uses a pure white editor background.** The light surface now

@@ -7,10 +7,15 @@ import { selectHostAdapter } from "./ai/hostAdapters";
 const VIEW_TYPE = "ofm.livePreview";
 const PROMPTED_KEY = "ofm.promptedDefaultEditor";
 const MD_GLOBS = ["*.md", "*.markdown"];
+const lastSourceSelections = new Map<string, { from: number; to: number }>();
 
 /** Minimal surface the AI command needs from the editor provider. */
 export interface AiPanelHost {
   requestAiEditOnActivePanel(mode: "edit" | "chat"): boolean;
+  openLivePreviewAtOffsets?(
+    uri: vscode.Uri,
+    range: { from: number; to: number }
+  ): Promise<void>;
 }
 
 export function registerCommands(
@@ -20,11 +25,21 @@ export function registerCommands(
   const reg = (id: string, fn: (...args: unknown[]) => unknown) =>
     context.subscriptions.push(vscode.commands.registerCommand(id, fn));
 
+  context.subscriptions.push(
+    vscode.window.onDidChangeTextEditorSelection((e) => {
+      if (!isMarkdownUri(e.textEditor.document.uri)) return;
+      lastSourceSelections.set(
+        e.textEditor.document.uri.toString(),
+        selectionOffsets(e.textEditor)
+      );
+    })
+  );
+
   reg("ofm.setAsDefaultEditor", () => setAsDefaultEditor());
 
   reg("ofm.openAsLivePreview", async () => {
     const uri = activeTextUri() ?? activeCustomUri();
-    if (uri) await vscode.commands.executeCommand("vscode.openWith", uri, VIEW_TYPE);
+    if (uri) await openLivePreview(uri, aiHost);
   });
 
   reg("ofm.openAsSource", async () => {
@@ -76,13 +91,14 @@ export function registerCommands(
 
   reg("ofm.returnToLivePreview", async () => {
     const uri = activeTextUri() ?? activeCustomUri();
-    if (uri) await vscode.commands.executeCommand("vscode.openWith", uri, VIEW_TYPE);
+    if (uri) await openLivePreview(uri, aiHost);
   });
 
   reg("ofm.acceptAiAndReturn", async () => {
     const uri = activeTextUri() ?? activeCustomUri();
+    const range = uri ? activeSourceSelectionOffsets(uri) : undefined;
     await acceptNativeAi(); // best-effort; no-op if the host has no accept cmd
-    if (uri) await vscode.commands.executeCommand("vscode.openWith", uri, VIEW_TYPE);
+    if (uri) await openLivePreview(uri, aiHost, range);
   });
 
   // First-run: offer to make Live Preview the default for Markdown.
@@ -90,7 +106,7 @@ export function registerCommands(
 }
 
 function activeTextUri(): vscode.Uri | undefined {
-  return vscode.window.activeTextEditor?.document.uri;
+  return vscode.window.activeTextEditor?.document.uri ?? activeTabTextUri();
 }
 
 function activeCustomUri(): vscode.Uri | undefined {
@@ -99,6 +115,46 @@ function activeCustomUri(): vscode.Uri | undefined {
     return input.uri;
   }
   return undefined;
+}
+
+function activeTabTextUri(): vscode.Uri | undefined {
+  const input = vscode.window.tabGroups.activeTabGroup.activeTab?.input;
+  if (input instanceof vscode.TabInputText) return input.uri;
+  return undefined;
+}
+
+async function openLivePreview(
+  uri: vscode.Uri,
+  host?: AiPanelHost,
+  range = activeSourceSelectionOffsets(uri)
+): Promise<void> {
+  if (range && host?.openLivePreviewAtOffsets) {
+    await host.openLivePreviewAtOffsets(uri, range);
+    return;
+  }
+  await vscode.commands.executeCommand("vscode.openWith", uri, VIEW_TYPE);
+}
+
+function activeSourceSelectionOffsets(
+  uri: vscode.Uri
+): { from: number; to: number } | undefined {
+  const editor = vscode.window.activeTextEditor;
+  const key = uri.toString();
+  if (!editor || editor.document.uri.toString() !== key) {
+    return lastSourceSelections.get(key);
+  }
+  return selectionOffsets(editor);
+}
+
+function selectionOffsets(editor: vscode.TextEditor): { from: number; to: number } {
+  return {
+    from: editor.document.offsetAt(editor.selection.start),
+    to: editor.document.offsetAt(editor.selection.end),
+  };
+}
+
+function isMarkdownUri(uri: vscode.Uri): boolean {
+  return /\.(md|markdown)$/i.test(uri.path);
 }
 
 async function selectTheme(): Promise<void> {

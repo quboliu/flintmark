@@ -33,6 +33,7 @@ import { formatKeymap, handlePasteLink } from "./formatCommands";
 import { markdownFolding } from "./folding";
 import { markdownAutocomplete } from "./autocomplete";
 import { findFrontmatterRange } from "./frontmatter";
+import { externalRevealField } from "./externalReveal";
 import {
   imageFromPaste,
   imageFromDrop,
@@ -185,6 +186,9 @@ export function createEditor(
 
         // Block widgets (mermaid diagrams, tables) — must be a StateField.
         blockWidgetsField,
+
+        // One-shot external navigation marker (e.g. source search hit → Live).
+        externalRevealField,
 
         // CSS theme for OFM-specific classes. Kept in a compartment so host
         // light/dark changes can update CM6 polarity without rebuilding the editor.
