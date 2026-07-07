@@ -124,10 +124,12 @@ jobs:
             CREATED_TAG="$(printf '%s\n' "$CREATE_OUTPUT" | sed -n 's#.*releases/tag/\([^/?[:space:]]*\).*#\1#p' | tail -n 1)"
             if printf '%s' "$CREATED_TAG" | grep -q '^untagged-'; then
               gh release edit "$CREATED_TAG" --tag "$TAG" --target "$TARGET" --verify-tag \
-                --title "$TITLE" --notes-file RELEASE_NOTES.md
+                --title "$TITLE" --notes-file RELEASE_NOTES.md --draft=false
             fi
           fi
+          gh release edit "$TAG" --draft=false --latest
           gh release upload "$TAG" "$VSIX" --clobber
+          gh release edit "$TAG" --draft=false --latest
           ACTUAL_TAG="$(gh release view "$TAG" --json tagName --jq '.tagName')"
           if [ "$ACTUAL_TAG" != "$TAG" ]; then
             echo "::error::GitHub Release tag mismatch: expected ${TAG}, got ${ACTUAL_TAG}"
@@ -136,6 +138,13 @@ jobs:
           gh release view "$TAG" --json assets \
             --jq ".assets[].name" | grep -qxF "$VSIX" \
             || { echo "::error::GitHub Release missing asset ${VSIX}"; exit 1; }
+          PUBLIC_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${VSIX}"
+          for _ in 1 2 3 4 5 6; do
+            curl -fsIL "$PUBLIC_URL" >/dev/null && exit 0
+            sleep 5
+          done
+          echo "::error::GitHub Release asset is not publicly downloadable: ${PUBLIC_URL}"
+          exit 1
 
       - name: Publish to VS Code Marketplace
         if: ${{ env.VSCE_PAT != '' }}
