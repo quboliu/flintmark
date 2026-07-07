@@ -9,6 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import assert from "node:assert";
+import { palette as openPalette } from "./quickInput.mjs";
 
 const REPO = resolve(".");
 const VSCODE = process.env.VSCODE_BIN || "/usr/share/codium/codium";
@@ -62,15 +63,12 @@ try {
   await win.waitForSelector(".monaco-workbench", { timeout: 30000 });
   await win.waitForTimeout(4500);
 
-  async function palette(combo, text) {
-    const widget = win.locator(".quick-input-widget");
-    await win.keyboard.press(combo);
-    await widget.waitFor({ state: "visible", timeout: 5000 });
-    await win.waitForTimeout(400);
-    await win.keyboard.type(text);
-    await win.waitForTimeout(1000);
-    await win.keyboard.press("Enter");
-    await win.waitForTimeout(1500);
+  const palette = (combo, text) => openPalette(win, combo, text, { waitBeforeEnter: 1000 });
+  async function clickEditorAction(label, waitAfterClick = 1500) {
+    const action = win.locator(`.editor-actions [aria-label*="${label}"]`).first();
+    await action.waitFor({ state: "visible", timeout: 8000 });
+    await action.click();
+    await win.waitForTimeout(waitAfterClick);
   }
 
   async function findCmFrame(ms, opts = {}) {
@@ -110,7 +108,7 @@ try {
 
   const liveHasExternalUpdate = liveText.includes(ADDED);
 
-  await palette("Control+Shift+P", "Switch to Code View");
+  await clickEditorAction("Code View");
   await win.locator(".monaco-editor .view-lines").first().waitFor({ state: "visible", timeout: 8000 });
   const sourceText = normalizeEditorText(
     await win.locator(".monaco-editor .view-lines").first().innerText()
@@ -135,12 +133,8 @@ try {
     `source editor should show typed paragraph; got:\n${sourceAfterTyping}`
   );
 
-  await palette("Control+Shift+P", "Flintmark: Switch to Live View");
+  await clickEditorAction("Live View");
   let cmAfterSource = await findCmFrame(5000, { visible: true });
-  if (!cmAfterSource) {
-    await palette("Control+Shift+P", "Switch to Live View");
-    cmAfterSource = await findCmFrame(10000, { visible: true });
-  }
   assert.ok(cmAfterSource, "Live Preview should reopen after source edit");
   let liveAfterSource = "";
   const returnDeadline = Date.now() + 10000;
@@ -155,8 +149,8 @@ try {
   );
 
   const SPLIT_ADDED = "This paragraph was typed in a split source editor.";
-  await palette("Control+Shift+P", "View: Split Editor Right");
-  await palette("Control+Shift+P", "Switch to Code View");
+  await clickEditorAction("Split Editor Right");
+  await clickEditorAction("Code View");
   await win.locator(".monaco-editor .view-lines").first().waitFor({ state: "visible", timeout: 8000 });
   await win.keyboard.press("Control+End");
   await win.keyboard.press("Enter");

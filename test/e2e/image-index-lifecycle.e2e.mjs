@@ -11,6 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import assert from "node:assert";
+import { palette } from "./quickInput.mjs";
 
 const REPO = resolve(".");
 const VSCODE = process.env.VSCODE_BIN || "/usr/share/codium/codium";
@@ -72,25 +73,6 @@ async function closeApp(target = app) {
     new Promise((resolve) => setTimeout(resolve, 5000)),
   ]);
   if (!closed) target.process()?.kill("SIGTERM");
-}
-
-async function palette(win, combo, text) {
-  const widget = win.locator(".quick-input-widget");
-  for (let attempt = 0; ; attempt++) {
-    await win.keyboard.press(combo);
-    try {
-      await widget.waitFor({ state: "visible", timeout: 5000 });
-      break;
-    } catch (e) {
-      if (attempt >= 3) throw e;
-      await win.waitForTimeout(1000);
-    }
-  }
-  await win.waitForTimeout(400);
-  await win.keyboard.type(text);
-  await win.waitForTimeout(1200);
-  await win.keyboard.press("Enter");
-  await win.waitForTimeout(1600);
 }
 
 async function findVisibleCmFrame(win, ms) {

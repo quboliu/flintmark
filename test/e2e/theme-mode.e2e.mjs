@@ -3,6 +3,7 @@ import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import assert from "node:assert";
+import { palette as openPalette } from "./quickInput.mjs";
 
 const REPO = resolve(".");
 const VSCODE = process.env.VSCODE_BIN || "/usr/share/codium/codium";
@@ -101,24 +102,7 @@ try {
   await win.waitForSelector(".monaco-workbench", { timeout: 30000 });
   await win.waitForTimeout(4500);
 
-  async function palette(combo, text) {
-    const widget = win.locator(".quick-input-widget");
-    for (let attempt = 0; ; attempt++) {
-      await win.keyboard.press(combo);
-      try {
-        await widget.waitFor({ state: "visible", timeout: 5000 });
-        break;
-      } catch (e) {
-        if (attempt >= 3) throw e;
-        await win.waitForTimeout(1000);
-      }
-    }
-    await win.waitForTimeout(400);
-    await win.keyboard.type(text);
-    await win.waitForTimeout(1200);
-    await win.keyboard.press("Enter");
-    await win.waitForTimeout(1500);
-  }
+  const palette = (combo, text) => openPalette(win, combo, text);
 
   async function findCmFrame(ms) {
     const deadline = Date.now() + ms;

@@ -7,6 +7,7 @@ import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, existsSync } from 
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import assert from "node:assert";
+import { palette as openPalette } from "./quickInput.mjs";
 
 const REPO = resolve(".");
 const VSCODE = process.env.VSCODE_BIN || "/usr/share/codium/codium";
@@ -120,35 +121,7 @@ try {
   await win.waitForSelector(".monaco-workbench", { timeout: 30000 });
   await win.waitForTimeout(4500); // let the workbench become interactive
 
-  async function palette(combo, text) {
-    const widget = win.locator(".quick-input-widget");
-    const input = widget.locator("input").first();
-    const openers = combo === "Control+Shift+P" ? [combo, "F1"] : [combo];
-    let lastError = null;
-    for (let attempt = 0; attempt < 6; attempt++) {
-      await win.bringToFront().catch(() => {});
-      await win
-        .locator(".tab.active")
-        .first()
-        .click({ position: { x: 14, y: 12 }, timeout: 1000 })
-        .catch(() => {});
-      await win.keyboard.press("Escape").catch(() => {});
-      await win.waitForTimeout(150);
-      await win.keyboard.press(openers[attempt % openers.length]);
-      try {
-        await widget.waitFor({ state: "visible", timeout: 3000 });
-        await input.waitFor({ state: "visible", timeout: 2000 });
-        await input.fill(text);
-        await win.waitForTimeout(1200);
-        await win.keyboard.press("Enter");
-        await win.waitForTimeout(1500);
-        return;
-      } catch (e) {
-        lastError = e;
-      }
-    }
-    throw lastError;
-  }
+  const palette = (combo, text) => openPalette(win, combo, text);
   async function findCmFrame(ms) {
     const deadline = Date.now() + ms;
     while (Date.now() < deadline) {
