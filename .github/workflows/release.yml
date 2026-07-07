@@ -113,12 +113,22 @@ jobs:
         run: |
           TAG="${{ steps.ver.outputs.tag }}"
           TITLE="Flintmark ${{ steps.ver.outputs.version }}"
+          VSIX="flintmark-${{ steps.ver.outputs.version }}.vsix"
+          git fetch --force --tags origin "$TAG"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release edit "$TAG" --title "$TITLE" --notes-file RELEASE_NOTES.md
           else
-            gh release create "$TAG" --title "$TITLE" --notes-file RELEASE_NOTES.md --target "${GITHUB_SHA}"
+            gh release create "$TAG" --title "$TITLE" --notes-file RELEASE_NOTES.md --verify-tag
           fi
-          gh release upload "$TAG" flintmark-*.vsix --clobber
+          gh release upload "$TAG" "$VSIX" --clobber
+          ACTUAL_TAG="$(gh release view "$TAG" --json tagName --jq '.tagName')"
+          if [ "$ACTUAL_TAG" != "$TAG" ]; then
+            echo "::error::GitHub Release tag mismatch: expected ${TAG}, got ${ACTUAL_TAG}"
+            exit 1
+          fi
+          gh release view "$TAG" --json assets \
+            --jq ".assets[].name" | grep -qxF "$VSIX" \
+            || { echo "::error::GitHub Release missing asset ${VSIX}"; exit 1; }
 
       - name: Publish to VS Code Marketplace
         if: ${{ env.VSCE_PAT != '' }}
