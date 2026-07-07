@@ -3,11 +3,20 @@ import { BUNDLED_THEMES } from "./themes";
 import { acceptNativeAi } from "./ai/aiBridge";
 import { showAiLog, aiLogForce } from "./ai/aiLog";
 import { selectHostAdapter } from "./ai/hostAdapters";
+import {
+  isAutoSourceRevealSuppressed,
+  suppressAutoSourceReveal,
+} from "./sourceRevealBridge";
 
 const VIEW_TYPE = "ofm.livePreview";
 const PROMPTED_KEY = "ofm.promptedDefaultEditor";
 const MD_GLOBS = ["*.md", "*.markdown"];
 const lastSourceSelections = new Map<string, { from: number; to: number }>();
+const recentSourceActivations = new Map<string, number>();
+const recentLiveTabs = new Map<string, number>();
+const pendingSourceRevealTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const AUTO_SOURCE_REVEAL_WINDOW_MS = 1500;
+const RECENT_LIVE_WINDOW_MS = 15000;
 
 /** Minimal surface the AI command needs from the editor provider. */
 export interface AiPanelHost {
@@ -32,8 +41,20 @@ export function registerCommands(
         e.textEditor.document.uri.toString(),
         selectionOffsets(e.textEditor)
       );
+      scheduleAutoSourceReveal(e.textEditor, aiHost);
     })
   );
+  context.subscriptions.push(
+    vscode.window.onDidChangeActiveTextEditor((editor) => {
+      rememberActiveLiveTab();
+      if (!editor || !isMarkdownUri(editor.document.uri)) return;
+      recentSourceActivations.set(editor.document.uri.toString(), Date.now());
+      scheduleAutoSourceReveal(editor, aiHost);
+    }),
+    vscode.window.tabGroups.onDidChangeTabs(() => rememberActiveLiveTab()),
+    vscode.window.tabGroups.onDidChangeTabGroups(() => rememberActiveLiveTab())
+  );
+  rememberActiveLiveTab();
 
   reg("ofm.setAsDefaultEditor", () => setAsDefaultEditor());
 
@@ -44,7 +65,10 @@ export function registerCommands(
 
   reg("ofm.openAsSource", async () => {
     const uri = activeCustomUri() ?? activeTextUri();
-    if (uri) await vscode.commands.executeCommand("vscode.openWith", uri, "default");
+    if (uri) {
+      suppressAutoSourceReveal(uri);
+      await vscode.commands.executeCommand("vscode.openWith", uri, "default");
+    }
   });
 
   reg("ofm.selectTheme", () => selectTheme());
@@ -123,6 +147,11 @@ function activeTabTextUri(): vscode.Uri | undefined {
   return undefined;
 }
 
+function rememberActiveLiveTab(): void {
+  const uri = activeCustomUri();
+  if (uri) recentLiveTabs.set(uri.toString(), Date.now());
+}
+
 async function openLivePreview(
   uri: vscode.Uri,
   host?: AiPanelHost,
@@ -151,6 +180,64 @@ function selectionOffsets(editor: vscode.TextEditor): { from: number; to: number
     from: editor.document.offsetAt(editor.selection.start),
     to: editor.document.offsetAt(editor.selection.end),
   };
+}
+
+function scheduleAutoSourceReveal(
+  editor: vscode.TextEditor,
+  host?: AiPanelHost
+): void {
+  if (!host?.openLivePreviewAtOffsets) return;
+  if (!isMarkdownUri(editor.document.uri)) return;
+  if (
+    vscode.workspace
+      .getConfiguration("ofm")
+      .get<boolean>("globalSearchBridge", true) === false
+  ) {
+    return;
+  }
+  const key = editor.document.uri.toString();
+  const sourceActivatedAt = recentSourceActivations.get(key) ?? 0;
+  if (Date.now() - sourceActivatedAt > AUTO_SOURCE_REVEAL_WINDOW_MS) return;
+  if (!hasRecentLivePreviewContext(editor.document.uri)) return;
+
+  const existing = pendingSourceRevealTimers.get(key);
+  if (existing) clearTimeout(existing);
+  pendingSourceRevealTimers.set(
+    key,
+    setTimeout(() => {
+      pendingSourceRevealTimers.delete(key);
+      void autoRevealSourceSelection(editor, host);
+    }, 120)
+  );
+}
+
+async function autoRevealSourceSelection(
+  editor: vscode.TextEditor,
+  host: AiPanelHost
+): Promise<void> {
+  const uri = editor.document.uri;
+  if (vscode.window.activeTextEditor !== editor) return;
+  if (isAutoSourceRevealSuppressed(uri)) return;
+  if (!hasRecentLivePreviewContext(uri)) return;
+  if (editor.selection.isEmpty) return;
+  await host.openLivePreviewAtOffsets?.(uri, selectionOffsets(editor));
+}
+
+function hasRecentLivePreviewContext(uri: vscode.Uri): boolean {
+  const key = uri.toString();
+  for (const group of vscode.window.tabGroups.all) {
+    for (const tab of group.tabs) {
+      const input = tab.input;
+      if (
+        input instanceof vscode.TabInputCustom &&
+        input.viewType === VIEW_TYPE &&
+        input.uri.toString() === key
+      ) {
+        return true;
+      }
+    }
+  }
+  return Date.now() - (recentLiveTabs.get(key) ?? 0) <= RECENT_LIVE_WINDOW_MS;
 }
 
 function isMarkdownUri(uri: vscode.Uri): boolean {
