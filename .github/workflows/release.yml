@@ -115,10 +115,17 @@ jobs:
           TITLE="Flintmark ${{ steps.ver.outputs.version }}"
           VSIX="flintmark-${{ steps.ver.outputs.version }}.vsix"
           git fetch --force --tags origin "$TAG"
+          TARGET="$(git rev-list -n 1 "$TAG")"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release edit "$TAG" --title "$TITLE" --notes-file RELEASE_NOTES.md
           else
-            gh release create "$TAG" --title "$TITLE" --notes-file RELEASE_NOTES.md --verify-tag
+            CREATE_OUTPUT="$(gh release create "$TAG" --title "$TITLE" --notes-file RELEASE_NOTES.md --verify-tag 2>&1)"
+            echo "$CREATE_OUTPUT"
+            CREATED_TAG="$(printf '%s\n' "$CREATE_OUTPUT" | sed -n 's#.*releases/tag/\([^/?[:space:]]*\).*#\1#p' | tail -n 1)"
+            if printf '%s' "$CREATED_TAG" | grep -q '^untagged-'; then
+              gh release edit "$CREATED_TAG" --tag "$TAG" --target "$TARGET" --verify-tag \
+                --title "$TITLE" --notes-file RELEASE_NOTES.md
+            fi
           fi
           gh release upload "$TAG" "$VSIX" --clobber
           ACTUAL_TAG="$(gh release view "$TAG" --json tagName --jq '.tagName')"
