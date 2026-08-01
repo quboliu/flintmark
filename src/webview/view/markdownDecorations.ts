@@ -963,7 +963,7 @@ const markdownDecorationsPlugin = ViewPlugin.fromClass(
 );
 
 // ---------------------------------------------------------------------------
-// Block decorations (mermaid) — MUST come from a StateField, not a ViewPlugin
+// Block decorations — MUST come from a StateField, not a ViewPlugin
 // (CM6: "Block decorations may not be specified via plugins").
 // ---------------------------------------------------------------------------
 
@@ -1165,6 +1165,32 @@ function buildBlockWidgets(state: EditorState): DecorationSet {
       );
     }
   }
+
+  // Obsidian-style display math with delimiter-only lines:
+  //   $$
+  //   ...TeX, possibly across several lines...
+  //   $$
+  // The parser emits a dedicated block node, so TeX is not interpreted as
+  // ordinary Markdown. Rendering lives in this StateField because CodeMirror
+  // requires replacements spanning line breaks to be block decorations.
+  tree.iterate({
+    enter: (node) => {
+      if (node.type.name !== "DisplayMathBlock") return undefined;
+      if (shouldRevealConstruct(node.from, node.to, selections)) return undefined;
+      const lines = docText.slice(node.from, node.to).split("\n");
+      const tex = lines
+        .slice(1, -1)
+        .map((line) => (line.endsWith("\r") ? line.slice(0, -1) : line))
+        .join("\n");
+      decos.push(
+        Decoration.replace({
+          widget: new MathWidget(tex, true),
+          block: true,
+        }).range(node.from, node.to)
+      );
+      return undefined;
+    },
+  });
 
   // Mermaid (fenced code) via the Lezer tree — fenced code is parsed reliably.
   tree.iterate({

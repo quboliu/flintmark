@@ -143,9 +143,47 @@ const Tag: MarkdownConfig = {
   ],
 };
 
-/** $inline$ and $$display$$ math (single line). */
+const DISPLAY_MATH_DELIMITER_RE = /^\$\$[ \t]*\r?$/;
+
+/** $inline$, $$same-line display$$, and line-delimited display math. */
 const Math: MarkdownConfig = {
-  defineNodes: ["InlineMath", "BlockMath"],
+  defineNodes: [
+    "InlineMath",
+    "BlockMath",
+    { name: "DisplayMathBlock", block: true },
+  ],
+  parseBlock: [
+    {
+      name: "DisplayMathBlock",
+      leaf(_cx, leaf) {
+        if (!DISPLAY_MATH_DELIMITER_RE.test(leaf.content)) return null;
+        return {
+          nextLine(cx, line, activeLeaf) {
+            if (!DISPLAY_MATH_DELIMITER_RE.test(line.text.slice(line.pos))) {
+              return false;
+            }
+
+            // Do not turn an empty pair into a widget. More importantly, an
+            // unclosed opener is left to the normal Markdown parser, so it can
+            // never swallow the rest of the document as math.
+            if (activeLeaf.content.slice(2).trim().length === 0) return false;
+
+            const to = cx.lineStart + line.text.length;
+            cx.addLeafElement(
+              activeLeaf,
+              cx.elt("DisplayMathBlock", activeLeaf.start, to)
+            );
+            cx.nextLine();
+            return true;
+          },
+          finish() {
+            return false;
+          },
+        };
+      },
+      before: "SetextHeading",
+    },
+  ],
   parseInline: [
     {
       name: "Math",

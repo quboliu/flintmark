@@ -1,11 +1,14 @@
-// Headless tests: $inline$ / $$display$$ become MathWidget replace-decorations
-// with the right TeX + display flag. (toDOM/KaTeX render needs a DOM, so we only
-// inspect the widget's properties here — rendering is covered by the e2e.)
+// Headless tests: $inline$, $$same-line display$$, and delimiter-line display
+// math become MathWidget replacements with the right TeX + display flag.
+// (toDOM/KaTeX render needs a DOM, so rendering is covered by the e2e.)
 import assert from "node:assert";
 import { EditorState } from "@codemirror/state";
 import { ensureSyntaxTree } from "@codemirror/language";
 import type { DecorationSet } from "@codemirror/view";
-import { buildDecorations } from "../../src/webview/view/markdownDecorations";
+import {
+  buildBlockWidgets,
+  buildDecorations,
+} from "../../src/webview/view/markdownDecorations";
 import { ofmMarkdown } from "../../src/webview/kernel/obsidianSyntax";
 import { MathWidget } from "../../src/webview/view/widgets/mathWidget";
 
@@ -41,6 +44,43 @@ function maths(set: DecorationSet): { tex: string; display: boolean }[] {
   return out;
 }
 
+function mathRanges(
+  set: DecorationSet
+): { from: number; to: number; tex: string; display: boolean; block: boolean }[] {
+  const out: {
+    from: number;
+    to: number;
+    tex: string;
+    display: boolean;
+    block: boolean;
+  }[] = [];
+  const it = set.iter();
+  while (it.value) {
+    const w = (it.value.spec as { widget?: unknown }).widget;
+    if (w instanceof MathWidget) {
+      out.push({
+        from: it.from,
+        to: it.to,
+        tex: w.tex,
+        display: w.display,
+        block: (it.value.spec as { block?: boolean }).block === true,
+      });
+    }
+    it.next();
+  }
+  return out;
+}
+
+const ATTENTION_PIPELINE = [
+  "$$",
+  "QK^\\top",
+  "\\quad\\longrightarrow\\quad",
+  "\\frac{QK^\\top}{\\sqrt{d_h}}+M",
+  "\\quad\\longrightarrow\\quad",
+  "\\operatorname{softmax}\\!\\left(\\frac{QK^\\top}{\\sqrt{d_h}}+M\\right)",
+  "$$",
+].join("\n");
+
 test("inline $...$ becomes an inline MathWidget", () => {
   const doc = "energy $e=mc^2$ here";
   const m = maths(buildDecorations(mkState(doc, doc.length)));
@@ -55,6 +95,61 @@ test("display $$...$$ becomes a block MathWidget", () => {
   assert.equal(m.length, 1);
   assert.equal(m[0].tex, "a+b");
   assert.equal(m[0].display, true);
+});
+
+test("line-delimited display math preserves the target attention formula", () => {
+  const doc = `before\n\n${ATTENTION_PIPELINE}\n\nafter`;
+  const blocks = mathRanges(buildBlockWidgets(mkState(doc, doc.length)));
+  assert.deepEqual(blocks, [
+    {
+      from: 8,
+      to: 8 + ATTENTION_PIPELINE.length,
+      tex: ATTENTION_PIPELINE.split("\n").slice(1, -1).join("\n"),
+      display: true,
+      block: true,
+    },
+  ]);
+});
+
+test("line-delimited display math becomes a block MathWidget", () => {
+  const doc = `before\n\n${ATTENTION_PIPELINE}\n\nafter`;
+  const m = maths(buildBlockWidgets(mkState(doc, doc.length)));
+  assert.deepEqual(m, [
+    {
+      tex: ATTENTION_PIPELINE.split("\n").slice(1, -1).join("\n"),
+      display: true,
+    },
+  ]);
+});
+
+test("line-delimited display math reveals raw source while the cursor is inside", () => {
+  const doc = `before\n\n${ATTENTION_PIPELINE}\n\nafter`;
+  const cursor = doc.indexOf("softmax");
+  assert.equal(maths(buildBlockWidgets(mkState(doc, cursor))).length, 0);
+});
+
+test("line-delimited display math ignores fenced code and unclosed delimiters", () => {
+  const fenced = `\`\`\`text\n${ATTENTION_PIPELINE}\n\`\`\``;
+  assert.equal(maths(buildBlockWidgets(mkState(fenced, fenced.length))).length, 0);
+  const unclosed = "$$\nx+y\n\n# following markdown";
+  assert.equal(maths(buildBlockWidgets(mkState(unclosed, unclosed.length))).length, 0);
+});
+
+test("multiple line-delimited formulas each keep an independent block widget", () => {
+  const tall = [
+    "$$",
+    "\\begin{aligned}",
+    "a &= b + c \\\\",
+    "d &= \\frac{e}{f}",
+    "\\end{aligned}",
+    "$$",
+  ].join("\n");
+  const doc = `before\n\n${ATTENTION_PIPELINE}\n\nbetween\n\n${tall}\n\nafter`;
+  const m = mathRanges(buildBlockWidgets(mkState(doc, doc.length)));
+  assert.equal(m.length, 2);
+  assert.ok(m.every((entry) => entry.display && entry.block));
+  assert.match(m[0].tex, /softmax/);
+  assert.match(m[1].tex, /begin\{aligned\}/);
 });
 
 test("math shows raw source while the cursor is inside", () => {

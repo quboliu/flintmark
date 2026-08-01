@@ -57,7 +57,7 @@ writeFileSync(
 );
 const notePath = join(work, "note.md");
 const INITIAL =
-  "# Hello World\n\nThis is **bold** text.\n\n### Subheading (Things: blue)\n\n#### Sub-subheading (Things: yellow)\n\n> [!warning] Heads up\n> be careful\n\n- [ ] my task\n\n- apple\n- banana\n\n1. first\n2. second\n\nTags: #project ==important== [[Other Note]]\n\nEmbed note ![[Other Note]] and image ![[pixel.png]]\n\n![pixel](pixel.png)\n\nMath: $e=mc^2$\n\n| Feature | Status |\n| --- | --- |\n| **Tables** | `yes` |\n\n| Trail | Col |\n|-------|-----| \n| ok | done |\n\n```rust\nfn main() {\n    let x = 42;\n}\n```\n\n```mermaid\ngraph TD\n  A[Start] --> B[Done]\n```\n\nA [real link](https://example.com) here.\n\n> plain quote\n> second\n\nSetext Two\n----------\n\n---\n\nplain line\n\n> [!important] Key\n> aliased callout type\n\nformatword\n\npasteword\n\n- [/] in progress task\n- [-] cancelled task\n\nzzz end\n";
+  "# Hello World\n\nThis is **bold** text.\n\n### Subheading (Things: blue)\n\n#### Sub-subheading (Things: yellow)\n\n> [!warning] Heads up\n> be careful\n\n- [ ] my task\n\n- apple\n- banana\n\n1. first\n2. second\n\nTags: #project ==important== [[Other Note]]\n\nEmbed note ![[Other Note]] and image ![[pixel.png]]\n\n![pixel](pixel.png)\n\nMath: $e=mc^2$\n\n$$\nQK^\\top\n\\quad\\longrightarrow\\quad\n\\frac{QK^\\top}{\\sqrt{d_h}}+M\n\\quad\\longrightarrow\\quad\n\\operatorname{softmax}\\!\\left(\\frac{QK^\\top}{\\sqrt{d_h}}+M\\right)\n$$\n\nmath-caret-alpha\n\n$$\n\\begin{aligned}\na &= b + c \\\\\nd &= \\frac{e}{f}\n\\end{aligned}\n$$\n\nmath-caret-beta\n\n| Feature | Status |\n| --- | --- |\n| **Tables** | `yes` |\n\n| Trail | Col |\n|-------|-----| \n| ok | done |\n\n```rust\nfn main() {\n    let x = 42;\n}\n```\n\n```mermaid\ngraph TD\n  A[Start] --> B[Done]\n```\n\nA [real link](https://example.com) here.\n\n> plain quote\n> second\n\nSetext Two\n----------\n\n---\n\nplain line\n\n> [!important] Key\n> aliased callout type\n\nformatword\n\npasteword\n\n- [/] in progress task\n- [-] cancelled task\n\nzzz end\n";
 
 // 1x1 transparent PNG, written into the workspace so the image can resolve.
 const PIXEL_PNG_B64 =
@@ -273,6 +273,77 @@ try {
       .waitFor({ state: "attached", timeout: 5000 });
     const n = await cm.locator(".ofm-math-inline .katex").count();
     assert.ok(n > 0, "KaTeX should render inside .ofm-math-inline");
+  });
+
+  await test("line-delimited target formula renders as error-free display math", async () => {
+    const display = cm.locator(".ofm-math-block .katex-display").first();
+    await display.waitFor({ state: "attached", timeout: 5000 });
+    assert.equal(
+      await cm.locator(".ofm-math-block .katex-display").count(),
+      2,
+      "the target and tall regression formulas should each produce a display widget"
+    );
+    assert.equal(
+      await cm.locator(".ofm-math-block .katex-error").count(),
+      0,
+      "KaTeX must accept the target formula without an error fallback"
+    );
+    assert.match(
+      (await display.textContent()) ?? "",
+      /softmax/,
+      "the rendered display widget should contain the final softmax expression"
+    );
+  });
+
+  await test("clicking below math blocks edits the geometrically clicked source line", async () => {
+    const appendAtClickedLine = async (label, sentinel) => {
+      const target = cm.locator(".cm-line").filter({ hasText: label }).first();
+      await target.scrollIntoViewIfNeeded();
+      await win.waitForTimeout(200);
+      const box = await target.boundingBox();
+      assert.ok(box, `${label} should have a measurable line box`);
+      await cm.page().mouse.click(box.x + 20, box.y + box.height / 2);
+      await win.waitForTimeout(250);
+      const landed = await cm.evaluate(() => {
+        const s = window.getSelection();
+        let n = s && s.focusNode;
+        while (n && n.nodeType !== 1) n = n.parentElement;
+        const line = n ? n.closest(".cm-line") : null;
+        return line ? (line.textContent || "").replace(/\n/g, "") : "(none)";
+      });
+      assert.ok(
+        landed.includes(label),
+        `caret must land on ${label}, got: ${JSON.stringify(landed)}`
+      );
+      await win.keyboard.press("End");
+      await win.keyboard.type(sentinel);
+      await win.waitForTimeout(300);
+    };
+
+    await appendAtClickedLine("math-caret-alpha", "__MATH_ALPHA__");
+    await appendAtClickedLine("math-caret-beta", "__MATH_BETA__");
+    await win.keyboard.press("Control+S");
+    await win.waitForTimeout(1200);
+
+    const lines = readFileSync(notePath, "utf8").split("\n");
+    assert.ok(
+      lines.includes("math-caret-alpha__MATH_ALPHA__"),
+      "the first sentinel must be persisted only on the line clicked below the target formula"
+    );
+    assert.ok(
+      lines.includes("math-caret-beta__MATH_BETA__"),
+      "the second sentinel must be persisted only on the line clicked below the tall formula"
+    );
+    assert.equal(
+      lines.filter((line) => line.includes("__MATH_ALPHA__")).length,
+      1,
+      "the first click must not mutate any neighbouring line"
+    );
+    assert.equal(
+      lines.filter((line) => line.includes("__MATH_BETA__")).length,
+      1,
+      "the second click must not mutate any neighbouring line"
+    );
   });
 
   await test("editing surface is .ml-root with Obsidian CSS variables defined", async () => {
@@ -563,9 +634,9 @@ try {
     assert.ok((await svg.count()) > 0, "mermaid should render an <svg>");
   });
 
-  // Regression: block widgets (table, mermaid) must not desync CM6's height map,
+  // Regression: block widgets (math, table, mermaid) must not desync CM6's height map,
   // or content BELOW them is click/caret offset (the "click one line above"
-  // bug). "plain line" sits below the table AND the rendered mermaid.
+  // bug). "plain line" sits below the rendered math, table, AND mermaid blocks.
   await test("clicking below block widgets lands the caret on the right line", async () => {
     await win.waitForTimeout(500); // let the mermaid re-measure settle
     const target = cm.locator(".cm-line").filter({ hasText: "plain line" }).first();

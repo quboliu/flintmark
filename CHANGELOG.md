@@ -3,6 +3,17 @@
 All notable changes to Flintmark are documented here. Versions are pre-1.0 while
 the editor stabilizes for the Marketplace.
 
+## 0.32.10
+
+- **Line-delimited display math renders in Live Preview.** TeX enclosed by
+  delimiter-only `$$` lines now renders as a measured KaTeX block, including
+  multi-line formulas such as chained Attention transformations. Moving the
+  caret into the block still reveals the editable Markdown source.
+- **Strict math regressions.** Unit coverage pins the requested Attention
+  formula, fenced-code isolation, and safe handling of unclosed delimiters; the
+  real-editor E2E suite verifies error-free KaTeX output and guards click-to-caret
+  alignment below multiple display blocks by checking the exact persisted line.
+
 ## 0.32.9
 
 - **Larger in-file search panel.** The Live Preview find/replace panel is roomier,
