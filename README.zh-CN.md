@@ -9,6 +9,7 @@
 [English](README.md) · 简体中文
 
 [![Release](https://img.shields.io/github/v/release/quboliu/flintmark?label=release)](https://github.com/quboliu/flintmark/releases)
+[![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/quboliu.flintmark?label=VS%20Code%20Marketplace)](https://marketplace.visualstudio.com/items?itemName=quboliu.flintmark)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 </div>
@@ -68,13 +69,16 @@ Copilot、Cursor 这类工具没法直接拿到你在实时预览里选中的内
 
 ## 安装
 
-到 [GitHub Releases](https://github.com/quboliu/flintmark/releases) 下载
-`flintmark-<version>.vsix`，然后在 VS Code 里通过
-**Extensions -> ... -> Install from VSIX...** 安装；也可以用命令行：
+从 [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=quboliu.flintmark)
+安装 Flintmark，也可以在 VS Code 的扩展视图中搜索 **Flintmark**，或运行：
 
 ```sh
-code --install-extension flintmark-0.32.6.vsix
+code --install-extension quboliu.flintmark
 ```
+
+如需手动安装，可到 [GitHub Releases](https://github.com/quboliu/flintmark/releases)
+下载 `flintmark-<version>.vsix`，然后选择
+**Extensions -> ... -> Install from VSIX...**。
 
 打开任意 `.md` 文件，按提示把 Flintmark 设为默认 Markdown 编辑器；也可以从命令面板运行
 **Flintmark: Switch to Live View**。需要源码视图时，随时用 **Switch to Code View** 切回去。

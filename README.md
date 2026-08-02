@@ -9,6 +9,7 @@
 English · [简体中文](README.zh-CN.md)
 
 [![Release](https://img.shields.io/github/v/release/quboliu/flintmark?label=release)](https://github.com/quboliu/flintmark/releases)
+[![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/quboliu.flintmark?label=VS%20Code%20Marketplace)](https://marketplace.visualstudio.com/items?itemName=quboliu.flintmark)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 </div>
@@ -75,13 +76,17 @@ Command IDs are detected per host, with settings for overrides. Run
 
 ## Install
 
-Download `flintmark-<version>.vsix` from
-[GitHub Releases](https://github.com/quboliu/flintmark/releases), then install it
-from **Extensions -> ... -> Install from VSIX...** or from a terminal:
+Install Flintmark from the
+[VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=quboliu.flintmark),
+search for **Flintmark** in the Extensions view, or run:
 
 ```sh
-code --install-extension flintmark-0.32.6.vsix
+code --install-extension quboliu.flintmark
 ```
+
+For a manual installation, download `flintmark-<version>.vsix` from
+[GitHub Releases](https://github.com/quboliu/flintmark/releases), then choose
+**Extensions -> ... -> Install from VSIX...**.
 
 Open any `.md` file and accept the prompt to make Flintmark the default Markdown
 editor, or run **Flintmark: Switch to Live View**. You can switch back with
