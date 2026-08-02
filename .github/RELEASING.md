@@ -1,59 +1,38 @@
 # Releasing Flintmark
 
 Flintmark publishes tagged releases to GitHub and the VS Code Marketplace. The
-Marketplace connection uses Microsoft Entra workload identity federation:
-GitHub issues a short-lived OIDC token, Azure exchanges it for the
-`flintmark-marketplace-publisher` managed identity, and `vsce` publishes with
-`--azure-credential`. No Personal Access Token or client secret is stored.
+Marketplace connection currently uses an Azure DevOps Personal Access Token
+(PAT) stored in the protected `marketplace` GitHub Environment.
 
-## One-time Microsoft Entra setup
+Microsoft retires global Azure DevOps PATs on December 1, 2026. Before that
+date, migrate this workflow to Microsoft Entra workload identity federation or
+publish the VSIX manually from the Marketplace publisher management page.
 
-1. In the [Azure portal](https://portal.azure.com/), create a resource group and
-   a **user-assigned managed identity** named
-   `flintmark-marketplace-publisher`. Grant it the **Reader** role on that
-   resource group.
-2. Open the managed identity's **Federated credentials** page and add a
-   credential using the **GitHub Actions deploying Azure resources** scenario:
+## One-time PAT setup
 
-   - Organization: `quboliu`
-   - Repository: `flintmark`
-   - Entity type: `Environment`
-   - GitHub environment name: `marketplace`
-   - Credential name: `flintmark-github-marketplace`
+1. Sign in to [Azure DevOps](https://dev.azure.com/) with the Microsoft account
+   that manages publisher `quboliu`. If the account has no Azure DevOps
+   organization, create one first; the organization only provides access to the
+   PAT settings page.
+2. Open **User settings -> Personal access tokens -> New Token**. Configure:
 
-   The generated subject must be
-   `repo:quboliu/flintmark:environment:marketplace`; the audience is
-   `api://AzureADTokenExchange`.
-3. Record the managed identity's **Client ID**, **Tenant ID**, and Azure
-   **Subscription ID**.
+   - Name: `flintmark-github-marketplace`
+   - Organization: **All accessible organizations**
+   - Expiration: choose a date and record it for rotation
+   - Scopes: **Custom defined -> Show all scopes -> Marketplace -> Manage**
 
-Microsoft documents the managed-identity federation flow in
-[Create trust between a user-assigned managed identity and an external identity provider](https://learn.microsoft.com/entra/workload-id/workload-identity-federation-create-trust-user-assigned-managed-identity).
+3. Copy the PAT when it is displayed. Azure DevOps does not show it again.
+4. In GitHub, open **Settings -> Environments -> marketplace**. The environment
+   must allow only the `main` branch and tags matching `v*`.
+5. Add an environment secret named `VSCE_PAT` containing the PAT.
+6. Run **Actions -> Marketplace auth check -> Run workflow** on `main`. It is
+   ready when `vsce verify-pat quboliu` succeeds.
 
-## One-time GitHub setup
+Never put the PAT in repository variables, workflow YAML, shell history, issue
+comments, or release notes. Rotate it before its expiration date.
 
-1. In the repository, open **Settings -> Environments** and create an environment
-   named `marketplace`. Configure its deployment branches and tags so that only
-   the `main` branch and tags matching `v*` are allowed.
-2. Add these environment secrets. They are identifiers, not reusable
-   credentials, but environment scope prevents unrelated jobs from reading
-   them:
-
-   - `AZURE_CLIENT_ID`
-   - `AZURE_TENANT_ID`
-   - `AZURE_SUBSCRIPTION_ID`
-3. Run **Actions -> Marketplace auth check -> Run workflow**. The first run
-   prints a notice named **Marketplace identity ID**. Copy that GUID.
-4. Open the [Visual Studio Marketplace publisher management page](https://marketplace.visualstudio.com/manage/publishers/quboliu),
-   add that identity ID as a member of publisher `quboliu`, and give it the
-   **Contributor** role.
-5. Re-run **Marketplace auth check**. It is ready when
-   `vsce verify-pat quboliu --azure-credential` succeeds.
-
-The GitHub environment is intentional: it gives every tag and manual run the
-same OIDC subject. Microsoft Entra federated credentials do not support wildcard
-subjects, so binding directly to version tags would require a new credential for
-every release.
+Microsoft's current PAT instructions and retirement notice are in
+[Publishing Extensions](https://code.visualstudio.com/api/working-with-extensions/publishing-extension).
 
 ## Cut a release
 
@@ -77,9 +56,15 @@ every release.
    ```
 
 The `Release` workflow verifies that the tag matches `package.json`, rebuilds a
-clean VSIX, validates its contents, authenticates through OIDC, checks publisher
-access, creates the GitHub Release, and publishes the same VSIX to the VS Code
+clean VSIX, validates its contents, verifies Marketplace publisher access,
+creates the GitHub Release, and publishes the same VSIX to the VS Code
 Marketplace. Publishing uses `--skip-duplicate`, so a failed workflow can be
-safely re-run after correcting an external configuration problem.
+safely re-run after correcting configuration.
 
 Do not create a release tag until **Marketplace auth check** passes.
+
+## Manual fallback
+
+If the PAT is unavailable, run `npx @vscode/vsce package` from a clean checkout
+and upload the resulting VSIX at the
+[publisher management page](https://marketplace.visualstudio.com/manage/publishers/quboliu).

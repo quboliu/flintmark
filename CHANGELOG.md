@@ -8,9 +8,9 @@ the editor stabilizes for the Marketplace.
 - **Install directly from the VS Code Marketplace.** The English and Chinese
   READMEs now link to `quboliu.flintmark` and document Marketplace search and
   command-line installation, while retaining VSIX installation as a fallback.
-- **Secretless Marketplace releases.** Tagged releases authenticate with
-  Microsoft Entra workload identity federation and GitHub OIDC instead of a
-  long-lived Azure DevOps Personal Access Token.
+- **Automated Marketplace releases.** Tagged builds validate the release,
+  create the GitHub Release, and publish the same VSIX to the VS Code
+  Marketplace using an environment-scoped publishing token.
 
 ## 0.32.10
 

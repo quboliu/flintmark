@@ -8,13 +8,11 @@
 #   git tag v0.28.0 && git push origin v0.28.0
 #
 # Flow: re-verify the fast gate -> package a clean VSIX -> assert it is
-# well-formed (runtime present, no dev/test artifacts) -> authenticate to
-# Microsoft Entra ID with GitHub OIDC -> verify publisher access -> create/update
-# the GitHub Release -> publish to the VS Code Marketplace.
+# well-formed (runtime present, no dev/test artifacts) -> verify the Marketplace
+# PAT -> create/update the GitHub Release -> publish to the VS Code Marketplace.
 #
-# The `marketplace` GitHub Environment is also the stable OIDC subject. It holds
-# only identity IDs (no password, client secret, or PAT); see
-# .github/RELEASING.md.
+# The `marketplace` GitHub Environment limits access to the PAT to `main` and
+# version tags. See .github/RELEASING.md.
 name: Release
 
 on:
@@ -56,7 +54,6 @@ jobs:
     environment: marketplace
     permissions:
       contents: write # create/update the GitHub Release
-      id-token: write # exchange GitHub OIDC for a short-lived Entra token
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -115,42 +112,15 @@ jobs:
           fi
           echo "---- release notes ----"; cat RELEASE_NOTES.md
 
-      - name: Assert Entra OIDC settings exist
-        env:
-          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-        run: |
-          for name in AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID; do
-            if [ -z "${!name}" ]; then
-              echo "::error::missing marketplace Environment secret: ${name}"
-              exit 1
-            fi
-          done
-
-      - name: Sign in to Microsoft Entra ID (GitHub OIDC)
-        uses: azure/login@v3
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
       - name: Verify Marketplace publisher access
         env:
-          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
         run: |
-          PROFILE_ID="$(az rest \
-            --method get \
-            --uri 'https://app.vssps.visualstudio.com/_apis/profile/profiles/me?api-version=7.1' \
-            --resource 499b84ac-1321-427f-aa17-267ca6975798 \
-            --query id \
-            --output tsv)"
-          if [ -z "$PROFILE_ID" ]; then
-            echo "::error::could not resolve the Marketplace identity ID"
+          if [ -z "$VSCE_PAT" ]; then
+            echo "::error::missing marketplace Environment secret: VSCE_PAT"
             exit 1
           fi
-          echo "::notice title=Marketplace identity ID::${PROFILE_ID}"
-          npx @vscode/vsce verify-pat quboliu --azure-credential
+          npx @vscode/vsce verify-pat quboliu
 
       - name: Create / update GitHub Release
         run: |
@@ -191,9 +161,8 @@ jobs:
 
       - name: Publish to VS Code Marketplace
         env:
-          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
         run: >-
           npx @vscode/vsce publish
-          --azure-credential
           --skip-duplicate
           --packagePath "$(ls flintmark-*.vsix)"
