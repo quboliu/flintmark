@@ -3,6 +3,15 @@
 All notable changes to Flintmark are documented here. Versions are pre-1.0 while
 the editor stabilizes for the Marketplace.
 
+## 0.32.11
+
+- **Install directly from the VS Code Marketplace.** The English and Chinese
+  READMEs now link to `quboliu.flintmark` and document Marketplace search and
+  command-line installation, while retaining VSIX installation as a fallback.
+- **Secretless Marketplace releases.** Tagged releases authenticate with
+  Microsoft Entra workload identity federation and GitHub OIDC instead of a
+  long-lived Azure DevOps Personal Access Token.
+
 ## 0.32.10
 
 - **Line-delimited display math renders in Live Preview.** TeX enclosed by

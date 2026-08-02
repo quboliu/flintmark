@@ -1,0 +1,61 @@
+name: Marketplace auth check
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  verify:
+    name: Verify Microsoft Entra publisher access
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    environment: marketplace
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+
+      - name: Assert Entra OIDC settings exist
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          for name in AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID; do
+            if [ -z "${!name}" ]; then
+              echo "::error::missing marketplace Environment secret: ${name}"
+              exit 1
+            fi
+          done
+
+      - name: Sign in to Microsoft Entra ID (GitHub OIDC)
+        uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Resolve identity and verify publisher access
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+        run: |
+          PROFILE_ID="$(az rest \
+            --method get \
+            --uri 'https://app.vssps.visualstudio.com/_apis/profile/profiles/me?api-version=7.1' \
+            --resource 499b84ac-1321-427f-aa17-267ca6975798 \
+            --query id \
+            --output tsv)"
+          if [ -z "$PROFILE_ID" ]; then
+            echo "::error::could not resolve the Marketplace identity ID"
+            exit 1
+          fi
+          echo "::notice title=Marketplace identity ID::${PROFILE_ID}"
+          echo "Add this ID as a Contributor of Marketplace publisher 'quboliu'."
+          npx @vscode/vsce verify-pat quboliu --azure-credential
