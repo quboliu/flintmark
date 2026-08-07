@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { parseHeadings } from "./outlineParser";
+import { DocumentStructureService } from "./documentStructureService";
 
 // ---------------------------------------------------------------------------
 // Heading outline. The parsing is pure (outlineParser, no vscode) so it is
@@ -9,10 +9,12 @@ import { parseHeadings } from "./outlineParser";
 // ---------------------------------------------------------------------------
 
 class OfmDocumentSymbolProvider implements vscode.DocumentSymbolProvider {
+  constructor(private readonly structures: DocumentStructureService) {}
+
   provideDocumentSymbols(
     document: vscode.TextDocument
   ): vscode.DocumentSymbol[] {
-    const heads = parseHeadings(document.getText());
+    const heads = this.structures.getSnapshot(document).headings;
     const roots: vscode.DocumentSymbol[] = [];
     // Stack of (level, symbol) for nesting; a heading's range extends until the
     // next heading of equal-or-higher level (or end of document).
@@ -54,14 +56,17 @@ class OfmDocumentSymbolProvider implements vscode.DocumentSymbolProvider {
 }
 
 /** Register the heading outline provider for Markdown documents. */
-export function registerOutline(context: vscode.ExtensionContext): void {
+export function registerOutline(
+  context: vscode.ExtensionContext,
+  structures: DocumentStructureService
+): void {
   context.subscriptions.push(
     vscode.languages.registerDocumentSymbolProvider(
       [
         { language: "markdown" },
         { scheme: "file", pattern: "**/*.{md,markdown}" },
       ],
-      new OfmDocumentSymbolProvider()
+      new OfmDocumentSymbolProvider(structures)
     )
   );
 }

@@ -59,6 +59,8 @@ jobs:
         run: npx tsc --noEmit -p .
       - name: Unit + chaos + coverage (L1)
         run: npm run test:coverage
+      - name: Performance regression guard
+        run: npm run test:perf
       - name: Upload gate metrics
         if: always()
         uses: actions/upload-artifact@v4

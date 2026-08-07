@@ -74,8 +74,8 @@ export type HostMsg =
   // Palette/command path: ask the webview to report its current selection so the
   // host can run the AI Selection Bridge (the webview replies with aiEditSelection).
   | { type: "requestAiEdit"; mode: "edit" | "chat" }
-  // Scroll/place the cursor at a 0-based line (Outline panel navigation).
-  | { type: "revealLine"; line: number }
+  // Scroll/place the cursor at a source position (Outline/Todo navigation).
+  | { type: "revealPosition"; line: number; character: number }
   | { type: "conflict"; serverVersion: DocVersion };
 
 // ---------------------------------------------------------------------------

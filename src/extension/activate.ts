@@ -4,15 +4,19 @@ import { OfmCustomTextEditorProvider } from "./customTextEditorProvider";
 import { registerCommands } from "./commands";
 import { registerOutline } from "./outline";
 import { registerOutlineView } from "./outlineView";
+import { registerTodoView } from "./todoView";
 import { registerBacklinks } from "./backlinksView";
 import { registerViewToggle } from "./viewToggle";
 import { VaultIndexService } from "./vault";
 import { ImageIndexService } from "./vault/imageIndexService";
 import { WorkspaceIndexDriver } from "./vault/workspaceIndexDriver";
+import { DocumentStructureService } from "./documentStructureService";
 
 export function activate(context: vscode.ExtensionContext): void {
   const syncManager = new DocumentSyncManager();
   const workspaceIndexes = new WorkspaceIndexDriver();
+  const documentStructures = new DocumentStructureService();
+  context.subscriptions.push(documentStructures);
 
   // Vault Index: scans the workspace so wikilinks resolve by name and (later)
   // backlinks/tags work. Built by a parallel worktree agent; wired in here.
@@ -35,8 +39,9 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   registerCommands(context, provider);
-  registerOutline(context); // DocumentSymbolProvider (powers Outline in SOURCE view)
-  registerOutlineView(context, provider); // our own Outline panel (Live Preview)
+  registerOutline(context, documentStructures); // DocumentSymbolProvider (SOURCE view)
+  registerOutlineView(context, provider, documentStructures); // Live Preview Outline
+  registerTodoView(context, provider, documentStructures); // active-document Todo aggregation
   registerBacklinks(context, vault);
   registerViewToggle(context); // status-bar Live/Code toggle (reliable in all hosts)
 

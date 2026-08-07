@@ -86,6 +86,12 @@ export class OfmCustomTextEditorProvider
   /** Last image-map JSON sent per panel, to avoid redundant webview re-renders. */
   private lastImageMap: WeakMap<vscode.WebviewPanel, string> = new WeakMap();
 
+  /** Panels that completed the webview ready/init handshake. */
+  private readyPanels = new WeakSet<vscode.WebviewPanel>();
+
+  /** Last requested source position for a document whose webview is opening. */
+  private pendingReveals = new Map<string, { line: number; character: number }>();
+
   constructor(
     private readonly context: vscode.ExtensionContext,
     private readonly syncManager: DocumentSyncManager,
@@ -205,6 +211,8 @@ export class OfmCustomTextEditorProvider
       // Drop the dedup cache so a REOPENED webview (which starts with an empty
       // imageMap) is re-sent the map even if the document text is unchanged.
       this.lastImageMap.delete(webviewPanel);
+      this.readyPanels.delete(webviewPanel);
+      if (records?.size === 0) this.pendingReveals.delete(uri);
     });
 
     // Configure webview
@@ -367,6 +375,12 @@ export class OfmCustomTextEditorProvider
     };
 
     panel.webview.postMessage(initMsg);
+    this.readyPanels.add(panel);
+    const pendingReveal = this.pendingReveals.get(document.uri.toString());
+    if (pendingReveal) {
+      this.pendingReveals.delete(document.uri.toString());
+      this.postReveal(panel, pendingReveal.line, pendingReveal.character);
+    }
     this.imageIndex?.ensureFreshForDocument(document.uri, "webview-ready");
     // FORCE the image map to this freshly-ready webview: a pre-ready send (e.g.
     // an imageIndex.onDidChange that fired before `ready`) is dropped by the
@@ -780,13 +794,80 @@ export class OfmCustomTextEditorProvider
     }
   }
 
-  /** Outline navigation: scroll the active Live Preview panel to a 0-based line. */
-  public revealLineInActivePanel(line: number): boolean {
-    const panel = this.activePanel();
-    if (!panel) return false;
-    const msg: HostMsg = { type: "revealLine", line };
+  /**
+   * Reveal a source position in the matching Live Preview. When the document is
+   * not open yet, retain the request until its webview completes init so the
+   * message cannot be dropped during startup.
+   */
+  public async revealPositionInDocument(
+    uri: vscode.Uri,
+    line: number,
+    character: number
+  ): Promise<void> {
+    const key = uri.toString();
+    const records = [...(this.panels.get(key)?.values() ?? [])];
+    const record =
+      records.find((candidate) => candidate.panel.active) ??
+      records.find((candidate) => candidate.panel.visible);
+
+    if (record) {
+      record.panel.reveal(undefined, false);
+      if (this.readyPanels.has(record.panel)) {
+        this.postReveal(record.panel, line, character);
+      } else {
+        this.pendingReveals.set(key, { line, character });
+      }
+      return;
+    }
+
+    // A Live → Code replacement can leave a non-visible WebviewPanel record
+    // alive even though no tab can reveal it. supportsMultipleEditors=false
+    // then prevents openWith from creating the replacement. Dispose only these
+    // orphaned/hidden records before reopening the requested document.
+    for (const hidden of records) hidden.panel.dispose();
+    if (records.length > 0) {
+      // WebviewPanel disposal is reported asynchronously by some VS Code hosts.
+      // Let that event drain before openWith, otherwise the host can still see
+      // supportsMultipleEditors=false ownership and silently swallow the open.
+      await new Promise<void>((resolve) => setTimeout(resolve, 25));
+    }
+    this.pendingReveals.set(key, { line, character });
+    try {
+      const active = vscode.window.tabGroups.activeTabGroup.activeTab?.input;
+      if (
+        active instanceof vscode.TabInputText &&
+        active.uri.toString() === key
+      ) {
+        await vscode.commands.executeCommand("ofm.openAsLivePreview");
+      } else {
+        await vscode.commands.executeCommand("vscode.openWith", uri, "ofm.livePreview");
+      }
+      // Live → Code can leave a ready but hidden panel record briefly alive.
+      // `openWith` may reveal/reuse it without another ready handshake, so drain
+      // the pending request here when handleReady did not already consume it.
+      const pending = this.pendingReveals.get(key);
+      if (pending) {
+        const opened = [...(this.panels.get(key)?.values() ?? [])].find(
+          (candidate) => candidate.panel.active || candidate.panel.visible
+        );
+        if (opened && this.readyPanels.has(opened.panel)) {
+          this.pendingReveals.delete(key);
+          this.postReveal(opened.panel, pending.line, pending.character);
+        }
+      }
+    } catch (error) {
+      this.pendingReveals.delete(key);
+      throw error;
+    }
+  }
+
+  private postReveal(
+    panel: vscode.WebviewPanel,
+    line: number,
+    character: number
+  ): void {
+    const msg: HostMsg = { type: "revealPosition", line, character };
     void panel.webview.postMessage(msg);
-    return true;
   }
 
   /** The webview panel for the active Live Preview tab (or the sole panel). */

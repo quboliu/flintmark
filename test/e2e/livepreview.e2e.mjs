@@ -136,7 +136,7 @@ try {
     }
     return null;
   }
-  // Open the Flintmark activity-bar container (holds Outline + Backlinks).
+  // Open the Flintmark activity-bar container (holds Outline + Todo + Backlinks).
   // Idempotent: don't re-click if a panel is already visible (would hide it).
   async function openFlintmark() {
     // "Backlinks" is unique to our container (the native Explorer has its own
@@ -838,6 +838,53 @@ try {
       texts.some((t) => /Hello World/.test(t)),
       `Outline should list headings, got: ${JSON.stringify(texts)}`
     );
+  });
+
+  await test("Todo panel aggregates, navigates, and stays synced with the note", async () => {
+    await openFlintmark();
+    const pane = win.locator(".pane").filter({ hasText: /Todo/i }).first();
+    const rows = pane.locator(".monaco-list-row");
+    await rows.first().waitFor({ state: "visible", timeout: 5000 });
+
+    const initialTexts = await rows.allInnerTexts();
+    for (const expected of ["my task", "in progress task", "cancelled task"]) {
+      assert.ok(
+        initialTexts.some((text) => text.includes(expected)),
+        `Todo should list ${JSON.stringify(expected)}, got: ${JSON.stringify(initialTexts)}`
+      );
+    }
+    assert.ok(
+      initialTexts.some((text) => text.includes("my task") && /\[[xX]\]/.test(text)),
+      `the earlier checkbox update must be reflected in Todo, got: ${JSON.stringify(initialTexts)}`
+    );
+
+    const inProgress = rows.filter({ hasText: "in progress task" }).first();
+    await inProgress.click();
+    await win.waitForTimeout(700);
+    const activeLine = await cm.evaluate(() => {
+      const selection = window.getSelection();
+      let node = selection && selection.focusNode;
+      while (node && node.nodeType !== 1) node = node.parentElement;
+      const line = node ? node.closest(".cm-line") : null;
+      return line ? line.textContent || "" : "(none)";
+    });
+    assert.ok(
+      activeLine.includes("in progress task"),
+      `clicking Todo should reveal its source line, got: ${JSON.stringify(activeLine)}`
+    );
+
+    // The Todo click focuses CM6. Edit that task and require the already-open
+    // sidebar row to update without a manual refresh or a second source scan.
+    await win.keyboard.press("End");
+    await win.keyboard.type(" updated");
+    await win.waitForTimeout(900);
+    const updatedTexts = await rows.allInnerTexts();
+    assert.ok(
+      updatedTexts.some((text) => text.includes("in progress task updated")),
+      `Todo should live-update after the article edit, got: ${JSON.stringify(updatedTexts)}`
+    );
+    await win.keyboard.press("Control+S");
+    await win.waitForTimeout(500);
   });
 
   // Navigates away from note.md: wiki-link click resolves via Vault Index.

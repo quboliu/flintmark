@@ -122,4 +122,31 @@ describe("OFM custom editor (integration)", () => {
     assert.ok(names.includes("Hello"), `outline should list 'Hello', got ${JSON.stringify(names)}`);
     assert.ok(names.includes("Sub"), `outline should list 'Sub', got ${JSON.stringify(names)}`);
   });
+
+  it("ofm.gotoTodo opens a source-only document in Live Preview", async () => {
+    const doc = await vscode.workspace.openTextDocument(file);
+    await vscode.window.showTextDocument(doc);
+    await delay(500);
+
+    await vscode.commands.executeCommand("ofm.gotoTodo", {
+      uri: file,
+      version: doc.version,
+      status: " ",
+      text: "task",
+      line: 2,
+      character: 2,
+      markerFrom: 10,
+      markerTo: 13,
+    });
+    await delay(1500);
+
+    const tabs = vscode.window.tabGroups.all.flatMap((group) => group.tabs);
+    const liveTab = tabs.find(
+      (tab) =>
+        tab.input instanceof vscode.TabInputCustom &&
+        tab.input.viewType === VIEW_TYPE &&
+        tab.input.uri.fsPath === file.fsPath
+    );
+    assert.ok(liveTab, "Todo navigation should open the matching Live Preview document");
+  });
 });

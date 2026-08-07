@@ -5,6 +5,17 @@ the editor stabilizes for the Marketplace.
 
 ## 0.32.11
 
+- **Todo panel for the active document.** The Flintmark sidebar now aggregates
+  standard and extended Markdown task states between Outline and Backlinks,
+  preserves document order, and navigates directly to the selected task in
+  Live Preview.
+- **Reliable, low-overhead Todo synchronization.** Outline and Todo share one
+  version-keyed Markdown structure scan; burst edits are coalesced without
+  starving updates, while source edits, Live Preview edits, undo/redo, external
+  file changes, document switches, and cold-open navigation stay synchronized.
+- **Todo reliability gates.** Parser, cache, refresh, stale-target, integration,
+  performance, and real-editor E2E coverage now guard the feature on every
+  change and before release.
 - **Install directly from the VS Code Marketplace.** The English and Chinese
   READMEs now link to `quboliu.flintmark` and document Marketplace search and
   command-line installation, while retaining VSIX installation as a fallback.

@@ -44,6 +44,7 @@ Microsoft's current PAT instructions and retirement notice are in
    npm run lint
    npx tsc --noEmit -p .
    npm run test:unit
+   npm run test:perf
    npx @vscode/vsce package
    ```
 

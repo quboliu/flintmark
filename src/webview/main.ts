@@ -116,8 +116,8 @@ messenger.onMessage((msg: HostMsg) => {
         messenger.post({ type: "aiEditSelection", from: r.from, to: r.to, mode: msg.mode });
       }
       break;
-    case "revealLine":
-      handleRevealLine(msg.line);
+    case "revealPosition":
+      handleRevealPosition(msg.line, msg.character);
       break;
     case "conflict":
       handleConflict(msg.serverVersion);
@@ -240,13 +240,14 @@ function handleReplaceAll(version: DocVersion, text: string): void {
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// revealLine: scroll to and place the cursor at a 0-based line (Outline nav)
+// revealPosition: scroll to and place the cursor at a source position
 // ---------------------------------------------------------------------------
 
-function handleRevealLine(line: number): void {
+function handleRevealPosition(line: number, character: number): void {
   if (!view) return;
   const n = Math.max(1, Math.min(line + 1, view.state.doc.lines));
-  const pos = view.state.doc.line(n).from;
+  const sourceLine = view.state.doc.line(n);
+  const pos = Math.min(sourceLine.to, sourceLine.from + Math.max(0, character));
   view.focus();
   view.dispatch({
     selection: { anchor: pos },

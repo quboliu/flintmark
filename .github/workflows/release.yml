@@ -45,6 +45,7 @@ jobs:
       - run: npm run lint
       - run: npx tsc --noEmit -p .
       - run: npm run test:unit
+      - run: npm run test:perf
 
   release:
     name: Package · Release · Publish

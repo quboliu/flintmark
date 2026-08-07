@@ -1,54 +1,56 @@
 import * as vscode from "vscode";
-import { parseHeadings, type HeadingInfo } from "./outlineParser";
+import type { HeadingInfo } from "./documentStructureParser";
+import {
+  DocumentStructureService,
+} from "./documentStructureService";
 
-const VIEW_TYPE = "ofm.livePreview";
-
-/** Posts a revealLine message to the active Live Preview panel. */
+/** Opens/reveals a source position in the matching Live Preview document. */
 export interface RevealHost {
-  revealLineInActivePanel(line: number): boolean;
+  revealPositionInDocument(
+    uri: vscode.Uri,
+    line: number,
+    character: number
+  ): Promise<void>;
 }
 
-function activeMarkdownUri(): vscode.Uri | undefined {
-  const input = vscode.window.tabGroups.activeTabGroup.activeTab?.input;
-  let uri: vscode.Uri | undefined;
-  if (input instanceof vscode.TabInputCustom) uri = input.uri;
-  else if (input instanceof vscode.TabInputText) uri = input.uri;
-  else uri = vscode.window.activeTextEditor?.document.uri;
-  if (!uri) return undefined;
-  return /\.(md|markdown)$/i.test(uri.path) ? uri : undefined;
-}
+type HeadingTarget = HeadingInfo & { uri: vscode.Uri; version: number };
 
 class HeadingItem extends vscode.TreeItem {
   readonly children: HeadingItem[];
-  constructor(heading: HeadingInfo, children: HeadingItem[]) {
+
+  constructor(target: HeadingTarget, children: HeadingItem[]) {
     super(
-      heading.text,
+      target.text,
       children.length > 0
         ? vscode.TreeItemCollapsibleState.Expanded
         : vscode.TreeItemCollapsibleState.None
     );
     this.children = children;
-    this.iconPath = new vscode.ThemeIcon(`symbol-${heading.level <= 2 ? "string" : "key"}`);
+    this.iconPath = new vscode.ThemeIcon(
+      `symbol-${target.level <= 2 ? "string" : "key"}`
+    );
     this.command = {
       command: "ofm.gotoHeading",
       title: "Go to heading",
-      arguments: [heading.line],
+      arguments: [target],
     };
   }
 }
 
-/** Build a nested HeadingItem tree from the flat heading list (by level).
- *  Children are built FIRST (recursively) so each item's collapsible state is
- *  decided with its full child count. */
-function buildTree(heads: HeadingInfo[]): HeadingItem[] {
+/** Build a nested HeadingItem tree from the flat heading list (by level). */
+function buildTree(
+  heads: HeadingInfo[],
+  uri: vscode.Uri,
+  version: number
+): HeadingItem[] {
   let idx = 0;
   const childrenUnder = (parentLevel: number): HeadingItem[] => {
     const items: HeadingItem[] = [];
     while (idx < heads.length && heads[idx].level > parentLevel) {
-      const h = heads[idx];
+      const heading = heads[idx];
       idx++;
-      const kids = childrenUnder(h.level); // consume deeper headings as children
-      items.push(new HeadingItem(h, kids));
+      const children = childrenUnder(heading.level);
+      items.push(new HeadingItem({ ...heading, uri, version }, children));
     }
     return items;
   };
@@ -58,6 +60,8 @@ function buildTree(heads: HeadingInfo[]): HeadingItem[] {
 class OutlineProvider implements vscode.TreeDataProvider<HeadingItem | vscode.TreeItem> {
   private readonly emitter = new vscode.EventEmitter<void>();
   readonly onDidChangeTreeData = this.emitter.event;
+
+  constructor(private readonly structures: DocumentStructureService) {}
 
   refresh(): void {
     this.emitter.fire();
@@ -69,16 +73,10 @@ class OutlineProvider implements vscode.TreeDataProvider<HeadingItem | vscode.Tr
 
   getChildren(element?: HeadingItem): (HeadingItem | vscode.TreeItem)[] {
     if (element) return element.children;
-    const uri = activeMarkdownUri();
-    if (!uri) return [placeholder("Open a Markdown note to see its outline")];
-    const doc = vscode.workspace.textDocuments.find(
-      (d) => d.uri.toString() === uri.toString()
-    );
-    const text = doc?.getText();
-    if (text === undefined) return [placeholder("No outline")];
-    const heads = parseHeadings(text);
-    if (heads.length === 0) return [placeholder("No headings")];
-    return buildTree(heads);
+    const snapshot = this.structures.getActiveSnapshot();
+    if (!snapshot) return [placeholder("Open a Markdown note to see its outline")];
+    if (snapshot.headings.length === 0) return [placeholder("No headings")];
+    return buildTree(snapshot.headings, vscode.Uri.parse(snapshot.uri), snapshot.version);
   }
 }
 
@@ -91,24 +89,26 @@ function placeholder(text: string): vscode.TreeItem {
 /** Register the Outline tree view (heading navigation for Live Preview). */
 export function registerOutlineView(
   context: vscode.ExtensionContext,
-  host: RevealHost
+  host: RevealHost,
+  structures: DocumentStructureService
 ): void {
-  const provider = new OutlineProvider();
-  const refresh = (): void => provider.refresh();
+  const provider = new OutlineProvider(structures);
 
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider("ofm.outline", provider),
-    vscode.window.tabGroups.onDidChangeTabs(refresh),
-    vscode.window.onDidChangeActiveTextEditor(refresh),
-    vscode.workspace.onDidChangeTextDocument((e) => {
-      if (activeMarkdownUri()?.toString() === e.document.uri.toString()) refresh();
+    structures.onDidChange(() => provider.refresh()),
+    vscode.commands.registerCommand("ofm.refreshOutline", () => {
+      structures.refreshActive();
     }),
-    vscode.commands.registerCommand("ofm.refreshOutline", refresh),
-    vscode.commands.registerCommand("ofm.gotoHeading", (line: number) => {
-      if (!host.revealLineInActivePanel(line)) {
-        // Fall back to opening in Live Preview, then the panel will be live.
-        const uri = activeMarkdownUri();
-        if (uri) void vscode.commands.executeCommand("vscode.openWith", uri, VIEW_TYPE);
+    vscode.commands.registerCommand("ofm.gotoHeading", async (target: HeadingTarget) => {
+      if (!target?.uri) return;
+      const position = structures.resolveHeading(target.uri, target);
+      if (position) {
+        await host.revealPositionInDocument(
+          target.uri,
+          position.line,
+          position.character
+        );
       }
     })
   );
