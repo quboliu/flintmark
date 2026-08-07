@@ -8,8 +8,8 @@
 #   git tag v0.28.0 && git push origin v0.28.0
 #
 # Flow: re-verify the fast gate -> package a clean VSIX -> assert it is
-# well-formed (runtime present, no dev/test artifacts) -> verify the Marketplace
-# PAT -> create/update the GitHub Release -> publish to the VS Code Marketplace.
+# well-formed (runtime present, no dev/test artifacts) -> create/update the
+# GitHub Release -> publish to the VS Code Marketplace when a PAT is available.
 #
 # The `marketplace` GitHub Environment limits access to the PAT to `main` and
 # version tags. See .github/RELEASING.md.
@@ -48,7 +48,7 @@ jobs:
       - run: npm run test:perf
 
   release:
-    name: Package · Release · Publish
+    name: Package · GitHub Release · Marketplace (optional)
     runs-on: ubuntu-latest
     needs: verify
     timeout-minutes: 15
@@ -113,16 +113,6 @@ jobs:
           fi
           echo "---- release notes ----"; cat RELEASE_NOTES.md
 
-      - name: Verify Marketplace publisher access
-        env:
-          VSCE_PAT: ${{ secrets.VSCE_PAT }}
-        run: |
-          if [ -z "$VSCE_PAT" ]; then
-            echo "::error::missing marketplace Environment secret: VSCE_PAT"
-            exit 1
-          fi
-          npx @vscode/vsce verify-pat quboliu
-
       - name: Create / update GitHub Release
         run: |
           TAG="${{ steps.ver.outputs.tag }}"
@@ -160,7 +150,21 @@ jobs:
           echo "::error::GitHub Release asset is not publicly downloadable: ${PUBLIC_URL}"
           exit 1
 
+      - name: Check Marketplace publisher access
+        id: marketplace
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          if [ -z "$VSCE_PAT" ]; then
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::VSCE_PAT is unavailable; GitHub Release completed and Marketplace publishing is intentionally skipped"
+            exit 0
+          fi
+          npx @vscode/vsce verify-pat quboliu
+          echo "available=true" >> "$GITHUB_OUTPUT"
+
       - name: Publish to VS Code Marketplace
+        if: steps.marketplace.outputs.available == 'true'
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
         run: >-

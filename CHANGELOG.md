@@ -21,7 +21,9 @@ the editor stabilizes for the Marketplace.
   command-line installation, while retaining VSIX installation as a fallback.
 - **Automated Marketplace releases.** Tagged builds validate the release,
   create the GitHub Release, and publish the same VSIX to the VS Code
-  Marketplace using an environment-scoped publishing token.
+  Marketplace when an environment-scoped publishing token is available.
+  GitHub releases remain available for manual Marketplace upload when
+  credentials or the Marketplace service are unavailable.
 
 ## 0.32.10
 

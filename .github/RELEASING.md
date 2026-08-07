@@ -57,15 +57,18 @@ Microsoft's current PAT instructions and retirement notice are in
    ```
 
 The `Release` workflow verifies that the tag matches `package.json`, rebuilds a
-clean VSIX, validates its contents, verifies Marketplace publisher access,
-creates the GitHub Release, and publishes the same VSIX to the VS Code
-Marketplace. Publishing uses `--skip-duplicate`, so a failed workflow can be
-safely re-run after correcting configuration.
+clean VSIX, validates its contents, and creates the GitHub Release first. When
+`VSCE_PAT` is available it then verifies Marketplace publisher access and
+publishes the same VSIX using `--skip-duplicate`. Without a PAT, Marketplace
+publishing is explicitly skipped while the GitHub Release remains successful;
+use the manual fallback below for that release.
 
-Do not create a release tag until **Marketplace auth check** passes.
+Run **Marketplace auth check** before tagging whenever automated Marketplace
+publishing is expected. A failed or unavailable check does not block a
+GitHub-only release.
 
 ## Manual fallback
 
-If the PAT is unavailable, run `npx @vscode/vsce package` from a clean checkout
-and upload the resulting VSIX at the
+If the PAT is unavailable, download the validated VSIX from the GitHub Release
+(or run `npx @vscode/vsce package` from a clean checkout) and upload it at the
 [publisher management page](https://marketplace.visualstudio.com/manage/publishers/quboliu).
