@@ -11,6 +11,11 @@ import {
   imageMapField,
   setImageMap,
 } from "../../src/webview/view/widgets/imageWidget";
+import {
+  mediaMeasurementsField,
+  setMediaMeasurements,
+  stableMediaIdentity,
+} from "../../src/webview/view/mediaMeasurements";
 
 let failed = 0;
 function test(name: string, fn: () => void): void {
@@ -27,9 +32,26 @@ function mkState(doc: string, cursor: number, map: Record<string, string>): Edit
   let state = EditorState.create({
     doc,
     selection: { anchor: cursor },
-    extensions: [ofmMarkdown(), imageMapField],
+    extensions: [ofmMarkdown(), imageMapField, mediaMeasurementsField],
   });
-  state = state.update({ effects: setImageMap.of(map) }).state;
+  const resolved = [
+    ...Object.values(map),
+    ...doc.matchAll(/https?:\/\/[^)\s]+/g),
+  ].map((item) => (typeof item === "string" ? item : item[0]));
+  state = state.update({
+    effects: [
+      setImageMap.of(map),
+      setMediaMeasurements.of({
+        contentWidth: 600,
+        fontSizePx: 16,
+        dimensions: resolved.map((src) => ({
+          identity: stableMediaIdentity(src),
+          width: 100,
+          height: 50,
+        })),
+      }),
+    ],
+  }).state;
   ensureSyntaxTree(state, doc.length, 5000);
   return state;
 }

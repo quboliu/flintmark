@@ -9,6 +9,10 @@ import { ofmMarkdown } from "../../src/webview/kernel/obsidianSyntax";
 import { buildBlockWidgets } from "../../src/webview/view/markdownDecorations";
 import { SvgWidget, extractSvgFromHtmlBlock } from "../../src/webview/view/widgets/svgWidget";
 import { TableWidget } from "../../src/webview/view/widgets/tableWidget";
+import {
+  mediaMeasurementsField,
+  setMediaMeasurements,
+} from "../../src/webview/view/mediaMeasurements";
 
 let failed = 0;
 function test(name: string, fn: () => void): void {
@@ -22,11 +26,14 @@ function test(name: string, fn: () => void): void {
 }
 
 function mkState(doc: string, cursor: number): EditorState {
-  const state = EditorState.create({
+  let state = EditorState.create({
     doc,
     selection: { anchor: cursor },
-    extensions: [ofmMarkdown()],
+    extensions: [ofmMarkdown(), mediaMeasurementsField],
   });
+  state = state.update({
+    effects: setMediaMeasurements.of({ contentWidth: 100, fontSizePx: 10 }),
+  }).state;
   ensureSyntaxTree(state, doc.length, 5000);
   return state;
 }

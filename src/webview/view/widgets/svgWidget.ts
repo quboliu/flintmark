@@ -174,18 +174,33 @@ export function sanitizedSvgDataUri(svgSource: string): string | null {
 export class SvgWidget extends WidgetType {
   constructor(
     readonly source: string,
-    readonly from: number
+    readonly from: number,
+    private readonly estimatedHeightPx: number,
+    readonly layoutVersion: number
   ) {
     super();
+    if (!Number.isFinite(estimatedHeightPx) || estimatedHeightPx <= 0) {
+      throw new RangeError("SvgWidget requires a finite positive estimated height");
+    }
   }
 
   eq(other: SvgWidget): boolean {
-    return other.source === this.source && other.from === this.from;
+    return (
+      other.source === this.source &&
+      other.from === this.from &&
+      other.estimatedHeightPx === this.estimatedHeightPx &&
+      other.layoutVersion === this.layoutVersion
+    );
+  }
+
+  get estimatedHeight(): number {
+    return this.estimatedHeightPx;
   }
 
   toDOM(view: EditorView): HTMLElement {
     const root = document.createElement("div");
     root.className = "ofm-svg-block";
+    root.dataset.ofmEstimatedHeight = String(this.estimatedHeightPx);
     root.addEventListener("mousedown", (event) => {
       event.preventDefault();
       view.focus();

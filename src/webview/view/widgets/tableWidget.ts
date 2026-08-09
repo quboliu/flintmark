@@ -83,24 +83,34 @@ function appendToken(tok: string, parent: Node): void {
 export class TableWidget extends WidgetType {
   constructor(
     readonly source: string,
-    readonly from: number
+    readonly from: number,
+    private readonly estimatedHeightPx: number,
+    readonly layoutVersion: number
   ) {
     super();
+    if (!Number.isFinite(estimatedHeightPx) || estimatedHeightPx <= 0) {
+      throw new RangeError("TableWidget requires a finite positive estimated height");
+    }
   }
 
   eq(other: TableWidget): boolean {
-    return other.source === this.source && other.from === this.from;
+    return (
+      other.source === this.source &&
+      other.from === this.from &&
+      other.estimatedHeightPx === this.estimatedHeightPx &&
+      other.layoutVersion === this.layoutVersion
+    );
+  }
+
+  get estimatedHeight(): number {
+    return this.estimatedHeightPx;
   }
 
   toDOM(view: EditorView): HTMLElement {
-    const wrap = document.createElement("div");
-    wrap.className = "ofm-table-wrap";
-    try {
-      wrap.appendChild(buildTable(this.source, this.from, view));
-    } catch {
-      wrap.textContent = this.source;
-    }
-    return wrap;
+    const dom = buildTableWidgetDOM(this.source, this.from, "interactive", view);
+    dom.dataset.ofmEstimatedHeight = String(this.estimatedHeightPx);
+    dom.dataset.ofmTableFrom = String(this.from);
+    return dom;
   }
 
   // CM6 ignores events inside the widget; our own per-row mousedown handlers do
@@ -159,7 +169,31 @@ function escCell(s: string): string {
  * commit on blur, no per-keystroke doc churn destroys the cell mid-typing, and
  * the widget's eq() (same source) makes CM6 reuse this DOM on selection changes.
  */
-function buildTable(source: string, from: number, view: EditorView): HTMLTableElement {
+export type TableBuildMode = "interactive" | "measure-only";
+
+/** The measurement rack and mounted widget share this exact DOM builder. */
+export function buildTableWidgetDOM(
+  source: string,
+  from: number,
+  mode: TableBuildMode,
+  view?: EditorView
+): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.className = "ofm-table-wrap";
+  try {
+    wrap.appendChild(buildTable(source, from, mode, view));
+  } catch {
+    wrap.textContent = source;
+  }
+  return wrap;
+}
+
+function buildTable(
+  source: string,
+  from: number,
+  mode: TableBuildMode,
+  view?: EditorView
+): HTMLTableElement {
   const raw = source.split("\n");
   const idxs = raw
     .map((l, i) => [l, i] as const)
@@ -175,6 +209,7 @@ function buildTable(source: string, from: number, view: EditorView): HTMLTableEl
 
   // Rebuild the whole table markdown from the current cell DOM and dispatch it.
   const commit = (): void => {
+    if (mode !== "interactive" || !view) return;
     const ths = Array.from(table.querySelectorAll("thead th")) as HTMLElement[];
     const headerCells = ths.map((c) => escCell(c.dataset.raw ?? c.textContent ?? ""));
     const cols = headerCells.length;
@@ -200,10 +235,15 @@ function buildTable(source: string, from: number, view: EditorView): HTMLTableEl
   const makeCell = (tag: "th" | "td", rawText: string, align: string): HTMLElement => {
     const cell = document.createElement(tag);
     cell.dataset.raw = rawText;
-    cell.setAttribute("contenteditable", "true");
-    cell.spellcheck = false;
     if (align) cell.style.textAlign = align;
     renderInline(rawText, cell); // rendered display
+
+    // Keep the measure-only DOM structurally and stylistically identical to the
+    // mounted widget. Chromium gives editable table cells different intrinsic
+    // sizing, which can otherwise change wrapping by a full line.
+    cell.setAttribute("contenteditable", "true");
+    cell.spellcheck = false;
+    if (mode !== "interactive" || !view) return cell;
 
     cell.addEventListener("focus", () => {
       // Show the raw markdown source for editing (only swap if it differs, to

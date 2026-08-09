@@ -233,6 +233,7 @@ function handleReplaceAll(version: DocVersion, text: string): void {
     changes: { from: 0, to: view.state.doc.length, insert: text },
     annotations: hostOrigin.of(true),
   });
+  editorHandle?.remeasureTables("replace-all", true);
 }
 
 // ---------------------------------------------------------------------------
@@ -279,6 +280,7 @@ function applySettings(settings: Settings | undefined): void {
     if (value === null) root.removeProperty(name);
     else root.setProperty(name, value);
   }
+  editorHandle?.remeasureTables("settings", true);
 }
 
 function applyTheme(theme: ThemePayload | undefined): void {
@@ -293,8 +295,14 @@ function applyTheme(theme: ThemePayload | undefined): void {
     link.rel = "stylesheet";
     document.head.appendChild(link);
   }
+  link.addEventListener(
+    "load",
+    () => editorHandle?.remeasureTables("theme-link-load", true),
+    { once: true }
+  );
   if (theme.cssUri) link.href = theme.cssUri;
   else link.removeAttribute("href");
+  editorHandle?.remeasureTables("theme-change", true);
 }
 
 // ---------------------------------------------------------------------------

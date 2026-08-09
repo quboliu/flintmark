@@ -49,8 +49,19 @@ import {
   isMermaidRendered,
 } from "./widgets/mermaidWidget";
 import { TableWidget } from "./widgets/tableWidget";
+import { reliableTableHeight, setTableMeasurements } from "./tableMeasurements";
+import { FULL_DOCUMENT_LIVE_PREVIEW_CHAR_LIMIT } from "./layoutPreflight";
+import {
+  predictedImageHeight,
+  predictedSvgBlockHeight,
+  setMediaMeasurements,
+} from "./mediaMeasurements";
+import { findTableBlocks, isTableDelimiter } from "./tableBlocks";
 import { FrontmatterWidget } from "./widgets/frontmatterWidget";
-import { SvgWidget, extractSvgFromHtmlBlock } from "./widgets/svgWidget";
+import {
+  SvgWidget,
+  extractSvgFromHtmlBlock,
+} from "./widgets/svgWidget";
 import { findFrontmatterRange, parseFrontmatter } from "./frontmatter";
 
 // ---------------------------------------------------------------------------
@@ -209,7 +220,7 @@ export interface VisibleRange {
 /** Hard ceiling: above this, full-document Live Preview falls back to stable
  *  source text. Layout-affecting decorations must not depend on the viewport,
  *  and fresh-open full-tree parsing must stay comfortably bounded. */
-export const LIVE_PREVIEW_DECORATION_CHAR_LIMIT = 300_000;
+export const LIVE_PREVIEW_DECORATION_CHAR_LIMIT = FULL_DOCUMENT_LIVE_PREVIEW_CHAR_LIMIT;
 
 export function buildDecorations(
   state: EditorState,
@@ -384,7 +395,7 @@ export function buildDecorations(
       } else if (name === "Autolink") {
         addAutolinkDecorations(node, docText, selections, decos);
       } else if (name === "Image") {
-        addImageDecoration(node, docText, selections, imageMap, decos);
+        addImageDecoration(node, state, docText, selections, imageMap, decos);
       } else if (name === "InlineMath" || name === "BlockMath") {
         if (!shouldRevealConstruct(node.from, node.to, selections)) {
           const display = name === "BlockMath";
@@ -602,6 +613,7 @@ function addFrontmatterDecorations(
 /** Render `![alt](src)` as an image (reveal-gated); src resolved via imageMap. */
 function addImageDecoration(
   node: SyntaxNodeRef,
+  state: EditorState,
   docText: string,
   selections: SelectionRange[],
   imageMap: Record<string, string>,
@@ -626,9 +638,18 @@ function addImageDecoration(
       const width = sizeM ? Number(sizeM[1]) : undefined;
       const height = sizeM && sizeM[2] ? Number(sizeM[2]) : undefined;
       const alt = sizeM ? target : label;
+      const estimate = predictedImageHeight(state, resolved, width, height);
+      if (!estimate) return;
       decos.push(
         Decoration.replace({
-          widget: new ImageWidget(resolved, alt, width, height),
+          widget: new ImageWidget(
+            resolved,
+            alt,
+            width,
+            height,
+            estimate.height,
+            estimate.layoutVersion
+          ),
         }).range(node.from, node.to)
       );
     } else {
@@ -647,8 +668,19 @@ function addImageDecoration(
   const alt = m[1];
   const src = m[2];
   const resolved = imageMap[src] ?? (/^(https?:|data:)/.test(src) ? src : "");
+  const estimate = predictedImageHeight(state, resolved);
+  if (!estimate) return;
   decos.push(
-    Decoration.replace({ widget: new ImageWidget(resolved, alt) }).range(
+    Decoration.replace({
+      widget: new ImageWidget(
+        resolved,
+        alt,
+        undefined,
+        undefined,
+        estimate.height,
+        estimate.layoutVersion
+      ),
+    }).range(
       node.from,
       node.to
     )
@@ -943,11 +975,15 @@ const markdownDecorationsPlugin = ViewPlugin.fromClass(
       const imageMapChanged = update.transactions.some((tr) =>
         tr.effects.some((e) => e.is(setImageMap))
       );
+      const mediaMeasurementsChanged = update.transactions.some((tr) =>
+        tr.effects.some((e) => e.is(setMediaMeasurements))
+      );
       if (
         update.docChanged ||
         update.selectionSet ||
         treeChanged ||
-        imageMapChanged
+        imageMapChanged ||
+        mediaMeasurementsChanged
       ) {
         // Full-document decorations keep line heights stable during fast
         // scrolling. Rebuilding only on document/selection/resource changes
@@ -977,63 +1013,7 @@ const markdownDecorationsPlugin = ViewPlugin.fromClass(
 // surrounding whitespace), plus any following `|` rows. Fenced code is skipped.
 // ---------------------------------------------------------------------------
 
-const TABLE_DELIMITER_RE = /^\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?\s*$/;
 const FENCE_RE = /^\s*(`{3,}|~{3,})/;
-
-export function isTableDelimiter(line: string): boolean {
-  return line.includes("-") && TABLE_DELIMITER_RE.test(line);
-}
-function looksLikeTableRow(line: string): boolean {
-  return line.includes("|") && line.trim().length > 0;
-}
-
-export function findTableBlocks(text: string): { from: number; to: number }[] {
-  const lines = text.split("\n");
-  const starts: number[] = [];
-  let off = 0;
-  for (const l of lines) {
-    starts.push(off);
-    off += l.length + 1; // +1 for the consumed "\n" (CRLF: the \r stays in `l`)
-  }
-
-  const blocks: { from: number; to: number }[] = [];
-  let inFence = false;
-  let fenceChar = "";
-  let i = 0;
-  while (i < lines.length) {
-    const fence = FENCE_RE.exec(lines[i]);
-    if (fence) {
-      const ch = fence[1][0];
-      if (!inFence) {
-        inFence = true;
-        fenceChar = ch;
-      } else if (ch === fenceChar) {
-        inFence = false;
-        fenceChar = "";
-      }
-      i++;
-      continue;
-    }
-    if (inFence) {
-      i++;
-      continue;
-    }
-    if (
-      i + 1 < lines.length &&
-      looksLikeTableRow(lines[i]) &&
-      !isTableDelimiter(lines[i]) &&
-      isTableDelimiter(lines[i + 1])
-    ) {
-      let j = i + 2;
-      while (j < lines.length && looksLikeTableRow(lines[j])) j++;
-      blocks.push({ from: starts[i], to: starts[j - 1] + lines[j - 1].length });
-      i = j;
-      continue;
-    }
-    i++;
-  }
-  return blocks;
-}
 
 /**
  * Obsidian `%%comment%%` ranges (inline and block), skipping fenced code so
@@ -1233,9 +1213,16 @@ function buildBlockWidgets(state: EditorState): DecorationSet {
       if (shouldRevealConstruct(node.from, node.to, selections)) return undefined;
       const svg = extractSvgFromHtmlBlock(docText.slice(node.from, node.to));
       if (!svg) return undefined;
+      const measurement = predictedSvgBlockHeight(state, svg);
+      if (!measurement) return undefined;
       decos.push(
         Decoration.replace({
-          widget: new SvgWidget(svg, node.from),
+          widget: new SvgWidget(
+            svg,
+            node.from,
+            measurement.height,
+            measurement.layoutVersion
+          ),
           block: true,
         }).range(node.from, node.to)
       );
@@ -1248,9 +1235,17 @@ function buildBlockWidgets(state: EditorState): DecorationSet {
   // tables). Always rendered (editable in place, never reverted to source).
   for (const b of findTableBlocks(docText)) {
     if (overlapsAny(b, htmlBlockRanges)) continue;
+    const source = docText.slice(b.from, b.to);
+    const measurement = reliableTableHeight(state, source);
+    if (!measurement) continue;
     decos.push(
       Decoration.replace({
-        widget: new TableWidget(docText.slice(b.from, b.to), b.from),
+        widget: new TableWidget(
+          source,
+          b.from,
+          measurement.height,
+          measurement.layoutVersion
+        ),
         block: true,
       }).range(b.from, b.to)
     );
@@ -1276,7 +1271,9 @@ const blockWidgetsField = StateField.define<DecorationSet>({
       tr.docChanged ||
       tr.selection ||
       treeChanged ||
-      tr.effects.some((e) => e.is(mermaidRenderedEffect))
+      tr.effects.some((e) => e.is(mermaidRenderedEffect)) ||
+      tr.effects.some((e) => e.is(setTableMeasurements)) ||
+      tr.effects.some((e) => e.is(setMediaMeasurements))
     ) {
       return buildBlockWidgets(tr.state);
     }
@@ -1285,4 +1282,10 @@ const blockWidgetsField = StateField.define<DecorationSet>({
   provide: (f) => EditorView.decorations.from(f),
 });
 
-export { markdownDecorationsPlugin, blockWidgetsField, buildBlockWidgets };
+export {
+  markdownDecorationsPlugin,
+  blockWidgetsField,
+  buildBlockWidgets,
+  findTableBlocks,
+  isTableDelimiter,
+};

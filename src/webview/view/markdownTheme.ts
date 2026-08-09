@@ -235,6 +235,10 @@ export function markdownTheme(dark: boolean): Extension {
     fontFamily: "var(--font-monospace, var(--vscode-editor-font-family, monospace))",
   },
   ".ofm-table-wrap": { overflowX: "auto", padding: "0.5em 0" },
+  ".ofm-table-measure-rack": {
+    display: "block",
+    whiteSpace: "normal",
+  },
   ".ofm-table": { borderCollapse: "collapse" },
   ".ofm-table th": {
     border: "1px solid var(--background-modifier-border, rgba(128,128,128,0.3))",

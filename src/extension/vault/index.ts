@@ -19,8 +19,10 @@ export type { WikiLinkRef, TagRef, ParsedNote } from "./linkParser";
 export {
   VaultIndex,
   buildVaultIndex,
+  buildVaultIndexCooperatively,
+  VaultIndexBuildCancelled,
   basenameNoExt,
 } from "./vaultIndex";
-export type { NoteInput, NoteEntry } from "./vaultIndex";
+export type { CooperativeBuildControl, NoteInput, NoteEntry } from "./vaultIndex";
 
 export { VaultIndexService } from "./vaultIndexService";

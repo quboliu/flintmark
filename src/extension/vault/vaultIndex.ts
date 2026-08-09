@@ -33,6 +33,22 @@ export interface NoteEntry {
   tags: string[];
 }
 
+export interface CooperativeBuildControl {
+  now: () => number;
+  yieldNow: () => Promise<void>;
+  shouldCancel: () => boolean;
+  maxSliceMs: number;
+}
+
+/** A cooperative build was superseded. Callers must retain the last complete
+ * index instead of publishing the partially-filled instance. */
+export class VaultIndexBuildCancelled extends Error {
+  constructor() {
+    super("Vault index build cancelled");
+    this.name = "VaultIndexBuildCancelled";
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Path helpers (pure string ops; no fs).
 // ---------------------------------------------------------------------------
@@ -69,7 +85,7 @@ export function basenameNoExt(p: string): string {
 // ---------------------------------------------------------------------------
 
 export class VaultIndex {
-  private readonly notes: NoteEntry[];
+  private readonly notes: NoteEntry[] = [];
   private readonly byPath = new Map<string, NoteEntry>();
   /** lowercased basename → entries sharing it (for resolveLink candidates). */
   private readonly byName = new Map<string, NoteEntry[]>();
@@ -83,21 +99,45 @@ export class VaultIndex {
   private readonly tagged = new Map<string, Set<string>>();
 
   constructor(inputs: NoteInput[]) {
-    this.notes = inputs.map((n) => this.toEntry(n));
-    for (const e of this.notes) {
-      this.byPath.set(e.path, e);
-      const key = e.name.toLowerCase();
-      const list = this.byName.get(key);
-      if (list) list.push(e);
-      else this.byName.set(key, [e]);
-      for (const t of e.tags) {
-        const tk = t.toLowerCase();
-        const set = this.tagged.get(tk) ?? new Set<string>();
-        set.add(e.path);
-        this.tagged.set(tk, set);
+    for (const input of inputs) this.addEntry(input);
+    this.buildLinkGraph();
+  }
+
+  static async buildCooperatively(
+    inputs: readonly NoteInput[],
+    control: CooperativeBuildControl
+  ): Promise<VaultIndex> {
+    const index = new VaultIndex([]);
+    let sliceStarted = control.now();
+
+    for (const input of inputs) {
+      sliceStarted = await cooperativeBoundary(control, sliceStarted);
+      index.addEntry(input);
+    }
+    for (const entry of index.notes) {
+      for (const link of entry.links) {
+        sliceStarted = await cooperativeBoundary(control, sliceStarted);
+        index.indexLink(entry, link);
       }
     }
-    this.buildLinkGraph();
+    if (control.shouldCancel()) throw new VaultIndexBuildCancelled();
+    return index;
+  }
+
+  private addEntry(input: NoteInput): void {
+    const entry = this.toEntry(input);
+    this.notes.push(entry);
+    this.byPath.set(entry.path, entry);
+    const key = entry.name.toLowerCase();
+    const list = this.byName.get(key);
+    if (list) list.push(entry);
+    else this.byName.set(key, [entry]);
+    for (const tag of entry.tags) {
+      const tagKey = tag.toLowerCase();
+      const set = this.tagged.get(tagKey) ?? new Set<string>();
+      set.add(entry.path);
+      this.tagged.set(tagKey, set);
+    }
   }
 
   private toEntry(input: NoteInput): NoteEntry {
@@ -120,22 +160,60 @@ export class VaultIndex {
 
   private buildLinkGraph(): void {
     for (const src of this.notes) {
-      const out = new Set<string>();
-      const miss = new Set<string>();
-      for (const link of src.links) {
-        if (!link.target) continue; // e.g. [[#Heading]] — same-note, no target
-        const targetPath = this.resolveLink(link.target);
-        if (targetPath !== null) {
-          out.add(targetPath);
-          const back = this.backlinks.get(targetPath) ?? new Set<string>();
-          back.add(src.path);
-          this.backlinks.set(targetPath, back);
-        } else {
-          miss.add(link.target);
-        }
+      for (const link of src.links) this.indexLink(src, link);
+    }
+  }
+
+  /** Replace only a Note's parsed content. The path/basename set is unchanged,
+   * so byName and other Notes' resolution decisions remain valid. */
+  replaceNoteContent(input: NoteInput): boolean {
+    const entry = this.byPath.get(input.path);
+    if (!entry) return false;
+
+    const oldOutgoing = this.outgoing.get(entry.path);
+    if (oldOutgoing) {
+      for (const target of oldOutgoing) {
+        const sources = this.backlinks.get(target);
+        sources?.delete(entry.path);
+        if (sources?.size === 0) this.backlinks.delete(target);
       }
-      if (out.size > 0) this.outgoing.set(src.path, out);
-      if (miss.size > 0) this.unresolved.set(src.path, miss);
+    }
+    this.outgoing.delete(entry.path);
+    this.unresolved.delete(entry.path);
+    for (const tag of entry.tags) {
+      const key = tag.toLowerCase();
+      const paths = this.tagged.get(key);
+      paths?.delete(entry.path);
+      if (paths?.size === 0) this.tagged.delete(key);
+    }
+
+    const replacement = this.toEntry(input);
+    entry.links = replacement.links;
+    entry.tags = replacement.tags;
+    for (const tag of entry.tags) {
+      const key = tag.toLowerCase();
+      const paths = this.tagged.get(key) ?? new Set<string>();
+      paths.add(entry.path);
+      this.tagged.set(key, paths);
+    }
+    for (const link of entry.links) this.indexLink(entry, link);
+    return true;
+  }
+
+  private indexLink(src: NoteEntry, link: WikiLinkRef): void {
+    if (!link.target) return; // e.g. [[#Heading]] — same-note, no target
+    const targetPath = this.resolveLink(link.target);
+    if (targetPath !== null) {
+      const out = this.outgoing.get(src.path) ?? new Set<string>();
+      out.add(targetPath);
+      this.outgoing.set(src.path, out);
+      const back = this.backlinks.get(targetPath) ?? new Set<string>();
+      back.add(src.path);
+      this.backlinks.set(targetPath, back);
+    } else {
+      const miss = this.unresolved.get(src.path) ?? new Set<string>();
+      miss.add(link.target);
+      this.unresolved.set(src.path, miss);
     }
   }
 
@@ -215,6 +293,26 @@ export class VaultIndex {
 /** Build a VaultIndex from a set of Notes. */
 export function buildVaultIndex(inputs: NoteInput[]): VaultIndex {
   return new VaultIndex(inputs);
+}
+
+/** Build the same index while regularly yielding the extension-host macrotask
+ * queue. A cancelled build never escapes this function as a usable index. */
+export function buildVaultIndexCooperatively(
+  inputs: readonly NoteInput[],
+  control: CooperativeBuildControl
+): Promise<VaultIndex> {
+  return VaultIndex.buildCooperatively(inputs, control);
+}
+
+async function cooperativeBoundary(
+  control: CooperativeBuildControl,
+  sliceStarted: number
+): Promise<number> {
+  if (control.shouldCancel()) throw new VaultIndexBuildCancelled();
+  if (control.now() - sliceStarted < control.maxSliceMs) return sliceStarted;
+  await control.yieldNow();
+  if (control.shouldCancel()) throw new VaultIndexBuildCancelled();
+  return control.now();
 }
 
 // ---------------------------------------------------------------------------

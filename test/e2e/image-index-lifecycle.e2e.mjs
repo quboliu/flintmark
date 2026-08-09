@@ -7,6 +7,7 @@ import {
   writeFileSync,
   mkdirSync,
   renameSync,
+  rmSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -40,7 +41,12 @@ mkdirSync(join(work, "rename", "A", "assets"), { recursive: true });
 writeFileSync(join(work, "rename", "A", "assets", "pixel.png"), PIXEL_PNG);
 writeFileSync(
   join(work, "rename", "A", "note.md"),
-  "# Rename image lifecycle\n\n![pixel](assets/pixel.png)\n\nend\n"
+  "# Mixed directory lifecycle\n\n![pixel](assets/pixel.png)\n\n[[Rename Target]]\n\nend\n"
+);
+writeFileSync(join(work, "rename", "A", "Rename Target.md"), "# Rename Target\n\nmoved target body\n");
+writeFileSync(
+  join(work, "outside.md"),
+  "# Outside mixed directory\n\n![[pixel.png]]\n\nautocomplete probe\n"
 );
 writeFileSync(
   join(work, "dynamic.md"),
@@ -154,6 +160,24 @@ async function waitForLoadedImage(win, pathFragment) {
   );
 }
 
+async function waitForFrameText(win, fragment, timeoutMs = 10000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    for (const frame of win.frames()) {
+      try {
+        const content = frame.locator(".cm-content").first();
+        if (!(await content.isVisible())) continue;
+        const text = await content.innerText();
+        if (text.includes(fragment)) return frame;
+      } catch {
+        /* cross-origin */
+      }
+    }
+    await win.waitForTimeout(250);
+  }
+  return null;
+}
+
 let passed = false;
 
 try {
@@ -169,7 +193,45 @@ try {
 
   await openLiveNote(win, "rename/B/note.md");
   await waitForLoadedImage(win, "/rename/B/assets/pixel.png");
-  console.log("  ✓ image index refreshes after parent directory rename");
+  const movedNote = await waitForFrameText(win, "Mixed directory lifecycle");
+  assert.ok(movedNote, "renamed mixed-directory note should be visible");
+  await movedNote
+    .locator(".ofm-internal-link", { hasText: "Rename Target" })
+    .first()
+    .evaluate((element) =>
+      element.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }))
+    );
+  assert.ok(
+    await waitForFrameText(win, "moved target body"),
+    "note index should resolve the target at its renamed directory URI"
+  );
+  console.log("  ✓ note + image indexes refresh after a mixed parent-directory rename");
+
+  await win.keyboard.press("Control+k");
+  await win.keyboard.press("w");
+  await win.waitForTimeout(400);
+  rmSync(join(work, "rename", "B"), { recursive: true });
+  await win.waitForTimeout(1800);
+  const outside = await openLiveNote(win, "outside.md");
+  const probe = outside.locator(".cm-line", { hasText: "autocomplete probe" }).first();
+  await probe.click();
+  await win.keyboard.press("End");
+  await win.keyboard.type(" [[");
+  await win.waitForTimeout(700);
+  const options = await outside.locator(".cm-tooltip-autocomplete li").allInnerTexts();
+  assert.ok(
+    options.every((text) => !text.includes("Rename Target")),
+    `deleted directory notes must leave autocomplete, got ${JSON.stringify(options)}`
+  );
+  const deletedImage = await outside.evaluate(() => {
+    const img = document.querySelector("img.ofm-image");
+    return img ? { complete: img.complete, naturalWidth: img.naturalWidth } : null;
+  });
+  assert.ok(
+    !deletedImage || deletedImage.naturalWidth === 0,
+    `deleted directory image must not remain resolved: ${JSON.stringify(deletedImage)}`
+  );
+  console.log("  ✓ note + image indexes refresh after a mixed parent-directory delete");
 
   await closeApp(app);
   app = await launchApp();

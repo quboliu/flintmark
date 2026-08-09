@@ -29,32 +29,34 @@ async function test(name, fn) {
 // --- workspace fixture ---------------------------------------------------
 const work = mkdtempSync(join(tmpdir(), "ofm-e2e-"));
 const userData = join(work, "user-data");
+const settingsPath = join(userData, "User", "settings.json");
 mkdirSync(join(userData, "User"), { recursive: true });
-writeFileSync(
-  join(userData, "User", "settings.json"),
-  JSON.stringify({
-    "workbench.editorAssociations": { "*.md": "ofm.livePreview" },
-    "ofm.ai.trigger": "manual",
-    "security.workspace.trust.enabled": false,
-    "workbench.startupEditor": "none",
-    "telemetry.telemetryLevel": "off",
-    "update.mode": "none",
-    "window.commandCenter": false,
-    // Pin a small editor font so the whole fixture fits the viewport and CM6
-    // doesn't virtualize the bottom lines out of the DOM (these tests assert
-    // behaviour, not pixel sizes). ofm.fontSize below overrides the body size.
-    "editor.fontSize": 8,
-    // Custom-font feature: prose font + size + code font, all INDEPENDENT of the
-    // editor font. Generic families so layout barely shifts (and getComputedStyle
-    // reports the specified list even when the named font isn't installed on CI).
-    // Body stays proportional / code stays monospace, so the existing font test
-    // still holds. fontSize 9 < editor+2 (10), so it only shrinks → no extra
-    // virtualization risk.
-    "ofm.fontFamily": "Georgia, serif",
-    "ofm.fontSize": 9,
-    "ofm.monospaceFontFamily": "'Courier New', monospace",
-  })
-);
+const baseSettings = {
+  "workbench.editorAssociations": { "*.md": "ofm.livePreview" },
+  "ofm.ai.trigger": "manual",
+  "security.workspace.trust.enabled": false,
+  "workbench.startupEditor": "none",
+  "telemetry.telemetryLevel": "off",
+  "update.mode": "none",
+  "window.commandCenter": false,
+  // Pin a small editor font so the whole fixture fits the viewport and CM6
+  // doesn't virtualize the bottom lines out of the DOM (these tests assert
+  // behaviour, not pixel sizes). ofm.fontSize below overrides the body size.
+  "editor.fontSize": 8,
+  // Custom-font feature: prose font + size + code font, all INDEPENDENT of the
+  // editor font. Generic families so layout barely shifts (and getComputedStyle
+  // reports the specified list even when the named font isn't installed on CI).
+  // Body stays proportional / code stays monospace, so the existing font test
+  // still holds. fontSize 9 < editor+2 (10), so it only shrinks → no extra
+  // virtualization risk.
+  "ofm.fontFamily": "Georgia, serif",
+  "ofm.fontSize": 9,
+  "ofm.monospaceFontFamily": "'Courier New', monospace",
+};
+function writeSettings(settings) {
+  writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+}
+writeSettings(baseSettings);
 const notePath = join(work, "note.md");
 const INITIAL =
   "# Hello World\n\nThis is **bold** text.\n\n### Subheading (Things: blue)\n\n#### Sub-subheading (Things: yellow)\n\n> [!warning] Heads up\n> be careful\n\n- [ ] my task\n\n- apple\n- banana\n\n1. first\n2. second\n\nTags: #project ==important== [[Other Note]]\n\nEmbed note ![[Other Note]] and image ![[pixel.png]]\n\n![pixel](pixel.png)\n\nMath: $e=mc^2$\n\n$$\nQK^\\top\n\\quad\\longrightarrow\\quad\n\\frac{QK^\\top}{\\sqrt{d_h}}+M\n\\quad\\longrightarrow\\quad\n\\operatorname{softmax}\\!\\left(\\frac{QK^\\top}{\\sqrt{d_h}}+M\\right)\n$$\n\nmath-caret-alpha\n\n$$\n\\begin{aligned}\na &= b + c \\\\\nd &= \\frac{e}{f}\n\\end{aligned}\n$$\n\nmath-caret-beta\n\n| Feature | Status |\n| --- | --- |\n| **Tables** | `yes` |\n\n| Trail | Col |\n|-------|-----| \n| ok | done |\n\n```rust\nfn main() {\n    let x = 42;\n}\n```\n\n```mermaid\ngraph TD\n  A[Start] --> B[Done]\n```\n\nA [real link](https://example.com) here.\n\n> plain quote\n> second\n\nSetext Two\n----------\n\n---\n\nplain line\n\n> [!important] Key\n> aliased callout type\n\nformatword\n\npasteword\n\n- [/] in progress task\n- [-] cancelled task\n\nzzz end\n";
@@ -76,7 +78,15 @@ writeFileSync(
   join(work, "features.md"),
   "---\ntitle: Features\ntags:\n  - demo\n  - test\n---\n\n# Features\n\n<div>\n<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"80\" height=\"40\" viewBox=\"0 0 80 40\" onload=\"window.__ofmSvgUnsafe = true\">\n  <script>window.__ofmSvgUnsafe = true</script>\n  <rect x=\"4\" y=\"4\" width=\"72\" height=\"32\" fill=\"red\" onclick=\"window.__ofmSvgUnsafe = true\" />\n  <text x=\"40\" y=\"25\" font-size=\"14\" text-anchor=\"middle\">SVG</text>\n</svg>\n</div>\n\n> [!note]\n> body only, no custom title\n\nVisible %%secretcomment%% visible.\n\nA claim[^1] needs a source.\n\n[^1]: the footnote definition.\n\n```sql\nSELECT id FROM users WHERE active = true;\n```\n\nVault image ![[deep.png]] from a subfolder.\n"
 );
-const LONG_SCROLL = Array.from({ length: 1100 }, (_, i) =>
+const LIVE_PREVIEW_DECORATION_CHAR_LIMIT = 300_000;
+const longTable = (section) => [
+  "| Topic | English detail | 中文说明 | Status |",
+  "| :--- | --- | --- | ---: |",
+  ...Array.from({ length: 18 }, (_, row) =>
+    `| table-${section}-row-${row} | A deliberately long cell with varied words for realistic wrapping at narrow line widths, batch ${section}-${row}. | 第 ${section} 节第 ${row} 行包含用于窄栏换行测量的中英文混排内容。 | ${row % 3 === 0 ? "**ready**" : "pending"} |`
+  ),
+].join("\n");
+const LONG_SCROLL = Array.from({ length: 420 }, (_, i) =>
   [
     `## Long Scroll Section ${i}`,
     "",
@@ -90,12 +100,14 @@ const LONG_SCROLL = Array.from({ length: 1100 }, (_, i) =>
     "}",
     "```",
     "",
-    "| IPC | Status |",
-    "| --- | --- |",
-    `| section-${i} | ok |`,
+    ...(i % 21 === 0 ? [longTable(i)] : []),
     "",
   ].join("\n")
 ).join("\n");
+assert.ok(
+  LONG_SCROLL.length < LIVE_PREVIEW_DECORATION_CHAR_LIMIT,
+  `long-scroll fixture (${LONG_SCROLL.length}) must stay below decoration cutoff`
+);
 writeFileSync(join(work, "long-scroll.md"), LONG_SCROLL);
 
 const app = await electron.launch({
@@ -1166,7 +1178,7 @@ try {
     );
   });
 
-  await test("fast scrolling a long code-heavy note keeps the viewport stable", async () => {
+  await test("exact table heights keep fast scrolling and layout invalidation stable", async () => {
     viewportWarnings.length = 0;
     await palette("Control+P", "long-scroll.md");
     let longCm = null;
@@ -1189,10 +1201,101 @@ try {
     const scroller = longCm.locator(".cm-scroller").first();
     const box = await scroller.boundingBox();
     assert.ok(box, "long-scroll editor scroller should have a box");
+    await longCm.waitForFunction(
+      () =>
+        document.querySelector(".ofm-table-measure-rack")?.getAttribute(
+          "data-ofm-table-measurements-pending"
+        ) === "0",
+      null,
+      { timeout: 15_000 }
+    );
+    const initialContract = await longCm.evaluate((cutoff) => {
+      const tables = [...document.querySelectorAll(".ofm-table-wrap")];
+      const errors = tables.map((element) =>
+        Math.abs(
+          element.getBoundingClientRect().height -
+            Number(element.getAttribute("data-ofm-estimated-height"))
+        )
+      );
+      return {
+        cutoff,
+        layoutVersion: Number(
+          document.querySelector(".ofm-table-measure-rack")?.getAttribute(
+            "data-ofm-table-layout-version"
+          ) ?? 0
+        ),
+        mountedTables: tables.length,
+        maxErrorPx: errors.length ? Math.max(...errors) : null,
+        firstTable: tables[0]
+          ? (() => {
+              const element = tables[0];
+              const content = document.querySelector(".cm-content");
+              const style = getComputedStyle(element);
+              const contentStyle = content ? getComputedStyle(content) : null;
+              return {
+                estimate: element.getAttribute("data-ofm-estimated-height"),
+                height: element.getBoundingClientRect().height,
+                width: element.getBoundingClientRect().width,
+                offsetHeight: element.offsetHeight,
+                clientHeight: element.clientHeight,
+                scrollWidth: element.scrollWidth,
+                clientWidth: element.clientWidth,
+                childWidth: element.firstElementChild?.getBoundingClientRect().width ?? 0,
+                childHeight: element.firstElementChild?.getBoundingClientRect().height ?? 0,
+                parent: element.parentElement?.className ?? "",
+                parentWidth: element.parentElement?.getBoundingClientRect().width ?? 0,
+                fontSize: style.fontSize,
+                lineHeight: style.lineHeight,
+                padding: style.padding,
+                contentWidth: content?.getBoundingClientRect().width ?? 0,
+                contentPadding: contentStyle
+                  ? `${contentStyle.paddingLeft} ${contentStyle.paddingRight}`
+                  : "",
+              };
+            })()
+          : null,
+      };
+    }, LIVE_PREVIEW_DECORATION_CHAR_LIMIT);
+    assert.ok(
+      LONG_SCROLL.length < initialContract.cutoff,
+      `fixture must remain below cutoff: ${JSON.stringify(initialContract)}`
+    );
+    assert.ok(initialContract.mountedTables > 0, "at least one measured TableWidget must mount");
+    assert.ok(
+      initialContract.maxErrorPx !== null && initialContract.maxErrorPx <= 2,
+      `offscreen prediction must match the mounted wrapper within 2px: ${JSON.stringify(initialContract)}`
+    );
+
     await win.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    const samples = [];
+    const visitedTables = new Set();
+    let maxPredictionErrorPx = 0;
     for (let i = 0; i < 80; i++) {
+      const before = await scroller.evaluate((element) => ({
+        scrollTop: element.scrollTop,
+        scrollHeight: element.scrollHeight,
+        clientHeight: element.clientHeight,
+      }));
       await win.mouse.wheel(0, 1800);
       await win.waitForTimeout(25);
+      const after = await scroller.evaluate((element) => {
+        const tables = [...document.querySelectorAll(".ofm-table-wrap")];
+        return {
+          scrollTop: element.scrollTop,
+          scrollHeight: element.scrollHeight,
+          clientHeight: element.clientHeight,
+          tableIds: tables.map((table) => table.getAttribute("data-ofm-table-from")),
+          errors: tables.map((table) =>
+            Math.abs(
+              table.getBoundingClientRect().height -
+                Number(table.getAttribute("data-ofm-estimated-height"))
+            )
+          ),
+        };
+      });
+      for (const id of after.tableIds) if (id !== null) visitedTables.add(id);
+      if (after.errors.length) maxPredictionErrorPx = Math.max(maxPredictionErrorPx, ...after.errors);
+      samples.push({ input: i, before, after });
     }
     await win.waitForTimeout(400);
     const visible = await longCm.evaluate(() => {
@@ -1219,7 +1322,7 @@ try {
       `long note viewport should not be blank: ${JSON.stringify(visible)}`
     );
     assert.ok(
-      visible.maxSection >= 300,
+      visible.maxSection >= 250,
       `fast scroll should reach a middle/late heading rendered with Live Preview classes: ${JSON.stringify(visible)}`
     );
     assert.ok(
@@ -1231,6 +1334,115 @@ try {
       0,
       `CM6 viewport should stabilize while fast-scrolling long docs: ${viewportWarnings.join("\n")}`
     );
+    const negativeMoves = samples.filter(
+      (sample) => sample.after.scrollTop < sample.before.scrollTop - 1
+    );
+    const nonBottomSlips = samples.filter(
+      (sample) =>
+        sample.before.scrollTop <
+          sample.before.scrollHeight - sample.before.clientHeight - 5 &&
+        sample.after.scrollTop <= sample.before.scrollTop + 1
+    );
+    const heightRegressions = samples.filter(
+      (sample) => sample.after.scrollHeight < sample.before.scrollHeight - 1
+    );
+    assert.equal(
+      negativeMoves.length,
+      0,
+      `positive wheels must not move upward: ${JSON.stringify(negativeMoves)}`
+    );
+    assert.equal(
+      nonBottomSlips.length,
+      0,
+      `positive wheels must advance before bottom: ${JSON.stringify(nonBottomSlips)}`
+    );
+    assert.equal(
+      heightRegressions.length,
+      0,
+      `scrollHeight must not shrink during the path: ${JSON.stringify(heightRegressions)}`
+    );
+    assert.ok(
+      visitedTables.size >= 4,
+      `scrolling must encounter several mounted large tables, got ${visitedTables.size}`
+    );
+    assert.ok(
+      maxPredictionErrorPx <= 2,
+      `all encountered table estimates must stay within 2px, got ${maxPredictionErrorPx}`
+    );
+
+    // The fast-scroll phase may finish at maxScroll. CM6 correctly anchors the
+    // document bottom there, which is a different contract from preserving the
+    // first visible source line. Move to a stable middle position before testing
+    // viewport-source anchoring across a real settings invalidation.
+    await scroller.evaluate((element) => {
+      const maxScroll = element.scrollHeight - element.clientHeight;
+      element.scrollTop = Math.round(maxScroll * 0.7);
+    });
+    await win.waitForTimeout(350);
+    const offBottom = await scroller.evaluate((element) => ({
+      scrollTop: element.scrollTop,
+      scrollHeight: element.scrollHeight,
+      clientHeight: element.clientHeight,
+      distanceFromBottom: element.scrollHeight - element.clientHeight - element.scrollTop,
+    }));
+    assert.ok(
+      offBottom.distanceFromBottom >= offBottom.clientHeight * 2,
+      `anchor setup must be away from document bottom: ${JSON.stringify(offBottom)}`
+    );
+
+    const anchorBefore = await longCm.evaluate(() => {
+      const scroller = document.querySelector(".cm-scroller");
+      if (!scroller) return null;
+      const top = scroller.getBoundingClientRect().top;
+      const candidates = [...document.querySelectorAll(".cm-line")]
+        .map((element) => ({ element, text: element.textContent ?? "" }))
+        .filter(
+          ({ element, text }) =>
+            /Long Scroll Section \d+|printf\("section \d+/.test(text) &&
+            element.getBoundingClientRect().bottom >= top
+        )
+        .sort((a, b) => a.element.getBoundingClientRect().top - b.element.getBoundingClientRect().top);
+      const first = candidates[0];
+      return first
+        ? { text: first.text, offset: first.element.getBoundingClientRect().top - top }
+        : null;
+    });
+    assert.ok(anchorBefore, "a unique source anchor must be visible before layout invalidation");
+    const layoutVersionBeforeSettings = await longCm.evaluate(() => {
+      const rack = document.querySelector(".ofm-table-measure-rack");
+      return Number(rack?.getAttribute("data-ofm-table-layout-version") ?? 0);
+    });
+    writeSettings({ ...baseSettings, "ofm.fontSize": 13, "ofm.lineWidth": 28 });
+    await longCm.waitForFunction(
+      (previousVersion) => {
+        const rack = document.querySelector(".ofm-table-measure-rack");
+        const content = document.querySelector(".cm-content");
+        const style = content ? getComputedStyle(content) : null;
+        return (
+          Number(rack?.getAttribute("data-ofm-table-layout-version") ?? 0) > previousVersion &&
+          rack?.getAttribute("data-ofm-table-measurements-pending") === "0" &&
+          style?.fontSize === "13px" &&
+          style.maxWidth !== "none"
+        );
+      },
+      layoutVersionBeforeSettings,
+      { timeout: 15_000 }
+    );
+    await win.waitForTimeout(300);
+    const anchorAfter = await longCm.evaluate((text) => {
+      const scroller = document.querySelector(".cm-scroller");
+      const line = [...document.querySelectorAll(".cm-line")].find(
+        (element) => element.textContent === text
+      );
+      if (!scroller || !line) return null;
+      return line.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+    }, anchorBefore.text);
+    assert.ok(anchorAfter !== null, `source anchor must remain mounted: ${JSON.stringify(anchorBefore)}`);
+    assert.ok(
+      Math.abs(anchorAfter - anchorBefore.offset) <= 8,
+      `source anchor drifted after width/font settings change: before=${anchorBefore.offset}, after=${anchorAfter}`
+    );
+    assert.equal(viewportWarnings.length, 0, "layout invalidation must not destabilize the viewport");
   });
 } finally {
   await app.close();

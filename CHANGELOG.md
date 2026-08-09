@@ -3,6 +3,36 @@
 All notable changes to Flintmark are documented here. Versions are pre-1.0 while
 the editor stabilizes for the Marketplace.
 
+## 0.32.12
+
+- **Large workspaces no longer stall note opens.** The vault index (wikilinks,
+  backlinks, tags) now builds cooperatively — time-sliced chunks, cancellation,
+  and atomic publication — so opening a note stays responsive even while a
+  40k-file workspace scan is in flight. The editor never waits for the index;
+  autocomplete data arrives via the existing follow-up push without rebuilding
+  the editor. In the real 42k-file vault, opening a note during the initial
+  scan dropped from ~3.6s to ~0.4s.
+- **Saving a note no longer re-scans the workspace.** Content-only saves patch
+  a single file (one read, no full `findFiles`, no full re-index); only
+  structural events (create/delete/rename/directory operations) fall back to a
+  full — still cooperative — rebuild. Watcher events route to the correct
+  index by leaf type, and per-open image-index refreshes are throttled by a
+  state-aware freshness gate that still forces on attachment saves.
+- **Stable scrolling in long, table- and image-heavy notes.** Tables, images,
+  and inline SVGs now carry precisely measured heights (an offscreen layout
+  pass under the real content box, fonts, and theme), so CodeMirror's height
+  map no longer collapses mid-scroll — fixing the mid-document "scroll spins
+  in place / jumps back up" behavior. Tables without a reliable measurement
+  briefly stay as Markdown source instead of mounting with an unknown height,
+  measurements swap atomically on width/font/theme changes, and the editor
+  suppresses CodeMirror's destructive full height-map rebuild unless the
+  wrapping mode actually changes.
+- **Reliability gates.** New unit/property coverage for cooperative and
+  incremental indexing, media/table height prediction, and a rewritten
+  long-scroll E2E with per-wheel scroll monotonicity, a ≤2px
+  prediction-vs-real contract, and a layout-invalidation anchor check driven
+  through the real settings channel.
+
 ## 0.32.11
 
 - **Todo panel for the active document.** The Flintmark sidebar now aggregates

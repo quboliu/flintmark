@@ -5,6 +5,7 @@
 // so the host re-sends the map and the decoration plugin rebuilds.
 import { EditorView, WidgetType } from "@codemirror/view";
 import { StateEffect, StateField } from "@codemirror/state";
+import { reportLoadedMedia } from "../mediaMeasurements";
 
 /** Host → webview: map of raw image src → resolved webview URI. */
 export const setImageMap = StateEffect.define<Record<string, string>>();
@@ -25,7 +26,9 @@ export class ImageWidget extends WidgetType {
     readonly alt: string,
     /** Optional Obsidian `![[img.png|W]]` / `|WxH` dimensions, in px. */
     readonly width?: number,
-    readonly height?: number
+    readonly height?: number,
+    private readonly estimatedHeightPx?: number,
+    readonly layoutVersion = 0
   ) {
     super();
   }
@@ -35,8 +38,14 @@ export class ImageWidget extends WidgetType {
       other.src === this.src &&
       other.alt === this.alt &&
       other.width === this.width &&
-      other.height === this.height
+      other.height === this.height &&
+      other.estimatedHeightPx === this.estimatedHeightPx &&
+      other.layoutVersion === this.layoutVersion
     );
+  }
+
+  get estimatedHeight(): number {
+    return this.estimatedHeightPx ?? -1;
   }
 
   toDOM(view: EditorView): HTMLElement {
@@ -48,11 +57,17 @@ export class ImageWidget extends WidgetType {
     // Width only → height stays auto (aspect ratio preserved).
     if (this.width !== undefined) img.style.width = `${this.width}px`;
     if (this.height !== undefined) img.style.height = `${this.height}px`;
+    if (this.estimatedHeightPx !== undefined) {
+      img.dataset.ofmEstimatedHeight = String(this.estimatedHeightPx);
+    }
     // The image loads asynchronously and changes the line height once decoded.
     // Tell CM6 to re-measure so its height map stays in sync (otherwise content
     // below the image is click/caret offset — the dynamic-height counterpart of
     // the no-margin rule).
-    img.addEventListener("load", () => view.requestMeasure());
+    img.addEventListener("load", () => {
+      reportLoadedMedia(view, this.src, img.naturalWidth, img.naturalHeight);
+      view.requestMeasure();
+    });
     if (this.src) img.src = this.src;
     return img;
   }

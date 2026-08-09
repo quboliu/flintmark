@@ -29,6 +29,15 @@ import { createAiButton, type AiButtonHandle } from "./aiSelectionButton";
 import { markdownTheme } from "./markdownTheme";
 import { taskToggleFacet } from "./widgets/checkboxWidget";
 import { imageMapField } from "./widgets/imageWidget";
+import {
+  remeasureTables,
+  tableMeasurementsField,
+  tableMeasurementsPlugin,
+} from "./tableMeasurements";
+import {
+  mediaMeasurementsField,
+  mediaMeasurementsPlugin,
+} from "./mediaMeasurements";
 import { formatKeymap, handlePasteLink } from "./formatCommands";
 import { markdownFolding } from "./folding";
 import { markdownAutocomplete } from "./autocomplete";
@@ -78,6 +87,7 @@ export interface EditorCallbacks {
 export interface EditorHandle {
   view: EditorView;
   setThemeDark: (dark: boolean) => void;
+  remeasureTables: (reason: string, clear?: boolean) => void;
 }
 
 const MAX_ATTACHMENT_MB = Math.round(MAX_ATTACHMENT_BYTES / (1024 * 1024));
@@ -180,11 +190,21 @@ export function createEditor(
         // Syntax highlighting for fenced code (tags → Obsidian .cm-* classes).
         syntaxHighlighting(ofmHighlightStyle),
 
+        // Host-resolved media plus per-view intrinsic dimensions are available
+        // before decoration fields decide whether an image/SVG can mount.
+        imageMapField,
+        mediaMeasurementsField,
+
         // Live Preview: hide markers, style headings, apply inline styling.
         markdownDecorationsPlugin,
 
         // Block widgets (mermaid diagrams, tables) — must be a StateField.
+        // Tables stay as source until this per-view field receives a precise
+        // measurement for the current layout signature.
+        tableMeasurementsField,
         blockWidgetsField,
+        tableMeasurementsPlugin,
+        mediaMeasurementsPlugin,
 
         // CSS theme for OFM-specific classes. Kept in a compartment so host
         // light/dark changes can update CM6 polarity without rebuilding the editor.
@@ -192,9 +212,6 @@ export function createEditor(
 
         // Provide the task-toggle callback to checkbox widgets.
         taskToggleFacet.of(callbacks.onToggleTask),
-
-        // Holds host-resolved image URIs (raw src -> webview URI).
-        imageMapField,
 
         // Click a link (wiki [[…]] or external [text](url) / <url>) → ask the
         // host to open it. The host decides internal-note vs external-URL.
@@ -288,7 +305,10 @@ export function createEditor(
       view.dispatch({
         effects: themeCompartment.reconfigure(markdownTheme(dark)),
       });
+      remeasureTables(view, "theme-mode", true);
     },
+    remeasureTables: (reason: string, clear = false) =>
+      remeasureTables(view, reason, clear),
   };
 }
 
