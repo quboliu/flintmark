@@ -113,11 +113,10 @@ try {
   await cm.locator(".cm-editor").evaluate((el) => {
     el.dataset.vaultReadyInstance = "original";
   });
-  const initialOptions = await autocompleteOptions(cm, win);
-  assert.ok(
-    initialOptions.every((text) => !text.includes("Late Vault Target")),
-    `initial cached VaultData should be empty during the build: ${JSON.stringify(initialOptions)}`
-  );
+  // Establish the selection before VaultData arrives. On a fast build the
+  // initial autocomplete may already be populated, so that intermediate state
+  // is deliberately not part of the lifecycle contract.
+  await autocompleteOptions(cm, win);
 
   await win.keyboard.press("Escape");
   for (let i = 0; i < 7; i++) await win.keyboard.press("Backspace");

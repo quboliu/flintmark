@@ -178,6 +178,68 @@ async function waitForFrameText(win, fragment, timeoutMs = 10000) {
   return null;
 }
 
+async function openLiveNoteWithText(win, spec, fragment, attempts = 3) {
+  let lastError = null;
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    try {
+      await openLiveNote(win, spec);
+      const frame = await waitForFrameText(win, fragment);
+      if (frame) return frame;
+      lastError = new Error(`${spec} did not render ${JSON.stringify(fragment)}`);
+    } catch (error) {
+      lastError = error;
+    }
+    await win.keyboard.press("Escape").catch(() => {});
+    await win.waitForTimeout(500);
+  }
+  throw lastError ?? new Error(`Live Preview should open ${spec}`);
+}
+
+async function waitForAutocompleteOptions(frame, win, timeoutMs = 10000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const options = await frame.locator(".cm-tooltip-autocomplete li").allInnerTexts();
+    if (options.length > 0) return options;
+    await win.waitForTimeout(250);
+  }
+  throw new Error("autocomplete options did not appear");
+}
+
+async function probeDeletedDirectoryIndexes(win, attempts = 3) {
+  let lastState = null;
+  let lastError = null;
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    try {
+      const outside = await openLiveNoteWithText(win, "outside.md", "autocomplete probe", 1);
+      const probe = outside.locator(".cm-line", { hasText: "autocomplete probe" }).first();
+      await probe.waitFor({ state: "visible", timeout: 10000 });
+      await probe.click();
+      await win.keyboard.press("End");
+      await win.keyboard.type(" [[");
+      const options = await waitForAutocompleteOptions(outside, win);
+      const deletedImage = await outside.evaluate(() => {
+        const img = document.querySelector("img.ofm-image");
+        return img ? { complete: img.complete, naturalWidth: img.naturalWidth } : null;
+      });
+      lastState = { options, deletedImage };
+      if (
+        options.every((text) => !text.includes("Rename Target")) &&
+        (!deletedImage || deletedImage.naturalWidth === 0)
+      ) {
+        return lastState;
+      }
+      await win.keyboard.press("Escape");
+      for (let i = 0; i < 3; i++) await win.keyboard.press("Backspace");
+    } catch (error) {
+      lastError = error;
+    }
+    await win.keyboard.press("Escape").catch(() => {});
+    await win.waitForTimeout(500);
+  }
+  if (lastState) return lastState;
+  throw lastError ?? new Error("deleted directory indexes could not be probed");
+}
+
 let passed = false;
 
 try {
@@ -211,22 +273,11 @@ try {
   await win.keyboard.press("w");
   await win.waitForTimeout(400);
   rmSync(join(work, "rename", "B"), { recursive: true });
-  await win.waitForTimeout(1800);
-  const outside = await openLiveNote(win, "outside.md");
-  const probe = outside.locator(".cm-line", { hasText: "autocomplete probe" }).first();
-  await probe.click();
-  await win.keyboard.press("End");
-  await win.keyboard.type(" [[");
-  await win.waitForTimeout(700);
-  const options = await outside.locator(".cm-tooltip-autocomplete li").allInnerTexts();
+  const { options, deletedImage } = await probeDeletedDirectoryIndexes(win);
   assert.ok(
     options.every((text) => !text.includes("Rename Target")),
     `deleted directory notes must leave autocomplete, got ${JSON.stringify(options)}`
   );
-  const deletedImage = await outside.evaluate(() => {
-    const img = document.querySelector("img.ofm-image");
-    return img ? { complete: img.complete, naturalWidth: img.naturalWidth } : null;
-  });
   assert.ok(
     !deletedImage || deletedImage.naturalWidth === 0,
     `deleted directory image must not remain resolved: ${JSON.stringify(deletedImage)}`
