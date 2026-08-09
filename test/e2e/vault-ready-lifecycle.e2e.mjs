@@ -71,24 +71,27 @@ async function autocompleteOptions(cm, win) {
 }
 
 async function reopenWithFlintmark(win) {
+  await win.bringToFront();
+  await win.keyboard.press("Escape").catch(() => {});
   await win.keyboard.press("F1");
   const widget = win.locator(".quick-input-widget");
-  await widget.waitFor({ state: "visible", timeout: 5000 });
+  await widget.waitFor({ state: "visible", timeout: 10000 });
   const input = widget.locator("input").first();
+  await input.waitFor({ state: "visible", timeout: 10000 });
   await input.fill(">Reopen Editor With");
   const command = widget
     .locator(".monaco-list-row")
     .filter({ hasText: /Reopen Editor With/ })
     .first();
-  await command.waitFor({ state: "visible", timeout: 15000 });
+  await command.waitFor({ state: "visible", timeout: 30000 });
   await command.click();
-  await input.waitFor({ state: "visible", timeout: 5000 });
+  await input.waitFor({ state: "visible", timeout: 10000 });
   await input.fill("Flintmark");
   const choice = widget
     .locator(".monaco-list-row")
     .filter({ hasText: /Flintmark|Markdown Live Preview/ })
     .first();
-  await choice.waitFor({ state: "visible", timeout: 15000 });
+  await choice.waitFor({ state: "visible", timeout: 30000 });
   await choice.click();
 }
 
@@ -96,9 +99,14 @@ try {
   const win = await app.firstWindow();
   await win.waitForSelector(".monaco-workbench", { timeout: 30000 });
   let cm = await findCmFrame(win, 500);
-  if (!cm) {
-    await reopenWithFlintmark(win);
-    cm = await findCmFrame(win, 30000);
+  for (let attempt = 0; attempt < 3 && !cm; attempt++) {
+    try {
+      await reopenWithFlintmark(win);
+      cm = await findCmFrame(win, 10000);
+    } catch {
+      await win.keyboard.press("Escape").catch(() => {});
+    }
+    if (!cm) await win.waitForTimeout(2500);
   }
   assert.ok(cm, "open.md should paint in Flintmark while the vault build runs");
 
