@@ -1,6 +1,6 @@
-// One-off marketing screenshot capture for the new Tier-1/Tier-2 features.
+// README screenshot capture for editing, autocomplete, and the AI bridge.
 // Run from the repo root: xvfb-run -a node scripts/capture-shots.mjs
-// Writes PNGs into media/shots/.
+// Writes editing.png, autocomplete.png, and ai.png into media/shots/.
 import { _electron as electron } from "playwright";
 import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -50,6 +50,15 @@ writeFileSync(
     "",
   ].join("\n")
 );
+writeFileSync(
+  join(work, "AI Bridge.md"),
+  [
+    "# Use your editor's AI",
+    "",
+    "Select any text to use it with Copilot or Cursor.",
+    "",
+  ].join("\n")
+);
 
 const app = await electron.launch({
   executablePath: VSCODE,
@@ -90,6 +99,19 @@ async function frame() {
   }
   return null;
 }
+async function frameContaining(text) {
+  for (let i = 0; i < 30; i++) {
+    for (const f of win.frames()) {
+      try {
+        if ((await f.locator(".cm-line").filter({ hasText: text }).count()) > 0) return f;
+      } catch {
+        /* cross-origin */
+      }
+    }
+    await win.waitForTimeout(500);
+  }
+  return null;
+}
 
 await palette("Control+P", "Project Notes.md");
 if (!(await frame())) {
@@ -118,5 +140,42 @@ await win.keyboard.type("Related: [[", { delay: 60 });
 await win.waitForTimeout(1300);
 await win.screenshot({ path: join(REPO, "media", "shots", "autocomplete.png") });
 
+// Shot 3: current selection toolbar. Assert the exact UI before capturing so a
+// future toolbar change cannot silently leave README artwork behind again.
+await win.keyboard.press("Escape");
+await palette("Control+P", "AI Bridge.md");
+const aiCm = await frameContaining("Select any text");
+if (!aiCm) throw new Error("AI Bridge editor frame not found");
+const aiLine = aiCm.locator(".cm-line").filter({ hasText: "Select any text" }).first();
+await aiLine.click();
+await win.keyboard.press("Home");
+await win.keyboard.press("Control+Shift+ArrowRight");
+await win.keyboard.press("Control+Shift+ArrowRight");
+await win.keyboard.press("Control+Shift+ArrowRight");
+await win.waitForTimeout(500);
+
+const toolbar = aiCm.locator(".ofm-ai-toolbar").first();
+await toolbar.waitFor({ state: "visible", timeout: 4000 });
+const labels = await toolbar.locator(".ofm-ai-button").allInnerTexts();
+if (JSON.stringify(labels) !== JSON.stringify(["Edit", "Add to Chat"])) {
+  throw new Error(`unexpected AI toolbar labels: ${JSON.stringify(labels)}`);
+}
+const hasExtraButtonContent = await toolbar.locator(".ofm-ai-button").evaluateAll((buttons) =>
+  buttons.some((button) => button.childElementCount > 0)
+);
+if (hasExtraButtonContent) {
+  throw new Error("AI toolbar buttons contain unexpected icon/markup children");
+}
+
+const aiBox = await aiLine.boundingBox();
+if (!aiBox) throw new Error("AI selection line has no bounding box");
+const aiClip = {
+  x: Math.max(0, aiBox.x - 24),
+  y: Math.max(0, aiBox.y - 68),
+  width: Math.min(720, 1100 - Math.max(0, aiBox.x - 24)),
+  height: Math.min(160, 760 - Math.max(0, aiBox.y - 68)),
+};
+await win.screenshot({ path: join(REPO, "media", "shots", "ai.png"), clip: aiClip });
+
 await app.close();
-console.log("captured media/shots/editing.png + autocomplete.png");
+console.log("captured media/shots/editing.png + autocomplete.png + ai.png");

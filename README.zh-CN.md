@@ -256,9 +256,10 @@ npm run test:perf
 npm run test:e2e
 ```
 
-两张大图可以用下面的命令重新生成：
+README 里的主要截图可以用下面的命令重新生成：
 
 ```sh
+npm run shots:features
 npm run shots:go-pipelines
 npm run shots:navigation
 ```

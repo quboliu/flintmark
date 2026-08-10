@@ -274,9 +274,10 @@ npm run test:perf
 npm run test:e2e
 ```
 
-The two large screenshots can be regenerated with:
+The main screenshots can be regenerated with:
 
 ```sh
+npm run shots:features
 npm run shots:go-pipelines
 npm run shots:navigation
 ```
