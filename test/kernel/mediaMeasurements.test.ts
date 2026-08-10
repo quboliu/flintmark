@@ -4,6 +4,8 @@ import {
   mediaMeasurementsField,
   predictedImageHeight,
   predictedSvgBlockHeight,
+  reconcileMediaProbeSources,
+  destroyMediaProbes,
   setMediaMeasurements,
   stableMediaIdentity,
   svgIntrinsicSize,
@@ -35,12 +37,29 @@ function mediaState(
   return state;
 }
 
-test("stable identities discard cache-busting query and fragment", () => {
+test("stable identities discard only Flintmark's cache-buster", () => {
   assert.equal(
     stableMediaIdentity("https://example.com/a.png?ofmIndex=9#fragment"),
-    "https://example.com/a.png"
+    "https://example.com/a.png#fragment"
   );
-  assert.equal(stableMediaIdentity("images/a.png?rev=2"), "images/a.png");
+  assert.equal(stableMediaIdentity("images/a.png?rev=2"), "images/a.png?rev=2");
+  assert.equal(
+    stableMediaIdentity("images/a.png?rev=2&ofmIndex=9&variant=wide#preview"),
+    "images/a.png?rev=2&variant=wide#preview"
+  );
+});
+
+test("same-path URLs with different queries retain independent aspect ratios", () => {
+  const wide = "https://example.com/render.png?id=wide";
+  const tall = "https://example.com/render.png?id=tall";
+  const state = mediaState([
+    { identity: stableMediaIdentity(wide), width: 400, height: 100 },
+    { identity: stableMediaIdentity(tall), width: 100, height: 400 },
+  ]);
+
+  assert.notEqual(stableMediaIdentity(wide), stableMediaIdentity(tall));
+  assert.equal(predictedImageHeight(state, wide)?.height, 75);
+  assert.equal(predictedImageHeight(state, tall)?.height, 400);
 });
 
 test("explicit WxH can render before intrinsic media arrives", () => {
@@ -87,6 +106,67 @@ test("decoded SVG probe overrides source dimensions", () => {
     { identity: svgMediaIdentity(source), width: 100, height: 100 },
   ]);
   assert.equal(predictedSvgBlockHeight(state, source)?.height, 116);
+});
+
+test("513 current media probes reconcile without rolling re-probes", () => {
+  const sources = Array.from({ length: 513 }, (_, index) => `https://example.com/${index}.png`);
+  const probes = new Map(sources.map((source) => [source, { source }]));
+  const cancelled: string[] = [];
+
+  assert.deepEqual(
+    reconcileMediaProbeSources(probes, sources, (probe) => cancelled.push(probe.source)),
+    []
+  );
+  assert.equal(probes.size, 513, "all current-document probes remain tracked");
+
+  const replacement = "https://example.com/replacement.png";
+  const missing = reconcileMediaProbeSources(
+    probes,
+    [...sources.slice(1), replacement],
+    (probe) => cancelled.push(probe.source)
+  );
+  assert.deepEqual(cancelled, [sources[0]], "an evicted probe is invalidated");
+  assert.deepEqual(missing, [replacement], "only the newly introduced source is probed");
+});
+
+test("513 current media identities all retain their measured ratio", () => {
+  const sources = Array.from({ length: 513 }, (_, index) => `https://example.com/${index}.png`);
+  const state = mediaState(
+    sources.map((source, index) => ({
+      identity: stableMediaIdentity(source),
+      width: 100 + index,
+      height: 50,
+    }))
+  );
+
+  assert.notEqual(predictedImageHeight(state, sources[0]), undefined);
+  assert.notEqual(predictedImageHeight(state, sources[512]), undefined);
+});
+
+test("destroy invalidates every in-flight media probe", () => {
+  const probes = new Map([
+    ["slow-a", { source: "slow-a" }],
+    ["slow-b", { source: "slow-b" }],
+  ]);
+  const cancelled: string[] = [];
+
+  destroyMediaProbes(probes, (probe) => cancelled.push(probe.source));
+
+  assert.deepEqual(cancelled, ["slow-a", "slow-b"]);
+  assert.equal(probes.size, 0);
+});
+
+test("identity reconciliation wins over a stale dimension in the same effect", () => {
+  const stale = "https://example.com/stale.png";
+  let state = mediaState();
+  state = state.update({
+    effects: setMediaMeasurements.of({
+      dimensions: [{ identity: stableMediaIdentity(stale), width: 200, height: 100 }],
+      retainIdentities: [stableMediaIdentity("https://example.com/current.png")],
+    }),
+  }).state;
+
+  assert.equal(predictedImageHeight(state, stale), undefined);
 });
 
 if (failed > 0) {

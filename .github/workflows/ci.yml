@@ -107,9 +107,32 @@ jobs:
       - name: Integration (L2 — extension activates in a real editor)
         run: npm run test:integration
       - name: E2E (L3 — drives the CM6 webview under xvfb)
-        # GUI 套件在共享 CI runner 上偶发时序超时；整体重跑一次兜底，
-        # 确定性失败两轮皆红，信号不受影响。
-        run: npm run test:e2e || npm run test:e2e
+        run: |
+          set +e
+          npm run test:e2e
+          first_exit=$?
+          set -e
+          if [ "$first_exit" -eq 0 ]; then
+            exit 0
+          fi
+
+          echo "::warning title=E2E first run failed::Retrying once; a passing retry will be reported as flaky-pass."
+          set +e
+          npm run test:e2e
+          retry_exit=$?
+          set -e
+          if [ "$retry_exit" -eq 0 ]; then
+            {
+              echo "## ⚠️ E2E flaky-pass"
+              echo "The first E2E run failed and the retry passed. Investigate the uploaded metrics and screenshots."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          {
+            echo "## ❌ E2E failed twice"
+            echo "Both the first run and retry failed."
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$retry_exit"
         # NOTE: visual regression is intentionally NOT run in CI — pixel baselines
         # are font/environment-specific and would flake on a hosted runner. It's a
         # local pre-release gate (npm run test:visual). See test/e2e/visual.e2e.mjs.

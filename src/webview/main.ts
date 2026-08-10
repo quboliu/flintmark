@@ -285,6 +285,7 @@ function applySettings(settings: Settings | undefined): void {
 
 function applyTheme(theme: ThemePayload | undefined): void {
   if (!theme) return;
+  const linkLoadReason = editorHandle ? "theme-link-load-live" : "theme-link-load";
   const existing = document.getElementById("ofm-theme");
   let link: HTMLLinkElement;
   if (existing instanceof HTMLLinkElement) {
@@ -297,7 +298,7 @@ function applyTheme(theme: ThemePayload | undefined): void {
   }
   link.addEventListener(
     "load",
-    () => editorHandle?.remeasureTables("theme-link-load", true),
+    () => editorHandle?.remeasureTables(linkLoadReason, true),
     { once: true }
   );
   if (theme.cssUri) link.href = theme.cssUri;

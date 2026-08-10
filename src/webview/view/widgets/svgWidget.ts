@@ -188,8 +188,7 @@ export class SvgWidget extends WidgetType {
     return (
       other.source === this.source &&
       other.from === this.from &&
-      other.estimatedHeightPx === this.estimatedHeightPx &&
-      other.layoutVersion === this.layoutVersion
+      other.estimatedHeightPx === this.estimatedHeightPx
     );
   }
 

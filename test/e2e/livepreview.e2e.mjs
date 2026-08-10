@@ -1442,6 +1442,28 @@ try {
       Math.abs(anchorAfter - anchorBefore.offset) <= 8,
       `source anchor drifted after width/font settings change: before=${anchorBefore.offset}, after=${anchorAfter}`
     );
+    const heightBeforeOffscreenVisit = await scroller.evaluate((element) => element.scrollHeight);
+    await scroller.evaluate((element) => {
+      element.scrollTop = element.scrollHeight - element.clientHeight;
+    });
+    await win.waitForTimeout(500);
+    const offscreenResult = await longCm.evaluate(() => {
+      const scroller = document.querySelector(".cm-scroller");
+      const sections = [...document.querySelectorAll(".cm-line.ofm-heading-2")]
+        .map((element) => Number(/Long Scroll Section (\d+)/.exec(element.textContent ?? "")?.[1] ?? -1));
+      return {
+        scrollHeight: scroller?.scrollHeight ?? 0,
+        maxVisibleSection: Math.max(-1, ...sections),
+      };
+    });
+    assert.ok(
+      offscreenResult.maxVisibleSection >= 400,
+      `font refresh must reach correctly mapped offscreen text: ${JSON.stringify(offscreenResult)}`
+    );
+    assert.ok(
+      Math.abs(offscreenResult.scrollHeight - heightBeforeOffscreenVisit) <= 8,
+      `offscreen visit must not repair stale text heights: before=${heightBeforeOffscreenVisit}, after=${offscreenResult.scrollHeight}`
+    );
     assert.equal(viewportWarnings.length, 0, "layout invalidation must not destabilize the viewport");
   });
 } finally {

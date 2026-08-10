@@ -63,6 +63,7 @@ import {
   extractSvgFromHtmlBlock,
 } from "./widgets/svgWidget";
 import { findFrontmatterRange, parseFrontmatter } from "./frontmatter";
+import { documentMeasurementScan } from "./documentMeasurements";
 
 // ---------------------------------------------------------------------------
 // Markdown node type names from @lezer/markdown (CommonMark + GFM)
@@ -228,7 +229,7 @@ export function buildDecorations(
 ): DecorationSet {
   if (state.doc.length > LIVE_PREVIEW_DECORATION_CHAR_LIMIT) return Decoration.none;
   const tree = syntaxTree(state);
-  const docText = state.doc.toString();
+  const docText = documentMeasurementScan(state).docText!;
   const imageMap = state.field(imageMapField, false) ?? {};
   // Default to the whole document so headless callers (the decoration unit
   // test, ADR-0005) get identical behaviour without a View.
@@ -1120,7 +1121,8 @@ export function findFootnotes(
 function buildBlockWidgets(state: EditorState): DecorationSet {
   if (state.doc.length > LIVE_PREVIEW_DECORATION_CHAR_LIMIT) return Decoration.none;
   const tree = syntaxTree(state);
-  const docText = state.doc.toString();
+  const documentMeasurements = documentMeasurementScan(state);
+  const docText = documentMeasurements.docText!;
   const selections: SelectionRange[] = state.selection.ranges.map((r) => ({
     from: r.from,
     to: r.to,
@@ -1233,7 +1235,7 @@ function buildBlockWidgets(state: EditorState): DecorationSet {
   // Tables: detected OURSELVES, tolerantly (GFM/Obsidian accept a delimiter row
   // with surrounding whitespace; @lezer/markdown rejects it, which dropped real
   // tables). Always rendered (editable in place, never reverted to source).
-  for (const b of findTableBlocks(docText)) {
+  for (const b of documentMeasurements.tableBlocks) {
     if (overlapsAny(b, htmlBlockRanges)) continue;
     const source = docText.slice(b.from, b.to);
     const measurement = reliableTableHeight(state, source);

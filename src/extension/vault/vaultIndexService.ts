@@ -22,6 +22,8 @@ import {
   VaultIndexBuildCancelled,
 } from "./vaultIndex";
 import type { VaultData } from "../../shared/protocol";
+import { copyVaultData } from "../../shared/vaultData";
+import { waitForVaultBuildGate } from "./vaultBuildGate";
 import { mapInCooperativeBatches } from "./cooperativeBatches";
 import { patchNoteSnapshot, type NoteSnapshot } from "./vaultSnapshot";
 import {
@@ -113,7 +115,7 @@ export class VaultIndexService implements vscode.Disposable {
 
   /** Compact data for webview autocomplete: deduped note names + all tags. */
   getVaultData(): VaultData {
-    return this.vaultData;
+    return copyVaultData(this.vaultData);
   }
 
   /** Resolve a wikilink target name → Note path string, or null. */
@@ -132,6 +134,8 @@ export class VaultIndexService implements vscode.Disposable {
     files: readonly vscode.Uri[],
     context: WorkspaceIndexBuildContext
   ): Promise<VaultRootSnapshot> {
+    await waitForVaultBuildGate(process.env.FLINTMARK_TEST_VAULT_BUILD_GATE);
+    if (!context.isCurrent()) throw new WorkspaceIndexBuildCancelled();
     const inputs = new Map<string, NoteInput>();
     const uris = new Map<string, vscode.Uri>();
     const results = await mapInCooperativeBatches(

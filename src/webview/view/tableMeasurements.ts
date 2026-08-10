@@ -1,12 +1,30 @@
 import { StateEffect, StateField, type EditorState } from "@codemirror/state";
 import { EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
-import { findTableBlocks } from "./tableBlocks";
-import { installHeightOracleRefreshGuard } from "./layoutPreflight";
+import {
+  installHeightOracleRefreshGuard,
+  requestHeightOracleRefresh,
+} from "./layoutPreflight";
 import { buildTableWidgetDOM } from "./widgets/tableWidget";
+import { documentMeasurementScan } from "./documentMeasurements";
 
 export const TABLE_LAYOUT_CSS_REVISION = 1;
 const MAX_CACHE_ENTRIES = 2_048;
 const TABLES_PER_FRAME = 12;
+
+export function tableSourcesWithinMeasurementBudget(
+  sources: readonly string[]
+): readonly string[] {
+  return sources.length <= MAX_CACHE_ENTRIES ? sources : sources.slice(0, MAX_CACHE_ENTRIES);
+}
+
+export function unmeasuredTableSources(
+  sources: readonly string[],
+  hasMeasurement: (source: string) => boolean
+): readonly string[] {
+  return tableSourcesWithinMeasurementBudget(sources).filter(
+    (source) => !hasMeasurement(source)
+  );
+}
 
 export interface TableMeasurementEffect {
   signature: string;
@@ -162,11 +180,24 @@ class TableMeasurementController {
   }
 
   update(update: ViewUpdate): void {
-    if (update.docChanged || update.geometryChanged) this.schedule();
+    if (!update.docChanged) return;
+    const before = documentMeasurementScan(update.startState).tableSources;
+    const after = documentMeasurementScan(update.state).tableSources;
+    if (before !== after) this.schedule();
   }
 
-  remeasure(_reason: string, clear: boolean): void {
-    if (clear) this.cache.clear();
+  remeasure(reason: string, clear: boolean): void {
+    if (clear) {
+      this.cache.clear();
+      const scope =
+        reason === "settings" ||
+        reason === "theme-change" ||
+        reason === "theme-link-load-live" ||
+        reason === "theme-mode"
+          ? "document"
+          : "viewport";
+      requestHeightOracleRefresh(this.view, scope);
+    }
     this.schedule();
   }
 
@@ -235,12 +266,12 @@ class TableMeasurementController {
     }
 
     const unique = this.currentSources();
-    const batch = unique
-      .filter((source) => !this.cache.has(cacheKey(layout.signature, source)))
-      .slice(0, TABLES_PER_FRAME);
-    const remaining = unique.filter(
-      (source) => !this.cache.has(cacheKey(layout.signature, source))
-    ).length;
+    const pendingSources = unmeasuredTableSources(
+      unique,
+      (source) => this.cache.has(cacheKey(layout.signature, source))
+    );
+    const batch = pendingSources.slice(0, TABLES_PER_FRAME);
+    const remaining = pendingSources.length;
     this.setTableMeasurementsPending(remaining);
     if (batch.length === 0) {
       if (layout.signature === this.measuringSignature) {
@@ -306,8 +337,9 @@ class TableMeasurementController {
         this.rack.replaceChildren();
         for (const item of result.measurements) this.putCache(item.cacheKey, Math.ceil(item.height));
         const sources = this.currentSources();
-        const remainingAfter = sources.filter(
-          (source) => !this.cache.has(cacheKey(result.signature, source))
+        const remainingAfter = unmeasuredTableSources(
+          sources,
+          (source) => this.cache.has(cacheKey(result.signature, source))
         ).length;
         this.setTableMeasurementsPending(remainingAfter);
         this.publishReady(result.signature, sources);
@@ -316,11 +348,10 @@ class TableMeasurementController {
     });
   }
 
-  private currentSources(): string[] {
-    const doc = this.view.state.doc.toString();
-    return [
-      ...new Set(findTableBlocks(doc).map((block) => doc.slice(block.from, block.to))),
-    ];
+  private currentSources(): readonly string[] {
+    return tableSourcesWithinMeasurementBudget(
+      documentMeasurementScan(this.view.state).tableSources
+    );
   }
 
   private targetHeights(signature: string, sources: readonly string[]): Map<string, number> {

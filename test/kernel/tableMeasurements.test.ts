@@ -4,6 +4,8 @@ import { ofmMarkdown } from "../../src/webview/kernel/obsidianSyntax";
 import { buildBlockWidgets } from "../../src/webview/view/markdownDecorations";
 import {
   planTableMeasurementPublication,
+  tableSourcesWithinMeasurementBudget,
+  unmeasuredTableSources,
   setTableMeasurements,
   tableMeasurementsField,
 } from "../../src/webview/view/tableMeasurements";
@@ -162,6 +164,24 @@ test("the state field rejects a partial batch carrying a different signature", (
     }),
   }).state;
   assert.equal(tables(state)[0].estimatedHeight, 100);
+});
+
+test("2,049 unique tables converge while the overflow table stays in source", () => {
+  const sources = Array.from({ length: 2_049 }, (_, index) => `table-${index}`);
+  const measurable = tableSourcesWithinMeasurementBudget(sources);
+  const heights = new Map(measurable.map((source, index) => [source, index + 1]));
+
+  assert.equal(measurable.length, 2_048);
+  assert.equal(measurable.includes(sources[2_048]), false, "overflow remains unknown");
+  assert.equal(
+    unmeasuredTableSources(sources, (source) => heights.has(source)).length,
+    0,
+    "pending reaches zero so no follow-up animation frame is needed"
+  );
+  assert.equal(
+    planTableMeasurementPublication("", new Map(), "layout-a", measurable, heights).kind,
+    "replace"
+  );
 });
 
 if (failed > 0) {

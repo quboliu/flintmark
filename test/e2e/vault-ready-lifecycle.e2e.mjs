@@ -1,7 +1,7 @@
 // The webview must paint while a deliberately expensive initial Vault build is
 // still running, then receive autocomplete data without rebuilding the editor.
 import { _electron as electron } from "playwright";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import assert from "node:assert";
@@ -10,6 +10,8 @@ const REPO = resolve(".");
 const VSCODE = process.env.VSCODE_BIN || "/usr/share/codium/codium";
 const work = mkdtempSync(join(tmpdir(), "ofm-vault-ready-"));
 const userData = join(work, "user-data");
+const buildGate = join(work, "vault-build.gate");
+writeFileSync(buildGate, "held");
 mkdirSync(join(userData, "User"), { recursive: true });
 writeFileSync(
   join(userData, "User", "settings.json"),
@@ -33,6 +35,7 @@ for (let i = 0; i < 10_000; i++) {
 
 const app = await electron.launch({
   executablePath: VSCODE,
+  env: { ...process.env, FLINTMARK_TEST_VAULT_BUILD_GATE: buildGate },
   args: [
     "--no-sandbox",
     "--disable-gpu",
@@ -113,13 +116,16 @@ try {
   await cm.locator(".cm-editor").evaluate((el) => {
     el.dataset.vaultReadyInstance = "original";
   });
-  // Establish the selection before VaultData arrives. On a fast build the
-  // initial autocomplete may already be populated, so that intermediate state
-  // is deliberately not part of the lifecycle contract.
-  await autocompleteOptions(cm, win);
+  const gatedOptions = await autocompleteOptions(cm, win);
+  assert.equal(
+    gatedOptions.some((text) => text.includes("Late Vault Target")),
+    false,
+    `the editor must be interactive before gated VaultData publication: ${JSON.stringify(gatedOptions)}`
+  );
 
   await win.keyboard.press("Escape");
   for (let i = 0; i < 7; i++) await win.keyboard.press("Backspace");
+  unlinkSync(buildGate);
 
   let eventualOptions = [];
   const deadline = Date.now() + 30000;
@@ -149,5 +155,8 @@ try {
   assert.ok(state.activeText.includes("selection-probe"), "the active selection line must be retained");
   console.log("  ✓ body paints before VaultData; later data preserves editor instance and selection");
 } finally {
+  try {
+    unlinkSync(buildGate);
+  } catch {}
   await app.close().catch(() => {});
 }

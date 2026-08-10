@@ -69,6 +69,17 @@ function imageWidgets(
   return out;
 }
 
+function imageWidgetInstances(set: DecorationSet): ImageWidget[] {
+  const out: ImageWidget[] = [];
+  const it = set.iter();
+  while (it.value) {
+    const widget = (it.value.spec as { widget?: unknown }).widget;
+    if (widget instanceof ImageWidget) out.push(widget);
+    it.next();
+  }
+  return out;
+}
+
 test("local image renders with the host-resolved src (cursor away)", () => {
   const doc = "![logo](pic.png) x";
   const set = buildDecorations(
@@ -91,6 +102,45 @@ test("remote image passes through without a map entry", () => {
   const imgs = imageWidgets(buildDecorations(mkState(doc, doc.length, {})));
   assert.equal(imgs.length, 1);
   assert.equal(imgs[0].src, "https://example.com/a.png");
+});
+
+test("100 delayed image measurements cause only near-linear widget rebuilds", () => {
+  const sources = Array.from(
+    { length: 100 },
+    (_, index) => `https://example.com/image.png?id=${index}`
+  );
+  const doc = sources.map((source, index) => `![image ${index}](${source})`).join("\n") + "\nend";
+  let state = EditorState.create({
+    doc,
+    selection: { anchor: doc.length },
+    extensions: [ofmMarkdown(), imageMapField, mediaMeasurementsField],
+  });
+  state = state.update({
+    effects: setMediaMeasurements.of({ contentWidth: 600, fontSizePx: 16 }),
+  }).state;
+  ensureSyntaxTree(state, doc.length, 5_000);
+
+  let previous = new Map<string, ImageWidget>();
+  let rebuilds = 0;
+  for (let index = 0; index < sources.length; index++) {
+    state = state.update({
+      effects: setMediaMeasurements.of({
+        dimensions: [{
+          identity: stableMediaIdentity(sources[index]),
+          width: 200 + index,
+          height: 100,
+        }],
+      }),
+    }).state;
+    const current = imageWidgetInstances(buildDecorations(state));
+    for (const widget of current) {
+      const old = previous.get(widget.src);
+      if (!old || !old.eq(widget)) rebuilds++;
+    }
+    previous = new Map(current.map((widget) => [widget.src, widget]));
+  }
+
+  assert.ok(rebuilds <= 110, `expected near-linear rebuilds, got ${rebuilds}`);
 });
 
 if (failed > 0) {

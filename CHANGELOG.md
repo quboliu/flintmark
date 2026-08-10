@@ -3,6 +3,44 @@
 All notable changes to Flintmark are documented here. Versions are pre-1.0 while
 the editor stabilizes for the Marketplace.
 
+## 0.32.13
+
+- **Keystrokes no longer rescan the whole document.** Table and inline-SVG
+  resource scans now run once per change inside a shared, cached measurement
+  field: a plain-text keypress in a resource-free document performs no table
+  or media scan at all, and documents beyond the Live Preview cutoff skip
+  full-text scans entirely instead of running three per edit.
+- **Documents with more than 2,048 unique tables no longer live-lock.** Table
+  measurement is budgeted to the first 2,048 unique sources, so the pending
+  count actually reaches zero and the per-frame measurement loop stops;
+  overflow tables stay as Markdown source instead of blocking publication
+  forever.
+- **Images with query strings keep their own sizes.** Media identity now
+  strips only Flintmark's own cache-buster (`ofmIndex`), so same-path URLs
+  with different query parameters — and SVG `#fragment` views — no longer
+  share aspect ratios or oscillate between load and redecorate cycles.
+- **Media measurement scales linearly.** The 512-entry probe/cache cap is
+  gone: probes are reconciled exactly against the document's current media
+  sources (departed sources are cancelled, in-flight loads are aborted when
+  the editor closes), and image/SVG widgets no longer rebuild on every
+  unrelated measurement — 100 delayed image loads now cause near-100 widget
+  rebuilds instead of ~5,000.
+- **Font and theme changes fully recalibrate offscreen heights.** Live
+  settings/theme changes briefly mount the whole document (within the Live
+  Preview size limit) so CodeMirror's height map is rebuilt from real DOM
+  measurements — jumping to the far end of a long note right after a font
+  change no longer "repairs" the scroll height, while ordinary metric
+  sampling stays guarded against destructive full-map rebuilds.
+- **Vault index robustness.** Removing and re-adding the same workspace
+  folder can no longer let a stale background build overwrite the fresh
+  snapshot (generations are monotonic for the driver's lifetime), and vault
+  autocomplete data is handed out as copies so callers cannot mutate the
+  published cache.
+- **Stronger release gates.** The vault-ready E2E now proves "paint first,
+  autocomplete later" deterministically with a build gate instead of racing a
+  10k-file scan, and a retried E2E pass is visibly reported as a flaky-pass
+  in CI instead of silently counting as clean.
+
 ## 0.32.12
 
 - **Large workspaces no longer stall note opens.** The vault index (wikilinks,

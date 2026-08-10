@@ -12,6 +12,7 @@ import {
   refreshModeForFileEvent,
   routeCreatedPath,
   routeUnavailablePath,
+  WorkspaceIndexGenerationClock,
   type IndexFreshnessState,
   type IndexSnapshotStatus,
   type RefreshInvalidationBatch,
@@ -100,7 +101,7 @@ export class WorkspaceIndexDriver implements vscode.Disposable {
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly pending = new Map<string, RefreshInvalidationBatch>();
   private readonly pendingUris = new Map<string, Map<string, vscode.Uri>>();
-  private readonly gen = new Map<string, number>();
+  private readonly generations = new WorkspaceIndexGenerationClock();
   private readonly runtime = new Map<string, RuntimeState>();
   private readonly disposables: vscode.Disposable[] = [];
   private readonly emitter = new vscode.EventEmitter<WorkspaceIndexRefreshEvent>();
@@ -275,7 +276,7 @@ export class WorkspaceIndexDriver implements vscode.Disposable {
       const timer = this.timers.get(timerKey);
       if (timer) clearTimeout(timer);
       this.timers.delete(timerKey);
-      this.gen.delete(timerKey);
+      this.generations.invalidate(timerKey);
       this.runtime.delete(timerKey);
       this.pending.delete(timerKey);
       this.pendingUris.delete(timerKey);
@@ -389,7 +390,9 @@ export class WorkspaceIndexDriver implements vscode.Disposable {
     state.inFlight = true;
     state.inFlightGeneration = myGen;
     const isCurrent = (): boolean =>
-      !this.disposed && this.gen.get(scanKey) === myGen && this.roots.has(rootKey);
+      !this.disposed &&
+      this.generations.isCurrent(scanKey, myGen) &&
+      this.roots.has(rootKey);
 
     let snapshot: unknown;
     let completedMode: WorkspaceIndexRefreshMode = batch.mode;
@@ -498,9 +501,7 @@ export class WorkspaceIndexDriver implements vscode.Disposable {
   }
 
   private bumpGeneration(key: string): number {
-    const next = (this.gen.get(key) ?? 0) + 1;
-    this.gen.set(key, next);
-    return next;
+    return this.generations.bump(key);
   }
 
   private runtimeState(kind: WorkspaceIndexKind, root: vscode.Uri): RuntimeState {
@@ -545,7 +546,7 @@ export class WorkspaceIndexDriver implements vscode.Disposable {
 
   dispose(): void {
     this.disposed = true;
-    for (const key of this.gen.keys()) this.bumpGeneration(key);
+    this.generations.invalidateAll();
     for (const timer of this.timers.values()) clearTimeout(timer);
     this.timers.clear();
     this.pending.clear();

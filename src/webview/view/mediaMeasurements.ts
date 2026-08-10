@@ -2,8 +2,29 @@ import { StateEffect, StateField, type EditorState } from "@codemirror/state";
 import { EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
 import { imageMapField, setImageMap } from "./widgets/imageWidget";
 import { sanitizedSvgDataUri } from "./widgets/svgWidget";
+import { documentMeasurementScan } from "./documentMeasurements";
 
-const MAX_MEDIA_CACHE_ENTRIES = 512;
+export function reconcileMediaProbeSources<T>(
+  probes: Map<string, T>,
+  desiredSources: Iterable<string>,
+  cancel: (probe: T) => void
+): string[] {
+  const desired = new Set(desiredSources);
+  for (const [source, probe] of probes) {
+    if (desired.has(source)) continue;
+    probes.delete(source);
+    cancel(probe);
+  }
+  return [...desired].filter((source) => !probes.has(source));
+}
+
+export function destroyMediaProbes<T>(
+  probes: Map<string, T>,
+  cancel: (probe: T) => void
+): void {
+  for (const probe of probes.values()) cancel(probe);
+  probes.clear();
+}
 
 export interface IntrinsicSize {
   width: number;
@@ -14,6 +35,7 @@ interface MediaMeasurementEffect {
   dimensions?: readonly { identity: string; width: number; height: number }[];
   contentWidth?: number;
   fontSizePx?: number;
+  retainIdentities?: readonly string[];
 }
 
 interface MediaMeasurementState {
@@ -36,8 +58,11 @@ export const mediaMeasurementsField = StateField.define<MediaMeasurementState>({
         if (!isPositive(item.width) || !isPositive(item.height)) continue;
         dimensions.delete(item.identity);
         dimensions.set(item.identity, { width: item.width, height: item.height });
-        while (dimensions.size > MAX_MEDIA_CACHE_ENTRIES) {
-          dimensions.delete(dimensions.keys().next().value!);
+      }
+      if (effect.value.retainIdentities) {
+        const retained = new Set(effect.value.retainIdentities);
+        for (const identity of dimensions.keys()) {
+          if (!retained.has(identity)) dimensions.delete(identity);
         }
       }
       next = {
@@ -53,13 +78,24 @@ export const mediaMeasurementsField = StateField.define<MediaMeasurementState>({
 
 export function stableMediaIdentity(src: string): string {
   if (/^data:/i.test(src)) return src;
+  const hashAt = src.indexOf("#");
+  const beforeHash = hashAt >= 0 ? src.slice(0, hashAt) : src;
+  const hash = hashAt >= 0 ? src.slice(hashAt) : "";
+  const queryAt = beforeHash.indexOf("?");
+  if (queryAt < 0) return src;
+  const path = beforeHash.slice(0, queryAt);
+  const query = beforeHash.slice(queryAt + 1);
+  const kept = query.split("&").filter((part) => queryParameterName(part) !== "ofmIndex");
+  return `${path}${kept.length > 0 ? `?${kept.join("&")}` : ""}${hash}`;
+}
+
+function queryParameterName(part: string): string {
+  const equalsAt = part.indexOf("=");
+  const raw = equalsAt < 0 ? part : part.slice(0, equalsAt);
   try {
-    const url = new URL(src);
-    url.search = "";
-    url.hash = "";
-    return url.toString();
+    return decodeURIComponent(raw.replace(/\+/g, " "));
   } catch {
-    return src.replace(/[?#].*$/, "");
+    return raw;
   }
 }
 
@@ -137,12 +173,14 @@ function svgAttribute(attributes: string, name: string): string | undefined {
 
 class MediaMeasurementController {
   private readonly cache = new Map<string, IntrinsicSize>();
-  private readonly probes = new Map<string, HTMLImageElement>();
+  private readonly probes = new Map<string, MediaProbe>();
   private readonly resizeObserver: ResizeObserver;
   private dispatchQueued = false;
   private queuedDimensions = new Map<string, IntrinsicSize>();
   private queuedLayout: { contentWidth: number; fontSizePx: number } | undefined;
+  private queuedRetainIdentities: Set<string> | undefined;
   private publishedLayout: { contentWidth: number; fontSizePx: number } | undefined;
+  private activeIdentities = new Set<string>();
   private destroyed = false;
 
   constructor(private readonly view: EditorView) {
@@ -159,58 +197,80 @@ class MediaMeasurementController {
     const mapChanged = update.transactions.some((transaction) =>
       transaction.effects.some((effect) => effect.is(setImageMap))
     );
-    if (update.docChanged || mapChanged) this.preloadDocumentMedia();
+    const svgSourcesChanged =
+      update.docChanged &&
+      documentMeasurementScan(update.startState).svgSources !==
+        documentMeasurementScan(update.state).svgSources;
+    if (svgSourcesChanged || mapChanged) this.preloadDocumentMedia();
     if (update.geometryChanged) this.measureLayout();
   }
 
   record(src: string, width: number, height: number): void {
+    if (this.destroyed) return;
     if (!isPositive(width) || !isPositive(height)) return;
     const identity = stableMediaIdentity(src);
+    if (!this.activeIdentities.has(identity)) return;
     const previous = this.cache.get(identity);
     if (previous?.width === width && previous.height === height) return;
     this.cache.delete(identity);
     this.cache.set(identity, { width, height });
-    while (this.cache.size > MAX_MEDIA_CACHE_ENTRIES) {
-      this.cache.delete(this.cache.keys().next().value!);
-    }
     this.queueEffect([{ identity, width, height }]);
   }
 
   private preloadDocumentMedia(): void {
     if (this.destroyed) return;
     const map = this.view.state.field(imageMapField, false) ?? {};
-    const sources = new Set(Object.values(map).filter(Boolean));
-    const text = this.view.state.doc.toString();
-    for (const match of text.matchAll(/<svg\b[\s\S]*?<\/svg\s*>/gi)) {
-      const dataUri = sanitizedSvgDataUri(match[0]);
-      if (dataUri) this.preload(dataUri, svgMediaIdentity(match[0]));
+    const desired = new Map<string, string>();
+    for (const source of Object.values(map).filter(Boolean)) {
+      desired.set(source, stableMediaIdentity(source));
     }
-    for (const src of sources) this.preload(src);
+    for (const source of documentMeasurementScan(this.view.state).svgSources) {
+      const dataUri = sanitizedSvgDataUri(source);
+      if (dataUri) desired.set(dataUri, svgMediaIdentity(source));
+    }
+    const missing = reconcileMediaProbeSources(
+      this.probes,
+      desired.keys(),
+      (probe) => this.cancelProbe(probe)
+    );
+    this.activeIdentities = new Set(desired.values());
+    for (const identity of this.cache.keys()) {
+      if (!this.activeIdentities.has(identity)) this.cache.delete(identity);
+    }
+    this.queueEffect([], undefined, this.activeIdentities);
+    for (const src of missing) this.preload(src, desired.get(src));
   }
 
   private preload(src: string, identity = stableMediaIdentity(src)): void {
     if (this.probes.has(src)) return;
-    const probe = new Image();
+    const image = new Image();
+    const onLoad = (): void => {
+      this.recordIdentity(identity, image.naturalWidth, image.naturalHeight);
+    };
+    const onError = (): void => {
+      this.probes.delete(src);
+    };
+    const probe = { image, onLoad, onError };
     this.probes.set(src, probe);
-    while (this.probes.size > MAX_MEDIA_CACHE_ENTRIES) {
-      this.probes.delete(this.probes.keys().next().value!);
-    }
-    probe.addEventListener("load", () => {
-      this.recordIdentity(identity, probe.naturalWidth, probe.naturalHeight);
-    });
-    probe.addEventListener("error", () => this.probes.delete(src), { once: true });
-    probe.src = src;
+    image.addEventListener("load", onLoad, { once: true });
+    image.addEventListener("error", onError, { once: true });
+    image.src = src;
+  }
+
+  private cancelProbe(probe: MediaProbe): void {
+    probe.image.removeEventListener("load", probe.onLoad);
+    probe.image.removeEventListener("error", probe.onError);
+    probe.image.src = "";
   }
 
   private recordIdentity(identity: string, width: number, height: number): void {
+    if (this.destroyed) return;
+    if (!this.activeIdentities.has(identity)) return;
     if (!isPositive(width) || !isPositive(height)) return;
     const previous = this.cache.get(identity);
     if (previous?.width === width && previous.height === height) return;
     this.cache.delete(identity);
     this.cache.set(identity, { width, height });
-    while (this.cache.size > MAX_MEDIA_CACHE_ENTRIES) {
-      this.cache.delete(this.cache.keys().next().value!);
-    }
     this.queueEffect([{ identity, width, height }]);
   }
 
@@ -224,7 +284,8 @@ class MediaMeasurementController {
 
   private queueEffect(
     dimensions: readonly { identity: string; width: number; height: number }[],
-    layout?: { contentWidth: number; fontSizePx: number }
+    layout?: { contentWidth: number; fontSizePx: number },
+    retainIdentities?: ReadonlySet<string>
   ): void {
     for (const item of dimensions) {
       this.queuedDimensions.set(item.identity, { width: item.width, height: item.height });
@@ -236,7 +297,12 @@ class MediaMeasurementController {
     ) {
       this.queuedLayout = layout;
     }
-    if (this.queuedDimensions.size === 0 && !this.queuedLayout) return;
+    if (retainIdentities) this.queuedRetainIdentities = new Set(retainIdentities);
+    if (
+      this.queuedDimensions.size === 0 &&
+      !this.queuedLayout &&
+      !this.queuedRetainIdentities
+    ) return;
     if (this.dispatchQueued) return;
     this.dispatchQueued = true;
     queueMicrotask(() => {
@@ -246,12 +312,15 @@ class MediaMeasurementController {
       this.queuedDimensions.clear();
       const pendingLayout = this.queuedLayout;
       this.queuedLayout = undefined;
+      const retain = this.queuedRetainIdentities;
+      this.queuedRetainIdentities = undefined;
       if (pendingLayout) this.publishedLayout = pendingLayout;
       this.view.dispatch({
         effects: setMediaMeasurements.of({
           dimensions: entries,
           contentWidth: pendingLayout?.contentWidth,
           fontSizePx: pendingLayout?.fontSizePx,
+          retainIdentities: retain ? [...retain] : undefined,
         }),
       });
     });
@@ -260,8 +329,18 @@ class MediaMeasurementController {
   destroy(): void {
     this.destroyed = true;
     this.resizeObserver.disconnect();
-    this.probes.clear();
+    destroyMediaProbes(this.probes, (probe) => this.cancelProbe(probe));
+    this.activeIdentities.clear();
+    this.queuedDimensions.clear();
+    this.queuedLayout = undefined;
+    this.queuedRetainIdentities = undefined;
   }
+}
+
+interface MediaProbe {
+  image: HTMLImageElement;
+  onLoad: () => void;
+  onError: () => void;
 }
 
 function readContentLayout(view: EditorView): { contentWidth: number; fontSizePx: number } {

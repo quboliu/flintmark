@@ -41,6 +41,30 @@ export interface RefreshInvalidationBatch {
   paths: Set<string>;
 }
 
+/** Per-driver generation clock. Keys intentionally live for the driver's full
+ * lifetime so removing and re-adding the same workspace URI cannot ABA. */
+export class WorkspaceIndexGenerationClock {
+  private readonly generations = new Map<string, number>();
+
+  bump(key: string): number {
+    const next = (this.generations.get(key) ?? 0) + 1;
+    this.generations.set(key, next);
+    return next;
+  }
+
+  invalidate(key: string): void {
+    this.bump(key);
+  }
+
+  invalidateAll(): void {
+    for (const key of this.generations.keys()) this.bump(key);
+  }
+
+  isCurrent(key: string, generation: number): boolean {
+    return this.generations.get(key) === generation;
+  }
+}
+
 /** Merge debounced invalidations. A single structural event permanently
  * upgrades the batch to full; content-only paths are otherwise deduplicated. */
 export function mergeRefreshInvalidation(

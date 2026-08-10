@@ -29,6 +29,7 @@ import { createAiButton, type AiButtonHandle } from "./aiSelectionButton";
 import { markdownTheme } from "./markdownTheme";
 import { taskToggleFacet } from "./widgets/checkboxWidget";
 import { imageMapField } from "./widgets/imageWidget";
+import { documentMeasurementsField } from "./documentMeasurements";
 import {
   remeasureTables,
   tableMeasurementsField,
@@ -194,6 +195,7 @@ export function createEditor(
         // before decoration fields decide whether an image/SVG can mount.
         imageMapField,
         mediaMeasurementsField,
+        documentMeasurementsField,
 
         // Live Preview: hide markers, style headings, apply inline styling.
         markdownDecorationsPlugin,

@@ -6,6 +6,7 @@ import {
   refreshModeForFileEvent,
   routeCreatedPath,
   routeUnavailablePath,
+  WorkspaceIndexGenerationClock,
   type IndexFreshnessState,
 } from "../../src/extension/vault/workspaceIndexPolicy";
 
@@ -90,6 +91,24 @@ test("only a known leaf content change is incremental; every structural cause is
   for (const event of ["create", "delete", "rename", "tree"] as const) {
     assert.equal(refreshModeForFileEvent(event), "full", event);
   }
+});
+
+test("remove and same-URI re-add cannot let a deferred old build publish", () => {
+  const clock = new WorkspaceIndexGenerationClock();
+  const key = "note\0file:///vault";
+  let published = "";
+  const oldBuild = clock.bump(key);
+  const finishOldBuild = (): void => {
+    if (clock.isCurrent(key, oldBuild)) published = "old";
+  };
+
+  clock.invalidate(key); // workspace root removed
+  const newBuild = clock.bump(key); // same URI re-added
+  if (clock.isCurrent(key, newBuild)) published = "new";
+  finishOldBuild(); // deferred old build completes last
+
+  assert.equal(published, "new");
+  assert.notEqual(oldBuild, newBuild, "generation must not ABA across root incarnations");
 });
 
 if (failed > 0) {

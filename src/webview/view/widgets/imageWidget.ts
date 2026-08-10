@@ -39,8 +39,7 @@ export class ImageWidget extends WidgetType {
       other.alt === this.alt &&
       other.width === this.width &&
       other.height === this.height &&
-      other.estimatedHeightPx === this.estimatedHeightPx &&
-      other.layoutVersion === this.layoutVersion
+      other.estimatedHeightPx === this.estimatedHeightPx
     );
   }
 
