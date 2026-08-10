@@ -119,7 +119,17 @@ try {
 
   mkdirSync(join(REPO, "media", "shots"), { recursive: true });
   const content = cm.locator(".cm-content").first();
-  await content.screenshot({ path: join(REPO, "media", "shots", "images.png") });
+  const box = await content.boundingBox();
+  if (!box) throw new Error("editor content has no bounding box");
+  await win.screenshot({
+    path: join(REPO, "media", "shots", "images.png"),
+    clip: {
+      x: box.x,
+      y: box.y,
+      width: box.width,
+      height: Math.min(box.height, 430),
+    },
+  });
   console.log("wrote media/shots/images.png");
 } finally {
   await app.close();
