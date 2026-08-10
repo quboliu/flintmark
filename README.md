@@ -5,8 +5,7 @@
 <h1 align="center">Flintmark</h1>
 
 <p align="center">
-  <strong>Write Markdown as source. Read it as a finished note.</strong><br>
-  Obsidian-style Live Preview, vault navigation, and native AI handoff inside VS Code.
+  <strong>Obsidian-style Markdown Live Preview for VS Code.</strong>
 </p>
 
 <p align="center">
@@ -14,11 +13,11 @@
 </p>
 
 <p align="center">
-  <a href="#product-tour">Product tour</a> ·
-  <a href="#what-flintmark-understands">Syntax</a> ·
+  <a href="#screenshots">Screenshots</a> ·
+  <a href="#supported-markdown">Supported Markdown</a> ·
   <a href="#install">Install</a> ·
   <a href="#settings">Settings</a> ·
-  <a href="#development">Development</a>
+  <a href="#building-from-source">Build</a>
 </p>
 
 <p align="center">
@@ -29,202 +28,192 @@
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
 </p>
 
-Flintmark turns the Markdown editor itself into the preview. The line or block
-under the cursor reveals its source syntax; the rest of the document stays
-rendered and readable. There is no split preview, no proprietary database, and
-no generated copy of the note—plain `.md` files remain the source of truth.
+Flintmark is a custom Markdown editor for VS Code. It renders formatting in the
+document and reveals the source around the caret, so editing and previewing
+happen in the same tab. The file on disk is still an ordinary `.md` file.
 
-![Flintmark rendering a technical note with Properties, a callout, a table, and syntax-highlighted Go code](media/shots/go-pipelines-dark.png)
+It also adds the pieces that are usually missing when an Obsidian vault is
+opened in VS Code: wikilink and tag completion, Properties, image embeds,
+Outline, Todo, and Backlinks.
 
-## Why Flintmark
+![A technical note open in Flintmark, with Properties, a callout, a table, and Go code](media/shots/go-pipelines-dark.png)
 
-| Principle | What it means in practice |
-| --- | --- |
-| Edit in context | Move the caret onto rendered content and its Markdown source appears exactly where you are writing. |
-| Keep the vault portable | Notes, links, frontmatter, tasks, and embeds stay ordinary Markdown on disk. |
-| Bring the useful parts of Obsidian | Wikilinks, callouts, Properties, task states, tags, highlights, vault-wide embeds, Outline, Todo, and Backlinks work inside VS Code. |
-| Reuse the tools you already have | Selections can be handed to the host editor's native Copilot/Cursor editing and chat commands. |
-| Stay responsive as the vault grows | Workspace indexes build cooperatively, saves update incrementally, and the editor paints before vault autocomplete is ready. |
+## Screenshots
 
-## Product tour
+These screenshots were taken with the extension itself, loaded from this
+repository in a VSCodium development host.
 
-The screenshots below come from the real extension running in a VS Code-compatible
-workbench. They are not HTML mockups.
+### Dark and light themes
 
-### One editor, two states
-
-The document stays rendered until the caret enters a line or block. Headings,
-lists, callouts, tables, code, math, and media can therefore be read and edited
-without switching panes or modes.
+Flintmark follows the current VS Code color mode. Changing themes updates the
+open editor in place, without moving the caret or resetting the scroll position.
 
 <table>
   <tr>
-    <td width="50%"><img src="media/shots/go-pipelines-dark.png" alt="Flintmark Live Preview in a dark VS Code theme"></td>
-    <td width="50%"><img src="media/shots/go-pipelines-light.png" alt="Flintmark Live Preview in a light VS Code theme"></td>
+    <td width="50%"><img src="media/shots/go-pipelines-dark.png" alt="Flintmark using a dark VS Code theme"></td>
+    <td width="50%"><img src="media/shots/go-pipelines-light.png" alt="Flintmark using a light VS Code theme"></td>
   </tr>
   <tr>
-    <td align="center"><strong>Dark</strong> — follows the active workbench theme</td>
-    <td align="center"><strong>Light</strong> — switches in place without rebuilding the editor</td>
+    <td align="center"><strong>Dark</strong></td>
+    <td align="center"><strong>Light</strong></td>
   </tr>
 </table>
 
-### Write without leaving Live Preview
+### Editing in place
 
-Rendered task states remain clickable, fenced code keeps syntax highlighting and
-a Copy action, and the active line exposes raw Markdown for direct editing.
-Formatting shortcuts cover bold, italic, inline code, strikethrough, and links;
-pasting a URL over selected text creates a Markdown link.
+Click a rendered line to edit its Markdown. Move the caret elsewhere and the
+line renders again. Task checkboxes can be toggled directly, and fenced code
+blocks keep their highlighting and Copy button while they are not being edited.
 
-![Editing tasks, a fenced JavaScript block, a wikilink, and a tag directly in Flintmark](media/shots/editing.png)
+Flintmark also provides shortcuts for bold, italic, inline code, strikethrough,
+and links. If text is selected, pasting a URL turns the selection into a
+Markdown link.
 
-Type `[[` for vault notes, `#` for vault tags, or `[[#` for headings in the
-current note. Completion data updates as files change without recreating the
-editor or losing its selection.
+![Editing tasks and a fenced JavaScript block in Flintmark](media/shots/editing.png)
 
-![Vault-note autocomplete open inside Flintmark Live Preview](media/shots/autocomplete.png)
+Type `[[` to complete a note name, `#` to complete a tag, or `[[#` to complete
+a heading in the current note. The lists are refreshed when files in the
+workspace change.
 
-### Frontmatter becomes Properties
+![Wikilink completion in Flintmark](media/shots/autocomplete.png)
 
-Simple YAML frontmatter renders as a compact Properties panel with inferred type
-icons and chips for arrays and tags. Click the panel to reveal and edit the YAML;
-complex YAML safely falls back to source instead of being misrepresented.
+### Properties
 
-![A Flintmark Properties panel showing text, date, list, and tag fields](media/shots/properties.png)
+Flintmark displays simple YAML frontmatter as a Properties panel. Dates, lists,
+and tags get their own icons, and list values are shown as chips. Click the panel
+to edit the YAML. Frontmatter that Flintmark cannot parse is left as source.
 
-### Navigate the document and the vault
+![Frontmatter displayed as a Properties panel](media/shots/properties.png)
 
-Flintmark supplies the views a webview editor cannot get from VS Code's built-in
-Markdown Outline: a nested heading **Outline**, a live **Todo** list for standard
-and extended task states, and vault-wide **Backlinks**. Selecting a heading or
-task jumps to the exact source line in Live Preview.
+### Outline, Todo, and Backlinks
 
-![Flintmark with Outline, Todo, and Backlinks beside the rendered Project Notes document](media/shots/navigation.png)
+VS Code's built-in Markdown Outline cannot read a custom webview editor, so
+Flintmark includes its own sidebar views:
 
-### Rich Markdown, rendered where it lives
+- **Outline** shows the headings in the active note.
+- **Todo** lists every standard and extended task in source order.
+- **Backlinks** lists notes that link to the active note.
+
+Clicking an Outline or Todo row moves the caret to that line in Live Preview.
+
+![Outline, Todo, and Backlinks open beside a note](media/shots/navigation.png)
+
+### Rendered Markdown
 
 <table>
   <tr>
     <td width="50%">
       <strong>Callouts</strong><br>
-      Common Obsidian types and aliases receive distinct titles and colors.<br><br>
-      <img src="media/shots/callouts.png" alt="Note, tip, warning, and important callouts in Flintmark">
+      Common Obsidian callout types and aliases have their own colors.<br><br>
+      <img src="media/shots/callouts.png" alt="Note, tip, warning, and important callouts">
     </td>
     <td width="50%">
       <strong>Task states</strong><br>
-      GFM tasks plus in-progress, cancelled, forwarded, and question states.<br><br>
-      <img src="media/shots/tasks.png" alt="Standard and extended Markdown task states in Flintmark">
+      In-progress, cancelled, forwarded, and question states are included.<br><br>
+      <img src="media/shots/tasks.png" alt="Standard and extended Markdown task states">
     </td>
   </tr>
   <tr>
     <td width="50%">
-      <strong>Syntax-highlighted code</strong><br>
-      More than 30 fenced-code languages, language labels, and Copy actions.<br><br>
-      <img src="media/shots/code.png" alt="SQL and Python code blocks with syntax highlighting">
+      <strong>Code blocks</strong><br>
+      More than 30 languages are highlighted; each block has a Copy button.<br><br>
+      <img src="media/shots/code.png" alt="Highlighted SQL and Python code blocks">
     </td>
     <td width="50%">
-      <strong>Editable GFM tables</strong><br>
-      Rendered cells retain inline emphasis, code, links, and highlights.<br><br>
-      <img src="media/shots/table.png" alt="A rendered GitHub Flavored Markdown table">
-    </td>
-  </tr>
-  <tr>
-    <td width="50%">
-      <strong>KaTeX math</strong><br>
-      Inline formulas and single- or multi-line display math render in place.<br><br>
-      <img src="media/shots/math.png" alt="Inline and display KaTeX math in Flintmark">
-    </td>
-    <td width="50%">
-      <strong>Mermaid diagrams</strong><br>
-      Mermaid loads only when needed and returns to source when edited.<br><br>
-      <img src="media/shots/mermaid.png" alt="A rendered Mermaid flowchart in Flintmark">
+      <strong>GFM tables</strong><br>
+      Bold, italic, code, links, and highlights also work inside cells.<br><br>
+      <img src="media/shots/table.png" alt="A rendered GFM table">
     </td>
   </tr>
   <tr>
     <td width="50%">
-      <strong>Obsidian-flavored inline syntax</strong><br>
+      <strong>Math</strong><br>
+      KaTeX is used for inline math and display blocks.<br><br>
+      <img src="media/shots/math.png" alt="Inline and display math rendered with KaTeX">
+    </td>
+    <td width="50%">
+      <strong>Mermaid</strong><br>
+      Mermaid blocks render as diagrams and return to source for editing.<br><br>
+      <img src="media/shots/mermaid.png" alt="A Mermaid flowchart">
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <strong>Inline syntax</strong><br>
       Wikilinks, tags, highlights, footnotes, comments, and inline code.<br><br>
       <img src="media/shots/inline.png" alt="Wikilinks, tags, highlights, footnotes, and inline code">
     </td>
     <td width="50%">
-      <strong>Images and attachments</strong><br>
-      Standard images and vault-wide <code>![[embeds]]</code>, including explicit sizing.<br><br>
-      <img src="media/shots/images.png" alt="A vault-wide image embed rendered in Flintmark">
+      <strong>Images</strong><br>
+      Standard Markdown images and vault-wide <code>![[embeds]]</code>.<br><br>
+      <img src="media/shots/images.png" alt="An image embed resolved from an attachments folder">
     </td>
   </tr>
 </table>
 
-Flintmark also renders sanitized inline SVG blocks, blockquotes, ordered and
-unordered lists, horizontal rules, Setext headings, footnote definitions, hidden
-`%% comments %%`, and standard Markdown links and images.
+Blockquotes, ordered and unordered lists, horizontal rules, Setext headings,
+footnote definitions, and sanitized inline SVG blocks are supported too.
+`%% comments %%` are hidden until the caret enters them.
 
-### Paste and drop attachments
+### Images and attachments
 
-Paste or drag an image into a note and Flintmark saves it beside the Markdown
-file, inserts a sanitized `![[name.ext]]` embed, avoids overwriting existing
-files, and rejects unsupported or oversized payloads with a visible warning.
-Bare image names can resolve across nested attachment folders in the vault;
-`![[image.png|200]]` and `![[image.png|200x120]]` control display size.
+Pasting or dropping an image saves it next to the note and inserts an
+`![[image-name.ext]]` embed. Flintmark cleans up characters that would break a
+wikilink, picks a new name rather than overwriting an existing file, and shows a
+warning for unsupported or oversized images.
 
-### Reuse the editor's native AI
+Image embeds can be found by bare name anywhere in the vault. Width and height
+can be set with `![[image.png|200]]` or `![[image.png|200x120]]`.
 
-Flintmark does not ship a separate AI service. Instead, it bridges the selection
-from the Live Preview webview back into the real source editor:
+### Copilot and Cursor
 
-- **Edit** opens the matching source selection and can trigger the host's inline
-  AI command.
-- **Add to Chat** attaches the same selection to the host's chat or composer.
+Copilot and Cursor normally cannot see a selection inside a webview. When text
+is selected in Flintmark, a small toolbar offers two ways around that:
 
-![The Edit and Add to Chat actions shown over a selection in Flintmark](media/shots/ai.png)
+- **Edit** opens the same range in the source editor and, by default, starts the
+  host's inline AI command.
+- **Add to Chat** attaches the range to the host's chat or composer.
 
-VS Code and Cursor command IDs are detected automatically, with settings for
-host-specific overrides. Run **Flintmark: Show AI Log** when diagnosing a custom
-host integration.
+![Edit and Add to Chat buttons above a selection](media/shots/ai.png)
 
-## Current capabilities
+The extension knows the usual command IDs for VS Code and Cursor. They can be
+overridden in Settings for other hosts. If a button calls the wrong command,
+**Flintmark: Show AI Log** shows the selected range and the command that was used.
 
-| Area | Delivered behavior |
-| --- | --- |
-| Live Preview | Cursor-driven source reveal; headings, emphasis, links, lists, quotes, callouts, tasks, tables, code, math, Mermaid, SVG, images, and embeds rendered in place |
-| Editing | Markdown formatting shortcuts, smart URL paste, checkbox toggles, code Copy, find/replace, heading folding, Live ↔ Code switching |
-| Metadata | Obsidian-style Properties panel for simple YAML; safe raw-source fallback for complex YAML |
-| Vault | Wikilink/tag/heading completion, unresolved-link note creation, vault-wide image resolution, Outline, Todo, and Backlinks |
-| Attachments | Image paste/drop, safe names, duplicate avoidance, size guard, standard Markdown images, `![[embed|W]]`, and `![[embed|WxH]]` |
-| Themes | Bundled Things theme; live dark, light, and high-contrast adaptation; custom prose and monospace fonts; configurable reading width |
-| AI handoff | Native host selection bridge for inline editing and chat; automatic host detection plus override and diagnostic settings |
-| Reliability | Serialized document sync, coalesced structure refresh, cooperative/incremental vault indexes, measured rich-block layouts, and real-workbench E2E coverage |
+## Supported Markdown
 
-## What Flintmark understands
-
-- `[[wikilinks]]`, aliases, heading/block anchors, and unresolved-link creation.
-- `#tags`, `==highlights==`, footnotes, and preview-hidden `%% comments %%`.
-- Callouts such as `[!note]`, `[!tip]`, `[!warning]`, `[!important]`, `[!todo]`,
-  `[!abstract]`, `[!failure]`, and their common aliases.
-- Standard `[ ]` / `[x]` tasks plus `[/]` in progress, `[-]` cancelled, `[>]`
-  forwarded, and `[?]` question.
-- YAML frontmatter, GFM tables, fenced code, inline and display math, Mermaid,
-  sanitized inline SVG, Markdown images, and Obsidian image embeds.
+- Headings, emphasis, strikethrough, links, images, blockquotes, lists,
+  horizontal rules, inline code, and fenced code blocks.
+- GFM tables and task lists.
+- `[[wikilinks]]`, aliases, heading and block anchors, and new-note creation for
+  unresolved links.
+- `#tags`, `==highlights==`, footnotes, and `%% comments %%`.
+- Obsidian callouts, including the common aliases and color variants.
+- Standard `[ ]` and `[x]` tasks, plus `[/]` in progress, `[-]` cancelled,
+  `[>]` forwarded, and `[?]` question.
+- YAML frontmatter, KaTeX math, Mermaid diagrams, inline SVG, and Obsidian image
+  embeds.
 
 ## Install
 
-Install from the
+Install Flintmark from the
 [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=quboliu.flintmark),
-search for **Flintmark** in the Extensions view, or run:
+search for it in the Extensions view, or run:
 
 ```sh
 code --install-extension quboliu.flintmark
 ```
 
-For a manual installation, download `flintmark-<version>.vsix` from
-[GitHub Releases](https://github.com/quboliu/flintmark/releases), then choose
-**Extensions → … → Install from VSIX…**.
+VSIX files are also available on the
+[GitHub Releases](https://github.com/quboliu/flintmark/releases) page. In VS Code,
+choose **Extensions → … → Install from VSIX…**.
 
-Open a `.md` file and accept the prompt to make Flintmark the default Markdown
-editor, or run **Flintmark: Switch to Live View**. Use **Switch to Code View**
-whenever you want the conventional source editor.
+Open a Markdown file and accept the prompt to use Flintmark by default. The same
+choice is available later as **Flintmark: Set Live Preview as Default Markdown
+Editor**. **Switch to Live View** and **Switch to Code View** change the editor
+for the current file.
 
-### Set Live Preview as the default
-
-Run **Flintmark: Set Live Preview as Default Markdown Editor**, or add:
+To set the association by hand:
 
 ```json
 "workbench.editorAssociations": {
@@ -235,37 +224,37 @@ Run **Flintmark: Set Live Preview as Default Markdown Editor**, or add:
 
 ## Settings
 
-| Setting | Default | Purpose |
+| Setting | Default | Description |
 | --- | --- | --- |
-| `ofm.theme` | `things` | Bundled Live Preview theme. |
-| `ofm.lineWidth` | `0` | `0` fills the pane with a stable side margin; `20`–`240` caps a centered column in `rem`. |
-| `ofm.fontFamily` | theme | Font family for rendered prose, independent of the source editor font. |
-| `ofm.fontSize` | `0` | Rendered prose size in px; `0` follows the editor size with Flintmark's offset. |
-| `ofm.monospaceFontFamily` | editor | Font family for code, inline code, and frontmatter. |
-| `ofm.ai.trigger` | `auto` | Trigger the detected native inline-AI command after bridging, or stop after selection handoff. |
-| `ofm.ai.sourceLayout` | `replace` | Open the source selection in the current group or beside Live Preview. |
-| `ofm.ai.chatBridge` | `split` | Use a transient side editor or briefly flip the current tab when attaching to chat. |
-| `ofm.ai.chatCommand` / `ofm.ai.triggerCommand` | auto | Override host command IDs. |
-| `ofm.ai.debugLog` | `false` | Trace AI handoff steps while troubleshooting. |
+| `ofm.theme` | `things` | Theme used by Live Preview. |
+| `ofm.lineWidth` | `0` | `0` fills the pane with fixed side padding. Values from `20` to `240` set a centered maximum width in `rem`. |
+| `ofm.fontFamily` | theme | Font used for rendered prose. |
+| `ofm.fontSize` | `0` | Prose size in pixels. `0` follows the editor size with a small offset. |
+| `ofm.monospaceFontFamily` | editor | Font used for code and frontmatter. |
+| `ofm.ai.trigger` | `auto` | Start the host's inline AI command after opening the source selection, or only open the selection. |
+| `ofm.ai.sourceLayout` | `replace` | Open the source editor in the current group or beside Live Preview. |
+| `ofm.ai.chatBridge` | `split` | Use a temporary side editor or briefly switch the current tab when adding text to chat. |
+| `ofm.ai.chatCommand` / `ofm.ai.triggerCommand` | auto | Override the command IDs used for the AI buttons. |
+| `ofm.ai.debugLog` | `false` | Log the selection handoff for troubleshooting. |
 
-## How it stays plain Markdown
+## Files and indexes
 
-The VS Code `TextDocument` remains authoritative. Flintmark mirrors it into a
-CodeMirror 6 webview, serializes edits back through the extension host, and
-applies external updates without creating a second document format. Vault
-indexes contain only derived paths, links, tags, and attachment metadata; they
-can be rebuilt from the workspace.
+Flintmark edits the VS Code `TextDocument`; it does not keep a second copy of a
+note or convert it to another format. The note, its links, and its frontmatter
+remain in the Markdown file.
 
-The demo note used for the dark and light screenshots lives at
-[media/demo/go-pipelines.md](media/demo/go-pipelines.md). It is a rewritten
-technical fixture inspired by the Go blog post
-[Go Concurrency Patterns: Pipelines and cancellation](https://go.dev/blog/pipelines),
-not a copy of the article.
+The note, tag, backlink, and image indexes are derived from the workspace and
+can be rebuilt at any time. Initial scans run in small batches so a large vault
+does not hold up the editor, and ordinary saves update only the changed file.
 
-## Development
+The note used in the dark and light screenshots is
+[media/demo/go-pipelines.md](media/demo/go-pipelines.md). It was written as a
+demo and draws on the Go blog post
+[Go Concurrency Patterns: Pipelines and cancellation](https://go.dev/blog/pipelines).
 
-Flintmark requires Node.js 20 for the repository's CI baseline and VS Code 1.89
-or newer for the extension host.
+## Building from source
+
+The CI build uses Node.js 20. The extension requires VS Code 1.89 or newer.
 
 ```sh
 git clone https://github.com/quboliu/flintmark.git
@@ -274,8 +263,8 @@ npm ci
 npm run compile
 ```
 
-Open the repository in VS Code and press `F5` to launch an Extension Development
-Host. Useful quality gates:
+Open the repository in VS Code and press `F5` to start an Extension Development
+Host.
 
 ```sh
 npm run lint
@@ -285,7 +274,7 @@ npm run test:perf
 npm run test:e2e
 ```
 
-The README's primary demo and navigation screenshots are reproducible with:
+The two large screenshots can be regenerated with:
 
 ```sh
 npm run shots:go-pipelines
@@ -295,21 +284,21 @@ npm run shots:navigation
 ## Disclaimer
 
 Flintmark is not affiliated with, endorsed by, or sponsored by Obsidian or
-Dynalist Inc. “Obsidian” is a trademark of Dynalist Inc.; it is referenced only
-to describe Markdown syntax and visual compatibility.
+Dynalist Inc. “Obsidian” is a trademark of Dynalist Inc. and is used here only
+to describe syntax and visual compatibility.
 
 ## Credits
 
 - **Things** theme — © Stephan Ango
-  ([@kepano](https://github.com/kepano)), Obsidian port maintained by Colin
-  Eckert ([@colineckert](https://github.com/colineckert)), bundled under the MIT
-  License ([source](https://github.com/colineckert/obsidian-things)). See
-  [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
-- Built on [CodeMirror 6](https://codemirror.net/),
+  ([@kepano](https://github.com/kepano)); Obsidian port maintained by Colin
+  Eckert ([@colineckert](https://github.com/colineckert)). It is bundled under
+  the MIT License ([source](https://github.com/colineckert/obsidian-things)).
+  See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+- Built with [CodeMirror 6](https://codemirror.net/),
   [Lezer](https://lezer.codemirror.net/), [KaTeX](https://katex.org/), and
   [Mermaid](https://mermaid.js.org/).
 
 ## License
 
-[MIT](LICENSE) © quboliu. Bundled third-party software is listed in
-[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+[MIT](LICENSE) © quboliu. See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)
+for bundled third-party software.
