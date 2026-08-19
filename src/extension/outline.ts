@@ -20,17 +20,22 @@ class OfmDocumentSymbolProvider implements vscode.DocumentSymbolProvider {
     // next heading of equal-or-higher level (or end of document).
     const stack: { level: number; sym: vscode.DocumentSymbol }[] = [];
 
+    const lineCount = document.lineCount;
+
     for (let k = 0; k < heads.length; k++) {
       const h = heads[k];
+      if (h.line < 0 || h.line >= lineCount) continue;
       const startLine = document.lineAt(h.line);
       // End line: line before the next heading of level <= this one.
-      let endLineNo = document.lineCount - 1;
+      let endLineNo = lineCount - 1;
       for (let n = k + 1; n < heads.length; n++) {
         if (heads[n].level <= h.level) {
           endLineNo = Math.max(h.line, heads[n].line - 1);
           break;
         }
       }
+      endLineNo = Math.min(endLineNo, lineCount - 1);
+      if (endLineNo < 0) continue;
       const range = new vscode.Range(
         startLine.range.start,
         document.lineAt(endLineNo).range.end
