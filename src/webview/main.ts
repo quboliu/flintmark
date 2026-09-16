@@ -23,6 +23,7 @@ import {
   type EditorHandle,
 } from "./view/createEditor";
 import { setImageMap } from "./view/widgets/imageWidget";
+import { armRevealEffect } from "./view/markdownDecorations";
 import { applyAttachmentSaved } from "./view/attachmentPaste";
 
 // ---------------------------------------------------------------------------
@@ -252,7 +253,10 @@ function handleRevealPosition(line: number, character: number): void {
   view.focus();
   view.dispatch({
     selection: { anchor: pos },
-    effects: EditorView.scrollIntoView(pos, { y: "start", yMargin: 8 }),
+    effects: [
+      armRevealEffect.of(null),
+      EditorView.scrollIntoView(pos, { y: "start", yMargin: 8 }),
+    ],
   });
 }
 
