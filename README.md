@@ -30,7 +30,9 @@
 
 Flintmark is a custom Markdown editor for VS Code. It renders formatting in the
 document and reveals the source around the caret, so editing and previewing
-happen in the same tab. The file on disk is still an ordinary `.md` file.
+happen in the same tab. A freshly opened note renders in full until you click
+or type — the initial cursor position never opens the file showing raw source.
+The file on disk is still an ordinary `.md` file.
 
 It also adds the pieces that are usually missing when an Obsidian vault is
 opened in VS Code: wikilink and tag completion, Properties, image embeds,

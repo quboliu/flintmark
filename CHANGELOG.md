@@ -5,6 +5,13 @@ the editor stabilizes for the Marketplace.
 
 ## Unreleased
 
+- **A freshly opened document renders in full until you interact.** Opening a
+  note used to reveal raw Markdown for whatever construct the initial cursor
+  landed on — most visible when line 1 is an image, which opened as
+  `![alt](path)` instead of the image. The editor now starts unarmed: the whole
+  note renders until the first selection or edit, after which the cursor-based
+  Reveal rule applies unchanged. Host-driven reveals (Go to Symbol, Reveal in
+  Explorer, search jumps) arm the editor immediately.
 - **Zed developer preview.** A native Zed extension adapter now exposes
   Flintmark's vault intelligence through LSP: wikilink/tag/heading/block
   completion, definition and reference navigation, backlinks, hover/document
