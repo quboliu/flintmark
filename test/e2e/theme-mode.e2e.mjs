@@ -32,6 +32,15 @@ writeFileSync(
   [
     "# Theme mode",
     "",
+    "**Bold** and *italic* with `inline code` and [a link](https://example.com).",
+    "",
+    "> [!warning] Warning",
+    "> Theme colors",
+    "",
+    "```javascript",
+    'const message = "hello";',
+    "```",
+    "",
     ...Array.from({ length: 90 }, (_, i) =>
       `plain unformatted line ${String(i + 1).padStart(2, "0")}`
     ),
@@ -150,6 +159,7 @@ try {
         caretColor: content ? style(content).caretColor : "",
         contentBg: content ? style(content).backgroundColor : "",
         editorBg: cmEditor ? style(cmEditor).backgroundColor : "",
+        editorColor: cmEditor ? style(cmEditor).color : "",
         gutterBg: gutters ? style(gutters).backgroundColor : "",
         scrollerTop: scroller ? scroller.scrollTop : 0,
         focusLineText: focusLine?.textContent ?? "",
@@ -166,6 +176,38 @@ try {
       latest = await snapshot(cm);
     }
     assert.fail(`${label} did not happen; latest state: ${JSON.stringify(latest, null, 2)}`);
+  }
+
+  async function assertMarkdownColors(cm, expected) {
+    const scrollTop = await cm.locator(".cm-scroller").first().evaluate((el) => {
+      const previous = el.scrollTop;
+      el.scrollTop = 0;
+      return previous;
+    });
+    try {
+      await cm.locator(".cm-keyword").first().waitFor();
+      const colors = await cm.evaluate(() => {
+        const color = (selector, property = "color") => {
+          const el = document.querySelector(selector);
+          return el ? getComputedStyle(el)[property] : null;
+        };
+        return {
+          heading: color(".ofm-heading-1"),
+          bold: color(".ofm-strong"),
+          italic: color(".ofm-emphasis"),
+          link: color(".ofm-external-link"),
+          codeBg: color(".ofm-inline-code", "backgroundColor"),
+          warning: color(".ofm-callout-warning", "borderLeftColor"),
+          keyword: color(".cm-keyword"),
+          string: color(".cm-string"),
+        };
+      });
+      assert.deepEqual(colors, expected, "rendered Markdown should use the Catppuccin palette");
+    } finally {
+      await cm.locator(".cm-scroller").first().evaluate((el, previous) => {
+        el.scrollTop = previous;
+      }, scrollTop);
+    }
   }
 
   let cm = null;
@@ -231,6 +273,59 @@ try {
   );
   assertLightSurface(highContrastLight, "high contrast light");
   assert.equal(highContrastLight.cmEditorMark, "same-editor", "high contrast light switch must not rebuild the CM6 editor DOM");
+
+  writeSettings({ ...baseSettings, "ofm.theme": "catppuccin" });
+  const mocha = await waitFor(
+    cm,
+    (s) => s.editorBg === "rgb(30, 30, 46)" && s.editorColor === "rgb(205, 214, 244)",
+    "switch to Catppuccin Mocha"
+  );
+  assertDarkSurface(mocha, "Catppuccin Mocha");
+  assert.equal(mocha.gutterBg, "rgb(30, 30, 46)");
+  assert.equal(mocha.cmEditorMark, "same-editor", "changing bundled themes must preserve the editor");
+  assert.ok(mocha.focusLineText.includes(targetText), "bundled theme switch must preserve selection");
+  assert.ok(mocha.scrollerTop > 0, "bundled theme switch must preserve scroll");
+  await assertMarkdownColors(cm, {
+    heading: "rgb(180, 190, 254)",
+    bold: "rgb(116, 199, 236)",
+    italic: "rgb(166, 227, 161)",
+    link: "rgb(148, 226, 213)",
+    codeBg: "rgb(24, 24, 37)",
+    warning: "rgb(250, 179, 135)",
+    keyword: "rgb(245, 194, 231)",
+    string: "rgb(166, 227, 161)",
+  });
+
+  writeSettings({ ...baseSettings, "ofm.theme": "catppuccin", "workbench.colorTheme": "Default Light Modern" });
+  const latte = await waitFor(
+    cm,
+    (s) => s.editorBg === "rgb(239, 241, 245)" && s.editorColor === "rgb(76, 79, 105)",
+    "switch to Catppuccin Latte"
+  );
+  assertNoBodyObsidianTheme(latte.bodyClass);
+  assert.ok(hasClass(latte.editorClass, "theme-light"));
+  assert.equal(latte.gutterBg, "rgb(239, 241, 245)");
+  assert.equal(latte.cmEditorMark, "same-editor");
+  assert.ok(latte.focusLineText.includes(targetText), "Catppuccin mode switch must preserve selection");
+  assert.ok(latte.scrollerTop > 0, "Catppuccin mode switch must preserve scroll");
+  await assertMarkdownColors(cm, {
+    heading: "rgb(114, 135, 253)",
+    bold: "rgb(32, 159, 181)",
+    italic: "rgb(64, 160, 43)",
+    link: "rgb(23, 146, 153)",
+    codeBg: "rgb(230, 233, 239)",
+    warning: "rgb(254, 100, 11)",
+    keyword: "rgb(234, 118, 203)",
+    string: "rgb(64, 160, 43)",
+  });
+
+  writeSettings({ ...baseSettings, "workbench.colorTheme": "Default Light Modern" });
+  const things = await waitFor(cm, (s) => s.editorBg === "rgb(255, 255, 255)", "switch back to Things");
+  assertLightSurface(things, "Things restored");
+  assert.equal(things.cmEditorMark, "same-editor");
+  assert.ok(things.focusLineText.includes(targetText), "restoring Things must preserve selection");
+  assert.ok(things.scrollerTop > 0, "restoring Things must preserve scroll");
+  console.log("  ✓ bundled themes switch live between Things, Catppuccin Mocha and Latte");
 } finally {
   await app.close();
 }

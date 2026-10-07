@@ -5,6 +5,9 @@ the editor stabilizes for the Marketplace.
 
 ## Unreleased
 
+- **Catppuccin theme.** Select `catppuccin` via **Flintmark: Select Theme** or
+  `ofm.theme` for Obsidian-inspired pastel colors: Latte in light mode and Mocha
+  in dark mode. Theme changes apply live to open editors.
 - **Zed developer preview.** A native Zed extension adapter now exposes
   Flintmark's vault intelligence through LSP: wikilink/tag/heading/block
   completion, definition and reference navigation, backlinks, hover/document
