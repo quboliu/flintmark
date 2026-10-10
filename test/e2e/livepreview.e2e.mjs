@@ -109,6 +109,8 @@ assert.ok(
   `long-scroll fixture (${LONG_SCROLL.length}) must stay below decoration cutoff`
 );
 writeFileSync(join(work, "long-scroll.md"), LONG_SCROLL);
+// Opened from the Explorer by the last test (single-click keeps focus there).
+writeFileSync(join(work, "explorer-find.md"), "# Explorer Find\n\nexplorer-find body\n");
 
 const app = await electron.launch({
   executablePath: VSCODE,
@@ -194,6 +196,17 @@ try {
   await test("our custom editor opened (not the native text editor)", async () => {
     const count = await cm.locator(".cm-content").count();
     assert.ok(count > 0, "expected a CM6 .cm-content");
+  });
+
+  // Runs before any test clicks into the text: like the built-in text editor,
+  // a freshly opened Live Preview tab takes keys straight away.
+  await test("Mod-F opens find right after opening, without a click", async () => {
+    await win.waitForTimeout(500);
+    await win.keyboard.press("Control+f");
+    const panel = cm.locator(".cm-panel.cm-search");
+    await panel.first().waitFor({ state: "visible", timeout: 4000 });
+    await win.keyboard.press("Escape");
+    await panel.first().waitFor({ state: "detached", timeout: 4000 });
   });
 
   await test("markers hidden when cursor is not in the construct", async () => {
@@ -1465,6 +1478,40 @@ try {
       `offscreen visit must not repair stale text heights: before=${heightBeforeOffscreenVisit}, after=${offscreenResult.scrollHeight}`
     );
     assert.equal(viewportWarnings.length, 0, "layout invalidation must not destabilize the viewport");
+  });
+
+  // Explorer single-click opens the file but leaves keyboard focus in the tree.
+  // VS Code's Find still reaches a text editor from there (it runs whenever an
+  // editor is open); Flintmark's Mod-F keybinding gives Live Preview the same.
+  await test("Mod-F after an Explorer single-click opens find in Live Preview", async () => {
+    await palette("Control+Shift+P", "View: Show Explorer");
+    const row = win.locator(".explorer-folders-view .monaco-list-row", { hasText: "explorer-find.md" });
+    await row.first().waitFor({ state: "visible", timeout: 5000 });
+    await row.first().click();
+    let frame = null;
+    for (let i = 0; i < 40 && !frame; i++) {
+      for (const f of win.frames()) {
+        try {
+          if ((await f.locator(".cm-content").count()) === 0) continue;
+          if ((await f.locator(".cm-content").first().innerText()).includes("explorer-find body")) frame = f;
+        } catch {}
+      }
+      if (!frame) await win.waitForTimeout(300);
+    }
+    assert.ok(frame, "explorer-find.md should open in Live Preview");
+    await win.waitForTimeout(500);
+    const inExplorer = await win.evaluate(() => !!document.activeElement?.closest(".explorer-folders-view"));
+    assert.ok(inExplorer, "single-click should leave focus in the Explorer (the case under test)");
+    await win.keyboard.press("Control+f");
+    const panel = frame.locator(".cm-panel.cm-search");
+    await panel.first().waitFor({ state: "visible", timeout: 4000 });
+    await win.waitForTimeout(300);
+    const active = await frame.evaluate(() => document.activeElement?.getAttribute("name") ?? "");
+    assert.equal(active, "search", "keyboard focus should be in the find input, not the text");
+    await win.keyboard.type("explorer-find");
+    await win.waitForTimeout(200);
+    assert.equal(await panel.locator("input[name='search']").first().inputValue(), "explorer-find");
+    await win.keyboard.press("Escape");
   });
 } finally {
   await app.close();

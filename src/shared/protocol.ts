@@ -76,6 +76,8 @@ export type HostMsg =
   | { type: "requestAiEdit"; mode: "edit" | "chat" }
   // Scroll/place the cursor at a source position (Outline/Todo navigation).
   | { type: "revealPosition"; line: number; character: number }
+  // Mod-F pressed while focus is outside the webview (e.g. Explorer): open find.
+  | { type: "openFind" }
   | { type: "conflict"; serverVersion: DocVersion };
 
 // ---------------------------------------------------------------------------

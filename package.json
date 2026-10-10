@@ -116,6 +116,19 @@
         "command": "ofm.dumpAiCommands",
         "title": "Dump AI Commands (debug)",
         "category": "Flintmark"
+      },
+      {
+        "command": "ofm.find",
+        "title": "Find in Live Preview",
+        "category": "Flintmark"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "ofm.find",
+        "key": "ctrl+f",
+        "mac": "cmd+f",
+        "when": "activeCustomEditorId == 'ofm.livePreview' && !editorAreaFocus && !inputFocus && !terminalFocus && !panelFocus"
       }
     ],
     "configuration": {
