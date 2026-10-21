@@ -92,6 +92,35 @@ export function routeUnavailablePath(path: string): TreeEventRoute {
   return kindForLeafPath(path) ?? "all";
 }
 
+/** Every directory strictly below `rootPath` that holds an indexed file,
+ * directly or in a subdirectory. */
+export function directoriesHoldingFiles(
+  filePaths: Iterable<string>,
+  rootPath: string
+): Set<string> {
+  const root = rootPath.endsWith("/") ? rootPath.slice(0, -1) : rootPath;
+  const dirs = new Set<string>();
+  for (const path of filePaths) {
+    for (let dir = path.slice(0, path.lastIndexOf("/")); dir.length > root.length; ) {
+      if (dirs.has(dir)) break;
+      dirs.add(dir);
+      dir = dir.slice(0, dir.lastIndexOf("/"));
+    }
+  }
+  return dirs;
+}
+
+/** A deleted path that is not itself a note or image only matters to an index
+ * whose last completed scan saw files under it. Busy workspaces delete
+ * unrelated files constantly; rebuilding for each one never lets the index
+ * settle. Without a completed scan, stay conservative. */
+export function deletionAffectsIndex(
+  path: string,
+  indexedDirs: ReadonlySet<string> | undefined
+): boolean {
+  return indexedDirs === undefined || indexedDirs.has(path);
+}
+
 export function kindForLeafPath(path: string): "note" | "image" | undefined {
   if (/\.(md|markdown)$/i.test(path)) return "note";
   if (/\.(png|jpe?g|gif|svg|webp|bmp|avif)$/i.test(path)) return "image";
