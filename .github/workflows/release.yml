@@ -7,10 +7,8 @@
 #
 #   git tag v0.28.0 && git push origin v0.28.0
 #
-# Flow: re-verify both editor targets -> package a clean VSIX, the Zed LSP, and
-# a dev-extension archive -> assert every artifact is well-formed -> create or
-# update the GitHub Release -> publish to the VS Code Marketplace when a PAT is
-# available. Zed registry publication is PR-based; see .github/RELEASING.md.
+# Flow: verify VS Code -> package a clean VSIX -> validate -> publish GitHub Release.
+# Marketplace publication is optional when a PAT is available.
 #
 # The `marketplace` GitHub Environment limits access to the PAT to `main` and
 # version tags. See .github/RELEASING.md.
@@ -31,7 +29,7 @@ permissions: {}
 
 jobs:
   verify:
-    name: Verify (VS Code · Zed · shared core)
+    name: Verify VS Code
     runs-on: ubuntu-latest
     timeout-minutes: 12
     permissions:
@@ -48,12 +46,9 @@ jobs:
       - run: npm run check:versions
       - run: npm run test:unit
       - run: npm run test:perf
-      - run: npm run test:zed
-      - run: rustup target add wasm32-wasip2
-      - run: cargo build --locked --release --manifest-path editors/zed/Cargo.toml --target wasm32-wasip2
 
   release:
-    name: Package both editors · GitHub Release · VS Marketplace
+    name: Package VSIX · GitHub Release · VS Marketplace
     runs-on: ubuntu-latest
     needs: verify
     timeout-minutes: 15
@@ -98,18 +93,6 @@ jobs:
       - name: Package VSIX (clean build via vscode:prepublish)
         run: npx @vscode/vsce package
 
-      - name: Package Zed language server + dev extension
-        run: |
-          VERSION="${{ steps.ver.outputs.version }}"
-          npm run compile:zed-lsp
-          mkdir -p release-assets
-          (cd out/zed && zip -9 "../../release-assets/flintmark-zed-lsp-${VERSION}.zip" flintmark-lsp.cjs)
-          git archive --format=zip \
-            --prefix="flintmark-zed-${VERSION}/" \
-            --output="release-assets/flintmark-zed-${VERSION}.zip" \
-            HEAD:editors/zed
-          (cd release-assets && sha256sum *.zip > SHA256SUMS.txt)
-
       - name: Assert VSIX is well-formed
         run: |
           VSIX="$(ls flintmark-*.vsix)"
@@ -126,17 +109,8 @@ jobs:
             exit 1
           fi
 
-      - name: Assert Zed artifacts are well-formed
-        run: |
-          VERSION="${{ steps.ver.outputs.version }}"
-          LSP="release-assets/flintmark-zed-lsp-${VERSION}.zip"
-          EXT="release-assets/flintmark-zed-${VERSION}.zip"
-          unzip -Z1 "$LSP" | grep -qxF "flintmark-lsp.cjs" \
-            || { echo "::error::Zed LSP archive is missing flintmark-lsp.cjs"; exit 1; }
-          for file in extension.toml Cargo.toml Cargo.lock LICENSE src/lib.rs; do
-            unzip -Z1 "$EXT" | grep -qxF "flintmark-zed-${VERSION}/${file}" \
-              || { echo "::error::Zed dev archive is missing ${file}"; exit 1; }
-          done
+      - name: Checksum VSIX
+        run: sha256sum flintmark-*.vsix > SHA256SUMS.txt
 
       - name: Extract release notes from CHANGELOG
         run: |
@@ -155,9 +129,7 @@ jobs:
           TAG="${{ steps.ver.outputs.tag }}"
           TITLE="Flintmark ${{ steps.ver.outputs.version }}"
           VSIX="flintmark-${{ steps.ver.outputs.version }}.vsix"
-          ZED_LSP="release-assets/flintmark-zed-lsp-${{ steps.ver.outputs.version }}.zip"
-          ZED_EXT="release-assets/flintmark-zed-${{ steps.ver.outputs.version }}.zip"
-          CHECKSUMS="release-assets/SHA256SUMS.txt"
+          CHECKSUMS="SHA256SUMS.txt"
           git fetch --force --tags origin "$TAG"
           TARGET="$(git rev-list -n 1 "$TAG")"
           if gh release view "$TAG" >/dev/null 2>&1; then
@@ -171,7 +143,7 @@ jobs:
                 --title "$TITLE" --notes-file RELEASE_NOTES.md --draft=true
             fi
           fi
-          gh release upload "$TAG" "$VSIX" "$ZED_LSP" "$ZED_EXT" "$CHECKSUMS" --clobber
+          gh release upload "$TAG" "$VSIX" "$CHECKSUMS" --clobber
           gh release edit "$TAG" --draft=false --latest
           ACTUAL_TAG="$(gh release view "$TAG" --json tagName --jq '.tagName')"
           if [ "$ACTUAL_TAG" != "$TAG" ]; then
@@ -179,7 +151,7 @@ jobs:
             exit 1
           fi
           ASSETS="$(gh release view "$TAG" --json assets --jq '.assets[].name')"
-          for asset in "$VSIX" "$(basename "$ZED_LSP")" "$(basename "$ZED_EXT")" "$(basename "$CHECKSUMS")"; do
+          for asset in "$VSIX" "$(basename "$CHECKSUMS")"; do
             printf '%s\n' "$ASSETS" | grep -qxF "$asset" \
               || { echo "::error::GitHub Release missing asset ${asset}"; exit 1; }
             PUBLIC_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${asset}"

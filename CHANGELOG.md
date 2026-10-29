@@ -22,17 +22,6 @@ the editor stabilizes for the Marketplace.
 - **Catppuccin theme.** Select `catppuccin` via **Flintmark: Select Theme** or
   `ofm.theme` for Obsidian-inspired pastel colors: Latte in light mode and Mocha
   in dark mode. Theme changes apply live to open editors.
-- **Zed developer preview.** A native Zed extension adapter now exposes
-  Flintmark's vault intelligence through LSP: wikilink/tag/heading/block
-  completion, definition and reference navigation, backlinks, hover/document
-  links, heading/task Outline symbols, workspace symbols, and Obsidian-oriented
-  snippets. It uses Zed's built-in Markdown preview because Zed does not yet
-  expose a custom-editor or webview API.
-- **Coordinated multi-editor releases.** One version tag now validates both
-  manifests and produces the VSIX, a downloadable Zed language-server bundle,
-  a Zed dev-extension archive, and checksums on the same GitHub Release. CI
-  checks the Zed Rust/WASM adapter and runs an end-to-end LSP protocol smoke
-  test alongside the shared parser tests.
 - **Keyboard focus on open.** A Live Preview tab now takes keyboard focus as
   soon as it opens or is switched to, and Cmd/Ctrl+F opens find even while
   focus is still in the Explorer after a single-click, matching the built-in

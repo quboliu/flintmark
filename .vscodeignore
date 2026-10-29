@@ -14,7 +14,6 @@ test/**
 docs/**
 scripts/**
 examples/**
-editors/**
 CONTEXT.md
 tsconfig.json
 esbuild.mjs
