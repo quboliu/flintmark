@@ -1,7 +1,7 @@
 id = "flintmark"
 name = "Flintmark"
 description = "Obsidian-aware wikilinks, tags, outline, tasks, and vault navigation for Markdown"
-version = "0.32.13"
+version = "0.33.0"
 schema_version = 1
 authors = ["quboliu"]
 repository = "https://github.com/quboliu/flintmark"

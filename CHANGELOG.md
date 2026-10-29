@@ -5,6 +5,8 @@ the editor stabilizes for the Marketplace.
 
 ## Unreleased
 
+## 0.33.0
+
 - **Windows outlines.** CRLF headings retain their titles and hierarchy, with source offsets preserved.
 - **Local note links.** Explicit .md/.markdown paths and percent-encoded filenames resolve relative to the current note before vault-wide lookup. Rendered table links now navigate without entering cell editing.
 - **Variable names in tables.** Underscores inside identifiers remain literal; explicit underscore emphasis still renders.
@@ -35,6 +37,10 @@ the editor stabilizes for the Marketplace.
   soon as it opens or is switched to, and Cmd/Ctrl+F opens find even while
   focus is still in the Explorer after a single-click, matching the built-in
   text editor. No click into the text needed first.
+
+### Contributors
+
+Thanks to @iljasorokin (#4), @rubenxyz (#6), and @JacobStephens2 (#9, #12 and the indexing fix for #13). Their original contributions are retained in this release.
 
 ## 0.32.13
 

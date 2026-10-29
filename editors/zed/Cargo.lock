@@ -76,7 +76,7 @@ dependencies = [
 
 [[package]]
 name = "flintmark-zed"
-version = "0.32.13"
+version = "0.33.0"
 dependencies = [
  "zed_extension_api",
 ]
