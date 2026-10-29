@@ -5,6 +5,11 @@ the editor stabilizes for the Marketplace.
 
 ## Unreleased
 
+- **Windows outlines.** CRLF headings retain their titles and hierarchy, with source offsets preserved.
+- **Local note links.** Explicit .md/.markdown paths and percent-encoded filenames resolve relative to the current note before vault-wide lookup. Rendered table links now navigate without entering cell editing.
+- **Variable names in tables.** Underscores inside identifiers remain literal; explicit underscore emphasis still renders.
+- **Busy workspace indexing.** Superseded searches are cancelled, scans serialize per index/root, and unrelated deletions stop rebuilding completed indexes. Initial scans finish before ambiguous deletion reconciliation.
+
 - **A freshly opened document renders in full until you interact.** Opening a
   note used to reveal raw Markdown for whatever construct the initial cursor
   landed on — most visible when line 1 is an image, which opened as

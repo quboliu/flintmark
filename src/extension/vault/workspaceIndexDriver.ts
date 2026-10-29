@@ -1,3 +1,4 @@
+import { WorkspaceIndexScanQueue } from "./workspaceIndexScanQueue";
 // Workspace Index Driver · shared VS Code host plumbing for path-based indexes.
 //
 // FileSystemWatcher and VS Code file-operation events are treated only as
@@ -105,6 +106,8 @@ export class WorkspaceIndexDriver implements vscode.Disposable {
   private readonly pendingUris = new Map<string, Map<string, vscode.Uri>>();
   private readonly generations = new WorkspaceIndexGenerationClock();
   private readonly runtime = new Map<string, RuntimeState>();
+  private readonly deferredTreeRefresh = new Set<string>();
+  private readonly scanQueue = new WorkspaceIndexScanQueue();
   private readonly indexedDirs = new Map<string, Set<string>>();
   private readonly scanCancellations = new Map<string, vscode.CancellationTokenSource>();
   private readonly disposables: vscode.Disposable[] = [];
@@ -283,6 +286,7 @@ export class WorkspaceIndexDriver implements vscode.Disposable {
       this.generations.invalidate(timerKey);
       this.cancelScan(timerKey);
       this.indexedDirs.delete(timerKey);
+      this.deferredTreeRefresh.delete(timerKey);
       this.runtime.delete(timerKey);
       this.pending.delete(timerKey);
       this.pendingUris.delete(timerKey);
@@ -381,6 +385,31 @@ export class WorkspaceIndexDriver implements vscode.Disposable {
     kind: WorkspaceIndexKind,
     root: vscode.Uri,
     reason: string,
+    generation: number,
+    batch: RefreshInvalidationBatch,
+    batchUris?: ReadonlyMap<string, vscode.Uri>
+  ): Promise<void> {
+    const key = this.timerKey(kind, root.toString());
+    try {
+      await this.scanQueue.run(
+        key,
+        () => !this.disposed && this.roots.has(root.toString()) &&
+          this.generations.isCurrent(key, generation),
+        () => this.buildSnapshot(kind, root, reason, generation, batch, batchUris)
+      );
+    } finally {
+      if (!this.disposed && this.roots.has(root.toString()) &&
+          !stateIsBuilding(this.runtimeState(kind, root)) &&
+          this.deferredTreeRefresh.delete(key)) {
+        this.requestRefresh(kind, root, "deferred-tree-delete", false, true);
+      }
+    }
+  }
+
+  private async buildSnapshot(
+    kind: WorkspaceIndexKind,
+    root: vscode.Uri,
+    reason: string,
     myGen: number,
     batch: RefreshInvalidationBatch,
     batchUris?: ReadonlyMap<string, vscode.Uri>
@@ -447,7 +476,8 @@ export class WorkspaceIndexDriver implements vscode.Disposable {
           cancellation.dispose();
         }
         if (!isCurrent()) throw new WorkspaceIndexBuildCancelled();
-        scannedFiles = files;
+        // Over-cap searches are incomplete: retain conservative delete routing.
+        scannedFiles = cap === undefined || files.length <= cap ? files : undefined;
         if (cap !== undefined && files.length > cap) {
           snapshot = spec.overCap ? spec.overCap(root, cap) : spec.notReady();
         } else {
@@ -479,6 +509,7 @@ export class WorkspaceIndexDriver implements vscode.Disposable {
     }
     const version = this.bumpVersion(kind, root);
     this.setSnapshot(kind, root, snapshot, version);
+    if (completedMode === "full") this.indexedDirs.delete(scanKey);
     if (scannedFiles) {
       this.indexedDirs.set(
         scanKey,
@@ -511,15 +542,25 @@ export class WorkspaceIndexDriver implements vscode.Disposable {
   private routeUnavailableUri(uri: vscode.Uri, reason: string): void {
     if (isCommonlyExcluded(uri)) return;
     const route = routeUnavailablePath(uri.path);
-    if (route !== "all") {
-      this.applyTreeRoute(uri, reason, route);
-      return;
-    }
+    if (route === "ignore") return;
     const folder = vscode.workspace.getWorkspaceFolder(uri);
     if (!folder) return;
     for (const kind of this.specs.keys()) {
-      const dirs = this.indexedDirs.get(this.timerKey(kind, folder.uri.toString()));
-      if (deletionAffectsIndex(uri.path, dirs)) this.scheduleForUri(kind, uri, reason);
+      const key = this.timerKey(kind, folder.uri.toString());
+      const dirs = this.indexedDirs.get(key);
+      // Let the first search finish once so unrelated temp-file deletions
+      // cannot repeatedly cancel initialization before directory routing exists.
+      if (route === "all" && dirs === undefined &&
+          stateIsBuilding(this.runtimeState(kind, folder.uri))) {
+        this.deferredTreeRefresh.add(key);
+        continue;
+      }
+      // A directory can itself end in .md or .png. Known indexed directories
+      // must invalidate every affected index, regardless of the leaf suffix.
+      if (route === kind || dirs?.has(uri.path) ||
+          (route === "all" && deletionAffectsIndex(uri.path, dirs))) {
+        this.scheduleForUri(kind, uri, reason);
+      }
     }
   }
 
@@ -596,6 +637,7 @@ export class WorkspaceIndexDriver implements vscode.Disposable {
     for (const key of [...this.scanCancellations.keys()]) this.cancelScan(key);
     for (const timer of this.timers.values()) clearTimeout(timer);
     this.timers.clear();
+    this.deferredTreeRefresh.clear();
     this.pending.clear();
     this.pendingUris.clear();
     for (const d of this.disposables) d.dispose();

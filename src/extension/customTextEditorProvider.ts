@@ -1,3 +1,4 @@
+import { noteLinkTarget, noteLinkCandidates } from "./noteLinkTarget";
 import * as vscode from "vscode";
 import { DocumentSyncManager } from "./documentSync";
 import { VaultIndexService } from "./vault";
@@ -500,8 +501,27 @@ export class OfmCustomTextEditorProvider
     // resolving so `[[Foo#Section]]` / `[[Foo^abc]]` resolve to Foo (not searched
     // as `Foo#Section.md`, which would miss and wrongly offer to create a
     // duplicate). An anchor-only `[[#heading]]` / `[[^id]]` has no note to open.
-    const note = target.split("|")[0].split("#")[0].split("^")[0].trim();
+    const note = noteLinkTarget(target);
     if (!note) return;
+
+    // Markdown paths are relative to the current document, not a workspace
+    // basename search. Resolve them first, including explicit .md extensions
+    // and percent-encoded names; Uri keeps remote workspace schemes intact.
+    const workspaceRoot = vscode.workspace.getWorkspaceFolder(document.uri)?.uri;
+    const base = note.startsWith("/") && workspaceRoot
+      ? workspaceRoot
+      : vscode.Uri.joinPath(document.uri, "..");
+    for (const candidate of noteLinkCandidates(note.replace(/^\/+/, ""))) {
+      const uri = vscode.Uri.joinPath(base, candidate);
+      try {
+        const stat = await vscode.workspace.fs.stat(uri);
+        if ((stat.type & vscode.FileType.File) === 0) continue;
+      } catch {
+        continue;
+      }
+      await vscode.commands.executeCommand("vscode.openWith", uri, "ofm.livePreview");
+      return;
+    }
 
     // Prefer the Vault Index (case-insensitive basename match, alias-aware).
     const viaIndex = this.vault?.resolveLinkUri(note);
@@ -517,7 +537,7 @@ export class OfmCustomTextEditorProvider
     // Fallback: naive workspace filename match — both supported extensions, so
     // an existing `Foo.markdown` isn't treated as missing (the index scans .md).
     const files = await vscode.workspace.findFiles(
-      `**/${note}.{md,markdown}`,
+      `**/${note.replace(/\.(md|markdown)$/i, "")}.{md,markdown}`,
       undefined,
       1
     );

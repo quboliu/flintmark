@@ -28,6 +28,7 @@ import {
   revealArmedField,
 } from "./markdownDecorations";
 import { createAiButton, type AiButtonHandle } from "./aiSelectionButton";
+import { tableLinkFacet } from "./widgets/tableWidget";
 import { markdownTheme } from "./markdownTheme";
 import { taskToggleFacet } from "./widgets/checkboxWidget";
 import { imageMapField } from "./widgets/imageWidget";
@@ -222,6 +223,7 @@ export function createEditor(
 
         // Provide the task-toggle callback to checkbox widgets.
         taskToggleFacet.of(callbacks.onToggleTask),
+        tableLinkFacet.of(callbacks.onOpenLink),
 
         // Click a link (wiki [[…]] or external [text](url) / <url>) → ask the
         // host to open it. The host decides internal-note vs external-URL.
