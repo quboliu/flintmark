@@ -26,6 +26,10 @@ the editor stabilizes for the Marketplace.
   a Zed dev-extension archive, and checksums on the same GitHub Release. CI
   checks the Zed Rust/WASM adapter and runs an end-to-end LSP protocol smoke
   test alongside the shared parser tests.
+- **Keyboard focus on open.** A Live Preview tab now takes keyboard focus as
+  soon as it opens or is switched to, and Cmd/Ctrl+F opens find even while
+  focus is still in the Explorer after a single-click, matching the built-in
+  text editor. No click into the text needed first.
 
 ## 0.32.13
 

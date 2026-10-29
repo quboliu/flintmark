@@ -13,9 +13,14 @@ export interface AiPanelHost {
   requestAiEditOnActivePanel(mode: "edit" | "chat"): boolean;
 }
 
+/** Minimal surface the find command needs from the editor provider. */
+export interface FindPanelHost {
+  openFindOnActivePanel(): Promise<boolean>;
+}
+
 export function registerCommands(
   context: vscode.ExtensionContext,
-  aiHost?: AiPanelHost
+  panelHost?: AiPanelHost & FindPanelHost
 ): void {
   const reg = (id: string, fn: (...args: unknown[]) => unknown) =>
     context.subscriptions.push(vscode.commands.registerCommand(id, fn));
@@ -59,7 +64,7 @@ export function registerCommands(
 
   // AI Selection Bridge ---------------------------------------------------
   reg("ofm.editSelectionWithAI", () => {
-    if (!aiHost?.requestAiEditOnActivePanel("edit")) {
+    if (!panelHost?.requestAiEditOnActivePanel("edit")) {
       vscode.window.showInformationMessage(
         "Flintmark: open a Markdown file in Live Preview first."
       );
@@ -67,7 +72,16 @@ export function registerCommands(
   });
 
   reg("ofm.addSelectionToChat", () => {
-    if (!aiHost?.requestAiEditOnActivePanel("chat")) {
+    if (!panelHost?.requestAiEditOnActivePanel("chat")) {
+      vscode.window.showInformationMessage(
+        "Flintmark: open a Markdown file in Live Preview first."
+      );
+    }
+  });
+
+  // Bound to Mod-F while a Live Preview is the active editor (package.json).
+  reg("ofm.find", async () => {
+    if (!(await panelHost?.openFindOnActivePanel())) {
       vscode.window.showInformationMessage(
         "Flintmark: open a Markdown file in Live Preview first."
       );
