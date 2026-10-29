@@ -14,7 +14,7 @@ export interface BundledTheme {
 
 export const BUNDLED_THEMES: readonly BundledTheme[] = [
   { id: "things", name: "Things", file: "media/themes/things.css" },
-  // More classic themes go here (e.g. minimal, default, …).
+  { id: "catppuccin", name: "Catppuccin", file: "media/themes/catppuccin.css" },
 ];
 
 export const DEFAULT_THEME_ID = "things";

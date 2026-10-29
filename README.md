@@ -50,6 +50,10 @@ repository in a VSCodium development host.
 Flintmark follows the current VS Code color mode. Changing themes updates the
 open editor in place, without moving the caret or resetting the scroll position.
 
+Use **Flintmark: Select Theme** or set `"ofm.theme": "catppuccin"` to use
+Catppuccin, adapted from [Catppuccin for Obsidian](https://github.com/catppuccin/obsidian).
+It uses Latte in light mode and Mocha in dark mode. Things remains the default.
+
 <table>
   <tr>
     <td width="50%"><img src="media/shots/go-pipelines-dark.png" alt="Flintmark using a dark VS Code theme"></td>
@@ -244,7 +248,7 @@ exact feature and install details.
 
 | Setting | Default | Description |
 | --- | --- | --- |
-| `ofm.theme` | `things` | Theme used by Live Preview. |
+| `ofm.theme` | `things` | Live Preview theme: `things` or `catppuccin` (Latte in light mode, Mocha in dark mode). |
 | `ofm.lineWidth` | `0` | `0` fills the pane with fixed side padding. Values from `20` to `240` set a centered maximum width in `rem`. |
 | `ofm.fontFamily` | theme | Font used for rendered prose. |
 | `ofm.fontSize` | `0` | Prose size in pixels. `0` follows the editor size with a small offset. |

@@ -124,10 +124,12 @@
         "ofm.theme": {
           "type": "string",
           "enum": [
-            "things"
+            "things",
+            "catppuccin"
           ],
           "enumDescriptions": [
-            "Things — by @kepano / @colineckert (MIT)"
+            "Things — by @kepano / @colineckert (MIT)",
+            "Catppuccin — Latte (light) / Mocha (dark), adapted from catppuccin/obsidian (MIT)"
           ],
           "default": "things",
           "description": "Built-in theme for the Flintmark Live Preview editor."

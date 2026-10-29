@@ -12,6 +12,9 @@ the editor stabilizes for the Marketplace.
   note renders until the first selection or edit, after which the cursor-based
   Reveal rule applies unchanged. Host-driven reveals (Go to Symbol, Reveal in
   Explorer, search jumps) arm the editor immediately.
+- **Catppuccin theme.** Select `catppuccin` via **Flintmark: Select Theme** or
+  `ofm.theme` for Obsidian-inspired pastel colors: Latte in light mode and Mocha
+  in dark mode. Theme changes apply live to open editors.
 - **Zed developer preview.** A native Zed extension adapter now exposes
   Flintmark's vault intelligence through LSP: wikilink/tag/heading/block
   completion, definition and reference navigation, backlinks, hover/document
