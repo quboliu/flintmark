@@ -1,7 +1,5 @@
 node_modules/
 out/
-target/
-release-assets/
 coverage/
 .stryker-tmp/
 *.vsix
