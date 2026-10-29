@@ -1,6 +1,5 @@
-// Transpiles the integration test sources to out/test/ as CommonJS so VS Code's
-// extensionTestsPath can load them. Non-bundled: vscode/mocha/glob/node builtins
-// resolve at runtime in the extension host.
+// Bundles integration tests and project sources as CommonJS for the extension
+// host. Packages such as vscode/mocha/glob and Node builtins resolve at runtime.
 import esbuild from "esbuild";
 import { readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -23,7 +22,8 @@ await esbuild.build({
   outbase: "test/integration",
   platform: "node",
   format: "cjs",
-  bundle: false,
+  bundle: true,
+  packages: "external",
   sourcemap: "inline",
   target: "node18",
 });

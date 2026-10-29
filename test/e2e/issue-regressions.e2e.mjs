@@ -90,12 +90,11 @@ try {
   console.log("  ✓ table wikilinks dispatch through the widget event boundary");
 
   cm = await open("windows.md", "Windows title");
-  await palette(win, "Control+Shift+p", "Flintmark: Go to Heading");
-  await win.locator(".quick-input-widget").waitFor({ state: "visible" });
-  assert.ok((await win.locator(".quick-input-widget").innerText()).includes("Windows title"));
-  assert.ok((await win.locator(".quick-input-widget").innerText()).includes("Second title"));
-  await win.keyboard.press("Escape");
-  console.log("  ✓ Windows CRLF headings appear by name in heading navigation");
+  await win.locator('.activitybar a[aria-label*="Flintmark"]').first().click();
+  await win.getByText("Windows title", { exact: true }).first().waitFor({ state: "visible" });
+  await win.getByText("Second title", { exact: true }).first().waitFor({ state: "visible" });
+  await win.getByText("Second title", { exact: true }).first().click();
+  console.log("  ✓ Windows CRLF headings appear by name in the Outline sidebar");
 
   await palette(win, "Control+p", "image-only.md");
   let image = null;
