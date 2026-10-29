@@ -1,3 +1,4 @@
+import { WorkspaceIndexDriver } from "../../../src/extension/vault/workspaceIndexDriver";
 // L2 integration tests: exercise the host/wiring layer that unit tests can't
 // reach (it needs a real VS Code) and that the L3 webview e2e doesn't cover —
 // command registration/activation integrity, the view-switching + set-default
@@ -148,5 +149,50 @@ describe("OFM custom editor (integration)", () => {
         tab.input.uri.fsPath === file.fsPath
     );
     assert.ok(liveTab, "Todo navigation should open the matching Live Preview document");
+  });
+});
+
+describe("Workspace index scan scheduling", () => {
+  it("waits for a superseded build and only publishes the latest snapshot", async () => {
+    const folder = fs.mkdtempSync(path.join(os.tmpdir(), "ofm-index-"));
+    fs.writeFileSync(path.join(folder, "note.md"), "# Indexed");
+    const root = vscode.Uri.file(folder);
+    const driver = new WorkspaceIndexDriver();
+    let release!: () => void;
+    let entered!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const firstStarted = new Promise<void>((resolve) => { entered = resolve; });
+    let calls = 0;
+    let active = 0;
+    let maximum = 0;
+    const handle = driver.registerSpec({
+      kind: "note", include: "**/*.md", notReady: () => [] as string[],
+      build: async (_root, files, context) => {
+        calls++; active++; maximum = Math.max(maximum, active);
+        const current = calls;
+        try {
+          if (current === 1) { entered(); await gate; }
+          return context.isCurrent() ? files.map((file) => file.path) : ["stale"];
+        } finally { active--; }
+      },
+    });
+    const done = new Promise<void>((resolve) => driver.onDidRefresh(() => resolve()));
+    try {
+      handle.requestRefresh(root, "first", true);
+      await firstStarted;
+      handle.requestRefresh(root, "superseded", true);
+      handle.requestRefresh(root, "latest", true);
+      await delay(100);
+      assert.strictEqual(calls, 1, "new scans must wait for the old build");
+      release();
+      await done;
+      assert.strictEqual(maximum, 1);
+      assert.strictEqual(calls, 2);
+      assert.deepStrictEqual(handle.snapshot(root), [vscode.Uri.file(path.join(folder, "note.md")).path]);
+    } finally {
+      release();
+      driver.dispose();
+      fs.rmSync(folder, { recursive: true, force: true });
+    }
   });
 });

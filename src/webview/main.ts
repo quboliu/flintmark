@@ -6,6 +6,7 @@ import "katex/dist/katex.min.css";
 import "./theme/obsidian-variables.css";
 import "./theme/obsidian-base.css";
 import { EditorView } from "@codemirror/view";
+import { openSearchPanel } from "@codemirror/search";
 import type {
   DocVersion,
   HostMsg,
@@ -23,6 +24,7 @@ import {
   type EditorHandle,
 } from "./view/createEditor";
 import { setImageMap } from "./view/widgets/imageWidget";
+import { armRevealEffect } from "./view/markdownDecorations";
 import { applyAttachmentSaved } from "./view/attachmentPaste";
 
 // ---------------------------------------------------------------------------
@@ -119,6 +121,9 @@ messenger.onMessage((msg: HostMsg) => {
     case "revealPosition":
       handleRevealPosition(msg.line, msg.character);
       break;
+    case "openFind":
+      handleOpenFind();
+      break;
     case "conflict":
       handleConflict(msg.serverVersion);
       break;
@@ -199,7 +204,66 @@ function handleInit(msg: Extract<HostMsg, { type: "init" }>): void {
   view = editorHandle.view;
   ensureThemeObserver();
   syncThemeMode();
+  // The frame may already hold focus by the time init arrives (VS Code focuses
+  // a webview as soon as its tab opens).
+  focusEditorIfFrameFocused();
 }
+
+// ---------------------------------------------------------------------------
+// Frame focus → editor focus. Opening or switching to the tab makes VS Code
+// focus this webview's window, but no element inside it, so CM6's keymap (Mod-F
+// find, typing) sees nothing until the user clicks into the text. Pass that
+// focus on to the editor, as VS Code's built-in text editor does.
+// ---------------------------------------------------------------------------
+
+function focusEditorIfFrameFocused(): void {
+  if (!view || view.hasFocus || !document.hasFocus()) return;
+  // Leave focus that already sits on something else (find input, table cell).
+  const active = document.activeElement;
+  if (active && active !== document.body && active !== document.documentElement) return;
+  view.focus();
+}
+
+// Set by openFind until this frame holds focus: the host reveals the panel and
+// posts openFind together, and the frame's focus can land after the message.
+let findFocusPending = false;
+
+function focusSearchInput(): boolean {
+  const input = view?.dom.querySelector<HTMLInputElement>(".cm-search input[name='search']");
+  if (!input) return false;
+  input.focus();
+  input.select();
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// openFind: Mod-F via the host keybinding. CM6's panel only select()s its
+// input on mount — it expects the key to come from the focused editor — so put
+// focus in the input explicitly.
+// ---------------------------------------------------------------------------
+
+function handleOpenFind(): void {
+  if (!view) return;
+  // Mod-F inside the webview reaches CM6 first, and VS Code also forwards it to
+  // the keybinding, so this can arrive after the user is already typing a query
+  // (seconds later over Remote). Re-selecting would eat their next keystroke.
+  if (document.hasFocus() && view.dom.querySelector(".cm-search input[name='search']") === document.activeElement) return;
+  openSearchPanel(view);
+  // Only take focus inside a frame that holds it; otherwise CM6's mount has
+  // already made the input the active element and the window focus handler
+  // finishes the job when the host's focus arrives.
+  findFocusPending = !document.hasFocus();
+  if (!findFocusPending) focusSearchInput();
+}
+
+window.addEventListener("focus", (event) => {
+  if (event.target !== window) return;
+  if (findFocusPending) {
+    findFocusPending = false;
+    if (focusSearchInput()) return;
+  }
+  focusEditorIfFrameFocused();
+});
 
 // ---------------------------------------------------------------------------
 // applyEdit: reconcile external deltas into CM6 without re-sending
@@ -252,7 +316,10 @@ function handleRevealPosition(line: number, character: number): void {
   view.focus();
   view.dispatch({
     selection: { anchor: pos },
-    effects: EditorView.scrollIntoView(pos, { y: "start", yMargin: 8 }),
+    effects: [
+      armRevealEffect.of(null),
+      EditorView.scrollIntoView(pos, { y: "start", yMargin: 8 }),
+    ],
   });
 }
 

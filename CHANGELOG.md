@@ -5,6 +5,21 @@ the editor stabilizes for the Marketplace.
 
 ## Unreleased
 
+- **Windows outlines.** CRLF headings retain their titles and hierarchy, with source offsets preserved.
+- **Local note links.** Explicit .md/.markdown paths and percent-encoded filenames resolve relative to the current note before vault-wide lookup. Rendered table links now navigate without entering cell editing.
+- **Variable names in tables.** Underscores inside identifiers remain literal; explicit underscore emphasis still renders.
+- **Busy workspace indexing.** Superseded searches are cancelled, scans serialize per index/root, and unrelated deletions stop rebuilding completed indexes. Initial scans finish before ambiguous deletion reconciliation.
+
+- **A freshly opened document renders in full until you interact.** Opening a
+  note used to reveal raw Markdown for whatever construct the initial cursor
+  landed on — most visible when line 1 is an image, which opened as
+  `![alt](path)` instead of the image. The editor now starts unarmed: the whole
+  note renders until the first selection or edit, after which the cursor-based
+  Reveal rule applies unchanged. Host-driven reveals (Go to Symbol, Reveal in
+  Explorer, search jumps) arm the editor immediately.
+- **Catppuccin theme.** Select `catppuccin` via **Flintmark: Select Theme** or
+  `ofm.theme` for Obsidian-inspired pastel colors: Latte in light mode and Mocha
+  in dark mode. Theme changes apply live to open editors.
 - **Zed developer preview.** A native Zed extension adapter now exposes
   Flintmark's vault intelligence through LSP: wikilink/tag/heading/block
   completion, definition and reference navigation, backlinks, hover/document
@@ -16,6 +31,10 @@ the editor stabilizes for the Marketplace.
   a Zed dev-extension archive, and checksums on the same GitHub Release. CI
   checks the Zed Rust/WASM adapter and runs an end-to-end LSP protocol smoke
   test alongside the shared parser tests.
+- **Keyboard focus on open.** A Live Preview tab now takes keyboard focus as
+  soon as it opens or is switched to, and Cmd/Ctrl+F opens find even while
+  focus is still in the Explorer after a single-click, matching the built-in
+  text editor. No click into the text needed first.
 
 ## 0.32.13
 

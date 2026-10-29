@@ -1,0 +1,197 @@
+/*
+ * Catppuccin — adapted for Flintmark's Live Preview from Catppuccin for Obsidian.
+ * Source: https://github.com/catppuccin/obsidian
+ * Upstream revision: 95eac6d290622542306b2b19fd20d4700775a394
+ * Copyright (c) 2021 Catppuccin. MIT (see THIRD-PARTY-NOTICES.md).
+ * Palette and Markdown color mappings only; no Obsidian UI or bundled fonts.
+ */
+
+/* VS Code projects its color mode onto #editor; keep theme variables there so
+ * replacing this stylesheet restores the previous theme without stale values.
+ */
+#editor.theme-light {
+  color-scheme: light;
+  --ctp-pink: 234, 118, 203;
+  --ctp-mauve: 136, 57, 239;
+  --ctp-rosewater: 220, 138, 120;
+  --ctp-maroon: 230, 69, 83;
+  --ctp-peach: 254, 100, 11;
+  --ctp-yellow: 223, 142, 29;
+  --ctp-green: 64, 160, 43;
+  --ctp-teal: 23, 146, 153;
+  --ctp-sapphire: 32, 159, 181;
+  --ctp-blue: 30, 102, 245;
+  --ctp-lavender: 114, 135, 253;
+  --ctp-red: 210, 15, 57;
+  --ctp-text: 76, 79, 105;
+  --ctp-subtext0: 108, 111, 133;
+  --ctp-overlay2: 124, 127, 147;
+  --ctp-overlay1: 140, 143, 161;
+  --ctp-surface1: 188, 192, 204;
+  --ctp-surface0: 204, 208, 218;
+  --ctp-base: 239, 241, 245;
+  --ctp-mantle: 230, 233, 239;
+  --ctp-crust: 220, 224, 232;
+}
+
+#editor.theme-dark {
+  color-scheme: dark;
+  --ctp-pink: 245, 194, 231;
+  --ctp-mauve: 203, 166, 247;
+  --ctp-rosewater: 245, 224, 220;
+  --ctp-maroon: 235, 160, 172;
+  --ctp-peach: 250, 179, 135;
+  --ctp-yellow: 249, 226, 175;
+  --ctp-green: 166, 227, 161;
+  --ctp-teal: 148, 226, 213;
+  --ctp-sapphire: 116, 199, 236;
+  --ctp-blue: 137, 180, 250;
+  --ctp-lavender: 180, 190, 254;
+  --ctp-red: 243, 139, 168;
+  --ctp-text: 205, 214, 244;
+  --ctp-subtext0: 166, 173, 200;
+  --ctp-overlay2: 147, 153, 178;
+  --ctp-overlay1: 127, 132, 156;
+  --ctp-surface1: 69, 71, 90;
+  --ctp-surface0: 49, 50, 68;
+  --ctp-base: 30, 30, 46;
+  --ctp-mantle: 24, 24, 37;
+  --ctp-crust: 17, 17, 27;
+}
+
+#editor.theme-light,
+#editor.theme-dark {
+  --background-primary: rgb(var(--ctp-base));
+  --background-primary-alt: rgb(var(--ctp-mantle));
+  --background-secondary: rgb(var(--ctp-mantle));
+  --background-secondary-alt: rgb(var(--ctp-crust));
+  --background-modifier-border: rgb(var(--ctp-surface0));
+  --background-modifier-hover: rgba(var(--ctp-surface1), 0.5);
+  --text-normal: rgb(var(--ctp-text));
+  --text-muted: rgb(var(--ctp-subtext0));
+  --text-faint: rgb(var(--ctp-overlay1));
+  --text-formatted: var(--text-faint);
+  --text-accent: rgb(var(--ctp-lavender));
+  --text-on-accent: rgb(var(--ctp-mantle));
+  --text-selection: rgba(var(--ctp-overlay2), 0.3);
+  --interactive-accent: var(--text-accent);
+
+  --h1-color: var(--text-accent);
+  --h2-color: var(--text-accent);
+  --h3-color: var(--text-accent);
+  --h4-color: var(--text-accent);
+  --h5-color: var(--text-accent);
+  --h6-color: var(--text-accent);
+  --bold-color: rgb(var(--ctp-sapphire));
+  --italic-color: rgb(var(--ctp-green));
+  --blockquote-border-color: var(--text-accent);
+  --hr-color: rgb(var(--ctp-blue));
+
+  --code-background: var(--background-primary-alt);
+  --code-block-background: var(--code-background);
+  --code-normal: var(--text-muted);
+  --code-comment: var(--text-faint);
+  --code-keyword: rgb(var(--ctp-pink));
+  --code-string: rgb(var(--ctp-green));
+  --code-function: rgb(var(--ctp-yellow));
+  --code-property: rgb(var(--ctp-sapphire));
+  --code-value: rgb(var(--ctp-mauve));
+  --code-tag: rgb(var(--ctp-red));
+  --link-color: rgb(var(--ctp-blue));
+  --link-external-color: rgb(var(--ctp-teal));
+  --link-unresolved-color: rgb(var(--ctp-maroon));
+  --tag-color: var(--text-accent);
+  --tag-background: transparent;
+  --text-highlight-bg: rgba(var(--ctp-rosewater), 0.3);
+  --list-marker-color: rgb(var(--ctp-sapphire));
+
+  --checkbox-color: rgb(var(--ctp-green));
+  --checkbox-color-hover: var(--interactive-accent);
+  --checkbox-border-color: var(--text-faint);
+  --checkbox-border-color-hover: var(--text-muted);
+  --checkbox-marker-color: var(--background-primary);
+}
+
+/* Token classes supplied by Flintmark's fenced-code syntax highlighter. */
+#editor .cm-keyword {
+  color: var(--code-keyword);
+}
+
+#editor .cm-comment {
+  color: var(--code-comment);
+}
+
+#editor .cm-hmd-codeblock.cm-string {
+  color: var(--code-string);
+}
+
+#editor .cm-def,
+#editor .cm-type {
+  color: var(--code-function);
+}
+
+#editor .cm-property,
+#editor .cm-attribute {
+  color: var(--code-property);
+}
+
+#editor .cm-number,
+#editor .cm-atom {
+  color: var(--code-value);
+}
+
+#editor .cm-tag {
+  color: var(--code-tag);
+}
+
+/* CM6 callout colors are set on each line, so override them at that scope. */
+#editor .cm-line.ofm-callout-note,
+#editor .cm-line.ofm-callout-todo,
+#editor .cm-line.ofm-callout-info {
+  --ofm-callout-color: rgb(var(--ctp-blue));
+}
+
+#editor .cm-line.ofm-callout-abstract,
+#editor .cm-line.ofm-callout-summary,
+#editor .cm-line.ofm-callout-tldr,
+#editor .cm-line.ofm-callout-tip,
+#editor .cm-line.ofm-callout-hint,
+#editor .cm-line.ofm-callout-important {
+  --ofm-callout-color: rgb(var(--ctp-sapphire));
+}
+
+#editor .cm-line.ofm-callout-success,
+#editor .cm-line.ofm-callout-check,
+#editor .cm-line.ofm-callout-done {
+  --ofm-callout-color: rgb(var(--ctp-green));
+}
+
+#editor .cm-line.ofm-callout-question,
+#editor .cm-line.ofm-callout-help,
+#editor .cm-line.ofm-callout-faq {
+  --ofm-callout-color: rgb(var(--ctp-yellow));
+}
+
+#editor .cm-line.ofm-callout-warning,
+#editor .cm-line.ofm-callout-caution,
+#editor .cm-line.ofm-callout-attention {
+  --ofm-callout-color: rgb(var(--ctp-peach));
+}
+
+#editor .cm-line.ofm-callout-failure,
+#editor .cm-line.ofm-callout-fail,
+#editor .cm-line.ofm-callout-missing,
+#editor .cm-line.ofm-callout-danger,
+#editor .cm-line.ofm-callout-error,
+#editor .cm-line.ofm-callout-bug {
+  --ofm-callout-color: rgb(var(--ctp-red));
+}
+
+#editor .cm-line.ofm-callout-example {
+  --ofm-callout-color: rgb(var(--ctp-lavender));
+}
+
+#editor .cm-line.ofm-callout-quote,
+#editor .cm-line.ofm-callout-cite {
+  --ofm-callout-color: var(--text-muted);
+}

@@ -24,8 +24,11 @@ import {
   markdownDecorationsPlugin,
   blockWidgetsField,
   LIVE_PREVIEW_DECORATION_CHAR_LIMIT,
+  armRevealExtender,
+  revealArmedField,
 } from "./markdownDecorations";
 import { createAiButton, type AiButtonHandle } from "./aiSelectionButton";
+import { tableLinkFacet } from "./widgets/tableWidget";
 import { markdownTheme } from "./markdownTheme";
 import { taskToggleFacet } from "./widgets/checkboxWidget";
 import { imageMapField } from "./widgets/imageWidget";
@@ -200,6 +203,12 @@ export function createEditor(
         // Live Preview: hide markers, style headings, apply inline styling.
         markdownDecorationsPlugin,
 
+        // Reveal arming: a freshly opened document renders fully (the initial
+        // selection does not reveal source); the first user selection or edit
+        // arms the cursor-based Reveal rule. See markdownDecorations.ts.
+        revealArmedField,
+        EditorState.transactionExtender.of(armRevealExtender),
+
         // Block widgets (mermaid diagrams, tables) — must be a StateField.
         // Tables stay as source until this per-view field receives a precise
         // measurement for the current layout signature.
@@ -214,6 +223,7 @@ export function createEditor(
 
         // Provide the task-toggle callback to checkbox widgets.
         taskToggleFacet.of(callbacks.onToggleTask),
+        tableLinkFacet.of(callbacks.onOpenLink),
 
         // Click a link (wiki [[…]] or external [text](url) / <url>) → ask the
         // host to open it. The host decides internal-note vs external-URL.

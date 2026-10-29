@@ -178,6 +178,23 @@ test("accepts an empty task ending directly before a CRLF", () => {
   );
 });
 
+
+test("CRLF headings preserve text, levels and source lines", () => {
+  const source = "# Alpha\r\n\r\n## Beta ##\r\n\r\n### Gamma";
+  assert.deepEqual(parseDocumentStructure(source).headings, [
+    { level: 1, text: "Alpha", line: 0 },
+    { level: 2, text: "Beta", line: 2 },
+    { level: 3, text: "Gamma", line: 4 },
+  ]);
+});
+
+test("CRLF and LF outlines agree without changing task source offsets", () => {
+  const source = "---\r\ntitle: Windows\r\n---\r\n\r\n# Heading\r\n- [ ] task\r\n";
+  const result = parseDocumentStructure(source);
+  assert.deepEqual(result.headings, parseDocumentStructure(source.replace(/\r/g, "")).headings);
+  assert.equal(result.todos[0].markerFrom, source.indexOf("[ ]"));
+});
+
 if (failed > 0) {
   console.error(`\n${failed} document structure test(s) FAILED`);
   process.exit(1);

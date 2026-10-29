@@ -116,6 +116,19 @@
         "command": "ofm.dumpAiCommands",
         "title": "Dump AI Commands (debug)",
         "category": "Flintmark"
+      },
+      {
+        "command": "ofm.find",
+        "title": "Find in Live Preview",
+        "category": "Flintmark"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "ofm.find",
+        "key": "ctrl+f",
+        "mac": "cmd+f",
+        "when": "activeCustomEditorId == 'ofm.livePreview' && !editorAreaFocus && !inputFocus && !terminalFocus && !panelFocus"
       }
     ],
     "configuration": {
@@ -124,10 +137,12 @@
         "ofm.theme": {
           "type": "string",
           "enum": [
-            "things"
+            "things",
+            "catppuccin"
           ],
           "enumDescriptions": [
-            "Things — by @kepano / @colineckert (MIT)"
+            "Things — by @kepano / @colineckert (MIT)",
+            "Catppuccin — Latte (light) / Mocha (dark), adapted from catppuccin/obsidian (MIT)"
           ],
           "default": "things",
           "description": "Built-in theme for the Flintmark Live Preview editor."
@@ -284,14 +299,16 @@
     "test:report": "node scripts/test-report.mjs",
     "build:test": "node esbuild.test.mjs",
     "test:integration": "npm run compile && npm run build:test && xvfb-run -a node out/test/runTest.js",
-    "test:e2e": "npm run compile && xvfb-run -a node test/e2e/vault-ready-lifecycle.e2e.mjs && xvfb-run -a node test/e2e/livepreview.e2e.mjs && xvfb-run -a node test/e2e/todo-sync.e2e.mjs && xvfb-run -a node test/e2e/external-update.e2e.mjs && xvfb-run -a node test/e2e/theme-mode.e2e.mjs && xvfb-run -a node test/e2e/image-index-lifecycle.e2e.mjs",
+    "test:e2e": "npm run compile && xvfb-run -a node test/e2e/vault-ready-lifecycle.e2e.mjs && xvfb-run -a node test/e2e/livepreview.e2e.mjs && xvfb-run -a node test/e2e/todo-sync.e2e.mjs && xvfb-run -a node test/e2e/external-update.e2e.mjs && xvfb-run -a node test/e2e/theme-mode.e2e.mjs && xvfb-run -a node test/e2e/image-index-lifecycle.e2e.mjs && xvfb-run -a node test/e2e/issue-regressions.e2e.mjs",
     "test:visual": "npm run compile && xvfb-run -a node test/e2e/visual.e2e.mjs",
     "test:visual:update": "npm run compile && xvfb-run -a node test/e2e/visual.e2e.mjs --update",
     "test:zed": "npm run compile:zed-lsp && node scripts/test-zed-lsp.mjs",
     "shots:features": "npm run compile && xvfb-run -a node scripts/capture-shots.mjs",
     "shots:go-pipelines": "npm run compile && xvfb-run -a node scripts/capture-go-pipelines-shots.mjs",
     "shots:navigation": "npm run compile && xvfb-run -a node scripts/capture-navigation-shot.mjs",
-    "test": "npm run test:unit && npm run test:perf && npm run test:zed && npm run test:integration && npm run test:e2e"
+    "test": "npm run test:unit && npm run test:perf && npm run test:zed && npm run test:integration && npm run test:e2e",
+    "test:e2e:issues": "npm run compile && xvfb-run -a node test/e2e/issue-regressions.e2e.mjs",
+    "test:stress": "npm run compile && FLINTMARK_STRESS_FILES=20000 FLINTMARK_STRESS_IMAGES=4200 FLINTMARK_STRESS_NOISE=1 xvfb-run -a node test/e2e/vault-ready-lifecycle.e2e.mjs"
   },
   "devDependencies": {
     "@stryker-mutator/core": "^9.6.1",

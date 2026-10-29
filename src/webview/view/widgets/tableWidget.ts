@@ -4,6 +4,11 @@
 // and blur/Enter/Tab rebuilds the whole table source and dispatches it. Cell
 // content renders inline markdown (bold/italic/strike/code/==/links).
 import { EditorView, WidgetType } from "@codemirror/view";
+import { Facet } from "@codemirror/state";
+
+export const tableLinkFacet = Facet.define<(target: string) => void, (target: string) => void>({
+  combine: (values) => values[0] ?? (() => {}),
+});
 
 // ---------------------------------------------------------------------------
 // Minimal, SAFE inline-markdown renderer for table cells (DOM nodes, never
@@ -11,7 +16,7 @@ import { EditorView, WidgetType } from "@codemirror/view";
 // ---------------------------------------------------------------------------
 
 const INLINE_RE =
-  /(`[^`]+`)|(\*\*[^*]+\*\*)|(~~[^~]+~~)|(==[^=]+==)|(\*[^*]+\*)|(_[^_]+_)|(!?\[\[[^\]]+\]\])|(\[[^\]]+\]\([^)]+\))/;
+  /(`[^`]+`)|(\*\*[^*]+\*\*)|(~~[^~]+~~)|(==[^=]+==)|(\*[^*]+\*)|((?<![\p{L}\p{N}_])_[^_]+_(?![\p{L}\p{N}_]))|(!?\[\[[^\]]+\]\])|(\[[^\]]+\]\([^)]+\))/u;
 
 function renderInline(text: string, parent: Node): void {
   let rest = text;
@@ -244,6 +249,18 @@ function buildTable(
     cell.setAttribute("contenteditable", "true");
     cell.spellcheck = false;
     if (mode !== "interactive" || !view) return cell;
+
+    // CM6 ignores widget events. Route links before contenteditable focus
+    // replaces the rendered cell with its Markdown source.
+    cell.addEventListener("mousedown", (event) => {
+      if (event.button !== 0) return;
+      const link = (event.target as Element | null)?.closest("[data-ofm-link]");
+      const target = link?.getAttribute("data-ofm-link");
+      if (!target) return;
+      event.preventDefault();
+      event.stopPropagation();
+      view.state.facet(tableLinkFacet)(target);
+    });
 
     cell.addEventListener("focus", () => {
       // Show the raw markdown source for editing (only swap if it differs, to

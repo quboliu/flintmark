@@ -1,6 +1,8 @@
 import assert from "node:assert";
 import {
   decideEnsureFresh,
+  deletionAffectsIndex,
+  directoriesHoldingFiles,
   DOCUMENT_READY_MAX_STALE_MS,
   mergeRefreshInvalidation,
   refreshModeForFileEvent,
@@ -109,6 +111,25 @@ test("remove and same-URI re-add cannot let a deferred old build publish", () =>
 
   assert.equal(published, "new");
   assert.notEqual(oldBuild, newBuild, "generation must not ABA across root incarnations");
+});
+
+test("indexed directories are every ancestor of an indexed file below the root", () => {
+  const dirs = directoriesHoldingFiles(
+    ["/vault/a/b/note.md", "/vault/top.md", "/vault/a/c/other.md"],
+    "/vault"
+  );
+  assert.deepEqual([...dirs].sort(), ["/vault/a", "/vault/a/b", "/vault/a/c"]);
+  assert.deepEqual([...directoriesHoldingFiles(["/vault/top.md"], "/vault/")], []);
+});
+
+test("deleting an unrelated path leaves an index alone once a scan has completed", () => {
+  const dirs = directoriesHoldingFiles(["/home/notes/day.md"], "/home");
+  assert.equal(deletionAffectsIndex("/home/notes", dirs), true);
+  assert.equal(deletionAffectsIndex("/home/.cache/tmp-1234", dirs), false);
+  assert.equal(deletionAffectsIndex("/home/session.json", dirs), false);
+  assert.equal(deletionAffectsIndex("/home/not", dirs), false);
+  // No completed scan yet: stay conservative.
+  assert.equal(deletionAffectsIndex("/home/.cache/tmp-1234", undefined), true);
 });
 
 if (failed > 0) {

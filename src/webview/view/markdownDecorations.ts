@@ -30,7 +30,14 @@ import {
   ViewPlugin,
   ViewUpdate,
 } from "@codemirror/view";
-import { EditorState, Range, StateField } from "@codemirror/state";
+import {
+  EditorState,
+  Range,
+  StateEffect,
+  StateField,
+  type Transaction,
+  type TransactionSpec,
+} from "@codemirror/state";
 import type { SyntaxNodeRef } from "@lezer/common";
 import { computeDecorationPlan, type ConstructInfo } from "../kernel/decorate";
 import { shouldRevealConstruct, type SelectionRange } from "../kernel/reveal";
@@ -223,6 +230,61 @@ export interface VisibleRange {
  *  and fresh-open full-tree parsing must stay comfortably bounded. */
 export const LIVE_PREVIEW_DECORATION_CHAR_LIMIT = FULL_DOCUMENT_LIVE_PREVIEW_CHAR_LIMIT;
 
+// ---------------------------------------------------------------------------
+// Reveal arming
+//
+// A freshly opened document starts UNARMED: the initial selection (VS Code
+// places it inside the first construct, e.g. an image on line 1) must not
+// reveal raw source, otherwise the first line of a note opens as source
+// instead of rendered content. While unarmed, `buildDecorations` treats the
+// selection as empty, so the whole document renders. The first user selection
+// or edit arms the field and the standard cursor-based Reveal rule applies
+// from then on. Host-driven reveals (e.g. "reveal in editor" from search)
+// arm the field explicitly because they represent user intent too.
+//
+// The field is optional: callers that don't provide it (headless tests,
+// decoration probes) keep the historic always-armed behavior (`?? true`).
+// ---------------------------------------------------------------------------
+
+export const armRevealEffect = StateEffect.define<null>();
+
+export const revealArmedField = StateField.define<boolean>({
+  create: () => false,
+  update(value, transaction) {
+    if (value) return value;
+    for (const effect of transaction.effects) {
+      if (effect.is(armRevealEffect)) return true;
+    }
+    return value;
+  },
+});
+
+/** Selection ranges to honor for revealing, given the arming state. */
+function revealSelections(state: EditorState): SelectionRange[] {
+  const armed = state.field(revealArmedField, false) ?? true;
+  if (!armed) return [];
+  return state.selection.ranges.map((r) => ({ from: r.from, to: r.to }));
+}
+
+/**
+ * Transaction extender: arm the Reveal rule on the first user-driven
+ * transaction. Host-originated transactions (external edits, document sync)
+ * leave `userEvent` unset, so they never arm the editor — only real user
+ * selection, typing, and deletion do.
+ */
+export function armRevealExtender(
+  transaction: Transaction
+): TransactionSpec | null {
+  if (
+    transaction.isUserEvent("select") ||
+    transaction.isUserEvent("input") ||
+    transaction.isUserEvent("delete")
+  ) {
+    return { effects: armRevealEffect.of(null) };
+  }
+  return null;
+}
+
 export function buildDecorations(
   state: EditorState,
   ranges?: VisibleRange[]
@@ -235,10 +297,7 @@ export function buildDecorations(
   // test, ADR-0005) get identical behaviour without a View.
   const visible: VisibleRange[] = ranges ?? [{ from: 0, to: state.doc.length }];
 
-  const selections: SelectionRange[] = state.selection.ranges.map((r) => ({
-    from: r.from,
-    to: r.to,
-  }));
+  const selections: SelectionRange[] = revealSelections(state);
 
   const constructs = collectConstructs(tree, docText, visible);
   const plan = computeDecorationPlan(constructs, selections);
@@ -979,12 +1038,16 @@ const markdownDecorationsPlugin = ViewPlugin.fromClass(
       const mediaMeasurementsChanged = update.transactions.some((tr) =>
         tr.effects.some((e) => e.is(setMediaMeasurements))
       );
+      const revealArmed = update.transactions.some((tr) =>
+        tr.effects.some((e) => e.is(armRevealEffect))
+      );
       if (
         update.docChanged ||
         update.selectionSet ||
         treeChanged ||
         imageMapChanged ||
-        mediaMeasurementsChanged
+        mediaMeasurementsChanged ||
+        revealArmed
       ) {
         // Full-document decorations keep line heights stable during fast
         // scrolling. Rebuilding only on document/selection/resource changes
@@ -1123,10 +1186,7 @@ function buildBlockWidgets(state: EditorState): DecorationSet {
   const tree = syntaxTree(state);
   const documentMeasurements = documentMeasurementScan(state);
   const docText = documentMeasurements.docText!;
-  const selections: SelectionRange[] = state.selection.ranges.map((r) => ({
-    from: r.from,
-    to: r.to,
-  }));
+  const selections: SelectionRange[] = revealSelections(state);
   const decos: Range<Decoration>[] = [];
   const htmlBlockRanges: { from: number; to: number }[] = [];
 
@@ -1274,6 +1334,7 @@ const blockWidgetsField = StateField.define<DecorationSet>({
       tr.selection ||
       treeChanged ||
       tr.effects.some((e) => e.is(mermaidRenderedEffect)) ||
+      tr.effects.some((e) => e.is(armRevealEffect)) ||
       tr.effects.some((e) => e.is(setTableMeasurements)) ||
       tr.effects.some((e) => e.is(setMediaMeasurements))
     ) {

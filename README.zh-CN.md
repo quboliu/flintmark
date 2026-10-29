@@ -223,7 +223,7 @@ Markdown 编辑器上提供全库 wikilink/标签补全、定义跳转、引用�
 
 | 设置项 | 默认值 | 说明 |
 | --- | --- | --- |
-| `ofm.theme` | `things` | 实时预览使用的主题。 |
+| `ofm.theme` | `things` | 实时预览主题：`things` 或 `catppuccin`（浅色模式使用 Latte，深色模式使用 Mocha）。可通过 **Flintmark: Select Theme** 切换。 |
 | `ofm.lineWidth` | `0` | `0` 表示填满窗格并保留固定边距；`20`–`240` 表示居中后的最大宽度，单位为 `rem`。 |
 | `ofm.fontFamily` | 主题 | 渲染后正文使用的字体。 |
 | `ofm.fontSize` | `0` | 正文字号，单位为 px；`0` 表示在编辑器字号上稍作调整。 |

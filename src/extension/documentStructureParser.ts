@@ -152,7 +152,9 @@ export function parseDocumentStructure(text: string): DocumentStructure {
         ) {
           return;
         }
-        const source = text.slice(node.from, node.to);
+        // Lezer includes the CR in a CRLF heading node. Keep offsets intact,
+        // but omit the line terminator when extracting its display text.
+        const source = text.slice(node.from, node.to).replace(/\r$/, "");
         headings.push({
           level,
           text: headingText(node.type.name, source),
