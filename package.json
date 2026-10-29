@@ -307,7 +307,8 @@
     "shots:go-pipelines": "npm run compile && xvfb-run -a node scripts/capture-go-pipelines-shots.mjs",
     "shots:navigation": "npm run compile && xvfb-run -a node scripts/capture-navigation-shot.mjs",
     "test": "npm run test:unit && npm run test:perf && npm run test:zed && npm run test:integration && npm run test:e2e",
-    "test:e2e:issues": "npm run compile && xvfb-run -a node test/e2e/issue-regressions.e2e.mjs"
+    "test:e2e:issues": "npm run compile && xvfb-run -a node test/e2e/issue-regressions.e2e.mjs",
+    "test:stress": "npm run compile && FLINTMARK_STRESS_FILES=20000 FLINTMARK_STRESS_IMAGES=4200 FLINTMARK_STRESS_NOISE=1 xvfb-run -a node test/e2e/vault-ready-lifecycle.e2e.mjs"
   },
   "devDependencies": {
     "@stryker-mutator/core": "^9.6.1",

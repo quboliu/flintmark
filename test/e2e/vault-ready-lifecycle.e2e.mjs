@@ -29,9 +29,24 @@ const openPath = join(work, "open.md");
 writeFileSync(openPath, "# Ready lifecycle\n\nselection-probe\n");
 writeFileSync(join(work, "Late Vault Target.md"), "# Late Vault Target\n");
 const links = Array.from({ length: 120 }, (_, i) => `[[Synthetic-${i % 37}]]`).join(" ");
-for (let i = 0; i < 10_000; i++) {
+const noteCount = Number(process.env.FLINTMARK_STRESS_FILES) || 10_000;
+for (let i = 0; i < noteCount; i++) {
   writeFileSync(join(work, `Synthetic-${i}.md`), `# Synthetic ${i}\n\n#tag-${i % 41} ${links}\n`);
 }
+
+const imageCount = Number(process.env.FLINTMARK_STRESS_IMAGES) || 0;
+if (imageCount) {
+  mkdirSync(join(work, "images"));
+  const pixel = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64");
+  for (let i = 0; i < imageCount; i++) writeFileSync(join(work, "images", "image-" + i + ".png"), pixel);
+}
+let noiseEvents = 0;
+const noise = process.env.FLINTMARK_STRESS_NOISE ? setInterval(() => {
+  const file = join(work, "transient-" + noiseEvents++ + ".json");
+  writeFileSync(file, "{}");
+  unlinkSync(file);
+}, 25) : null;
+const stressStarted = Date.now();
 
 const app = await electron.launch({
   executablePath: VSCODE,
@@ -154,7 +169,15 @@ try {
   assert.equal(state.editorCount, 1, "only one editor instance should remain");
   assert.ok(state.activeText.includes("selection-probe"), "the active selection line must be retained");
   console.log("  ✓ body paints before VaultData; later data preserves editor instance and selection");
+  if (noise) {
+    assert.ok(noiseEvents >= 100, "stress must include sustained create/delete traffic");
+    console.log("  ✓ busy-workspace stress:", JSON.stringify({
+      notes: noteCount, images: imageCount, tempFilesCreatedAndDeleted: noiseEvents,
+      durationMs: Date.now() - stressStarted,
+    }));
+  }
 } finally {
+  if (noise) clearInterval(noise);
   try {
     unlinkSync(buildGate);
   } catch {}

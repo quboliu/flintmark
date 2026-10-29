@@ -533,7 +533,9 @@ export class WorkspaceIndexDriver implements vscode.Disposable {
       const type = (stat.type & vscode.FileType.Directory) !== 0 ? "directory" : "file";
       this.applyTreeRoute(uri, reason, routeCreatedPath(uri.path, type));
     } catch {
-      this.applyTreeRoute(uri, reason, routeCreatedPath(uri.path, "unknown"));
+      // A fast-created temporary file may be gone before stat completes.
+      // Reuse unavailable-path routing instead of rebuilding both indexes.
+      this.routeUnavailableUri(uri, reason + "-unavailable");
     }
   }
 
