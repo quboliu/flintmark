@@ -6,7 +6,7 @@ import { ImageIndexService } from "./vault/imageIndexService";
 import { DEFAULT_THEME_ID, findTheme } from "./themes";
 import { openSourceWithSelection, triggerNativeAi, addSelectionToChat } from "./ai/aiBridge";
 import { aiLog } from "./ai/aiLog";
-import { clampOffsetRange } from "../shared/ranges";
+import { clampOffsetRange, cmToHostOffsets, hostToCmOffset } from "../shared/ranges";
 import { DEFAULT_LINE_WIDTH, normalizeSettings } from "../shared/settings";
 import { resolveNewNoteName } from "./vault/newNote";
 import { attachmentName, dedupeName } from "./vault/attachment";
@@ -51,12 +51,30 @@ function readSettings(): Settings {
 // Helpers
 // ---------------------------------------------------------------------------
 
+// The webview's offsets are CodeMirror's, where a CRLF is 1 character; the
+// TextDocument counts it as 2. toHostOffsets maps the webview's offsets to the
+// document's (toDocChanges maps back). Both are no-ops for LF documents.
+function isCrlf(document: vscode.TextDocument): boolean {
+  return document.eol === vscode.EndOfLine.CRLF;
+}
+
+function toHostOffsets(document: vscode.TextDocument, offsets: number[]): number[] {
+  if (!isCrlf(document)) return offsets;
+  return cmToHostOffsets(document.getText(), offsets);
+}
+
+// Each change's range and rangeOffset describe the document BEFORE the event
+// (the event's document is already after it, and several changes share those
+// coordinates), so the CodeMirror offset comes from the range's line numbers.
 function toDocChanges(
-  contentChanges: readonly vscode.TextDocumentContentChangeEvent[]
+  contentChanges: readonly vscode.TextDocumentContentChangeEvent[],
+  crlf: boolean
 ): DocChange[] {
   return contentChanges.map((c) => ({
-    from: c.rangeOffset,
-    to: c.rangeOffset + c.rangeLength,
+    from: crlf ? hostToCmOffset(c.rangeOffset, c.range.start.line) : c.rangeOffset,
+    to: crlf
+      ? hostToCmOffset(c.rangeOffset + c.rangeLength, c.range.end.line)
+      : c.rangeOffset + c.rangeLength,
     insert: c.text,
   }));
 }
@@ -423,13 +441,17 @@ export class OfmCustomTextEditorProvider
     // resolved against the CURRENT document, which (because we serialize) already
     // contains every prior webview edit, so they map correctly.
     const edit = new vscode.WorkspaceEdit();
-    for (const ch of changes) {
+    const offsets = toHostOffsets(document, changes.flatMap((ch) => [ch.from, ch.to]));
+    changes.forEach((ch, i) => {
       edit.replace(
         document.uri,
-        new vscode.Range(document.positionAt(ch.from), document.positionAt(ch.to)),
+        new vscode.Range(
+          document.positionAt(offsets[2 * i]),
+          document.positionAt(offsets[2 * i + 1])
+        ),
         ch.insert
       );
-    }
+    });
 
     // Mark this URI so the resulting onDidChangeTextDocument is suppressed.
     this.syncManager.markSuppressNext(uri);
@@ -460,9 +482,10 @@ export class OfmCustomTextEditorProvider
     from: number,
     to: number
   ): Promise<void> {
+    const [hostFrom, hostTo] = toHostOffsets(document, [from, to]);
     const range = new vscode.Range(
-      document.positionAt(from),
-      document.positionAt(to)
+      document.positionAt(hostFrom),
+      document.positionAt(hostTo)
     );
     const marker = document.getText(range);
     const toggled = /\[[xX]\]/.test(marker) ? "[ ]" : "[x]";
@@ -689,9 +712,11 @@ export class OfmCustomTextEditorProvider
     to: number,
     mode: "edit" | "chat"
   ): Promise<void> {
-    // Node 1+2: clamp offsets to the document (selection == source offsets).
+    // Node 1+2: clamp offsets to the document (selection == source offsets,
+    // once mapped from CodeMirror's to the document's).
     const len = document.getText().length;
-    const { from: a, to: bClamped } = clampOffsetRange(from, to, len);
+    const [hostFrom, hostTo] = toHostOffsets(document, [from, to]);
+    const { from: a, to: bClamped } = clampOffsetRange(hostFrom, hostTo, len);
     const sel = new vscode.Selection(
       document.positionAt(a),
       document.positionAt(bClamped)
@@ -1029,14 +1054,16 @@ export class OfmCustomTextEditorProvider
 
     if (records.length === 0) return;
 
-    const changes = toDocChanges(e.contentChanges);
+    const changes = toDocChanges(e.contentChanges, isCrlf(e.document));
 
     // If the document was completely replaced (e.g. external reload),
     // use replaceAll to avoid cascading incremental changes.
     if (changes.length === 1 && changes[0].from === 0) {
       const text = e.document.getText();
       // Heuristic: if the replace covers most of the document, treat as replaceAll.
-      if (changes[0].to >= text.length || changes[0].insert === text) {
+      // (`to` is in CodeMirror offsets, `text` in document offsets: compare in the latter.)
+      const hostTo = e.contentChanges[0].rangeOffset + e.contentChanges[0].rangeLength;
+      if (hostTo >= text.length || changes[0].insert === text) {
         const replaceAllMsg: HostMsg = {
           type: "replaceAll",
           version: e.document.version,

@@ -3,11 +3,14 @@
 // before (a known blind spot): they run host-side but are pure, so they belong
 // at L1. Runs in Node with no VS Code — docs/05 top-of-pyramid.
 import assert from "node:assert";
+import { EditorState } from "@codemirror/state";
 import {
   offsetToPosition,
   positionToOffset,
   lineCount,
   clampOffsetRange,
+  cmToHostOffset,
+  hostToCmOffset,
 } from "../../src/shared/ranges";
 
 let failed = 0;
@@ -147,6 +150,99 @@ test("clampOffsetRange: invariant 0 <= from <= to <= len over many inputs", () =
       }
     }
   }
+});
+
+// --- CodeMirror (LF) <-> host (CRLF) offsets ---------------------------------
+// CodeMirror counts a CRLF as 1 character, the TextDocument as 2.
+
+const CRLF = "a\r\nb\r\n";
+
+test("cmToHostOffset: each earlier CRLF adds one", () => {
+  assert.equal(cmToHostOffset(CRLF, 0), 0);
+  assert.equal(cmToHostOffset(CRLF, 1), 1); // before the first break
+  assert.equal(cmToHostOffset(CRLF, 2), 3); // start of "b"
+  assert.equal(cmToHostOffset(CRLF, 3), 4); // before the second break
+  assert.equal(cmToHostOffset(CRLF, 4), 6); // end of document
+});
+
+test("cmToHostOffset: clamps past the end and below zero", () => {
+  assert.equal(cmToHostOffset(CRLF, 99), CRLF.length);
+  assert.equal(cmToHostOffset(CRLF, -5), 0);
+  assert.equal(cmToHostOffset("", 3), 0);
+});
+
+test("cmToHostOffset: blank lines and Japanese text", () => {
+  const text = "見出し\r\n\r\n日本語\r\n";
+  assert.equal(cmToHostOffset(text, 3), 3);
+  assert.equal(cmToHostOffset(text, 4), 5); // the empty line
+  assert.equal(cmToHostOffset(text, 5), 7); // start of 日本語
+  assert.equal(cmToHostOffset(text, 8), 10); // before the last break
+  assert.equal(cmToHostOffset(text, 9), 12); // end
+});
+
+test("cmToHostOffset: LF text is the identity", () => {
+  assert.equal(cmToHostOffset("a\nb\n", 2), 2);
+  assert.equal(cmToHostOffset("a\nb\n", 4), 4);
+});
+
+test("cmToHostOffset: mixed endings only shift for CRLF", () => {
+  assert.equal(cmToHostOffset("a\r\nb\nc", 4), 5);
+});
+
+test("hostToCmOffset: subtracts one per earlier line", () => {
+  assert.equal(hostToCmOffset(0, 0), 0);
+  assert.equal(hostToCmOffset(3, 1), 2); // start of "b" in CRLF
+  assert.equal(hostToCmOffset(6, 2), 4); // end of document
+});
+
+test("round trip: host -> CodeMirror -> host over every offset", () => {
+  const text = "# タイトル\r\n\r\n- a\r\n- bbb\r\n";
+  for (let host = 0; host <= text.length; host++) {
+    if (text[host] === "\n" && text[host - 1] === "\r") continue; // inside a CRLF
+    const cm = hostToCmOffset(host, offsetToPosition(text, host).line);
+    assert.equal(cmToHostOffset(text, cm), host, "host offset " + host);
+  }
+});
+
+test("CodeMirror change lands in the right place of the CRLF document", () => {
+  // The reported bug: typing at the end of "- bbb" (line 3) must not shift.
+  const text = "# t\r\n\r\n- aaa\r\n- bbb\r\n- ccc\r\n";
+  const state = EditorState.create({ doc: text });
+  const cmEnd = state.doc.line(4).to; // end of "- bbb"
+  const tr = state.update({ changes: { from: cmEnd, insert: "XYZ" } });
+  const host = cmToHostOffset(text, cmEnd);
+  assert.equal(text.slice(0, host).endsWith("- bbb"), true);
+  const applied = text.slice(0, host) + "XYZ" + text.slice(host);
+  assert.equal(applied, "# t\r\n\r\n- aaa\r\n- bbbXYZ\r\n- ccc\r\n");
+  assert.equal(applied.replace(/\r\n/g, "\n"), tr.state.doc.toString());
+});
+
+test("CodeMirror normalises CRLF in text the host inserts", () => {
+  const state = EditorState.create({ doc: "a\nb" });
+  const next = state.update({ changes: { from: 1, insert: "\r\nx\r\n" } }).state;
+  assert.equal(next.doc.toString(), "a\nx\n\nb");
+});
+
+// Simulate a VS Code content-change event (ranges and offsets all refer to the
+// pre-change document, last edit first) and replay it onto a CodeMirror doc the
+// way toDocChanges does.
+test("host event with several changes maps through line numbers", () => {
+  const pre = "aaa\r\nbbb\r\nccc\r\nddd\r\n";
+  const edits = [
+    { from: 0, to: 3, text: "A\r\nA2" }, // line 0, grows by a line
+    { from: 10, to: 15, text: "" }, // line 2, "ccc" and its break
+  ];
+  const changes = [...edits].reverse().map((e) => ({
+    from: hostToCmOffset(e.from, offsetToPosition(pre, e.from).line),
+    to: hostToCmOffset(e.to, offsetToPosition(pre, e.to).line),
+    insert: e.text,
+  }));
+  const cm = EditorState.create({ doc: pre }).update({ changes }).state.doc.toString();
+  let host = pre;
+  for (const e of [...edits].reverse()) {
+    host = host.slice(0, e.from) + e.text + host.slice(e.to);
+  }
+  assert.equal(cm, host.replace(/\r\n/g, "\n"));
 });
 
 if (failed > 0) {
