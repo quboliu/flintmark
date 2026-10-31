@@ -32,6 +32,8 @@ writeFileSync(join(work, "notes/regressions.md"), [
   "| plain | [[common/target.md]] |", "", "plain tail", "",
 ].join("\n"));
 writeFileSync(join(work, "windows.md"), "# Windows title\r\n\r\n## Second title\r\n");
+const crlfNote = join(work, "crlf-edit.md");
+writeFileSync(crlfNote, "# CRLF edit\r\n\r\n- aaa\r\n- bbb\r\n- ccc\r\n");
 writeFileSync(join(work, "pixel.png"), Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64"));
 writeFileSync(join(work, "image-only.md"), "![pixel](pixel.png)");
 const app = await electron.launch({
@@ -95,6 +97,21 @@ try {
   await win.getByText("Second title", { exact: true }).first().waitFor({ state: "visible" });
   await win.getByText("Second title", { exact: true }).first().click();
   console.log("  ✓ Windows CRLF headings appear by name in the Outline sidebar");
+
+  cm = await open("crlf-edit.md", "CRLF edit");
+  await cm.locator(".cm-line", { hasText: "bbb" }).click();
+  await win.keyboard.press("End");
+  await win.keyboard.type("XYZ");
+  await cm.locator(".cm-line", { hasText: "ccc" }).click();
+  await win.keyboard.press("End");
+  await win.keyboard.press("Backspace");
+  await win.keyboard.press("Enter");
+  await win.keyboard.type("ddd");
+  await win.keyboard.press("Control+s");
+  const expected = "# CRLF edit\r\n\r\n- aaa\r\n- bbbXYZ\r\n- cc\r\n- ddd\r\n";
+  for (let i = 0; i < 50 && readFileSync(crlfNote, "utf8") !== expected; i++) await win.waitForTimeout(200);
+  assert.equal(JSON.stringify(readFileSync(crlfNote, "utf8")), JSON.stringify(expected));
+  console.log("  ✓ typing, Backspace and Enter in a CRLF note edit the right place on disk");
 
   await palette(win, "Control+p", "image-only.md");
   let image = null;

@@ -5,6 +5,8 @@ the editor stabilizes for the Marketplace.
 
 ## Unreleased
 
+- **Editing CRLF notes.** Typing, Backspace, task toggles and AI selections in Live Preview now land at the cursor in Windows-style (CRLF) notes instead of shifting by the number of preceding line breaks.
+
 ## 0.33.0
 
 - **Windows outlines.** CRLF headings retain their titles and hierarchy, with source offsets preserved.
