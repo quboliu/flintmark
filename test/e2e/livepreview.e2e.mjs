@@ -209,6 +209,24 @@ try {
     await panel.first().waitFor({ state: "detached", timeout: 4000 });
   });
 
+  await test("Find preserves immediate query input and closes without reopening", async () => {
+    const before = await cm.evaluate(() => document.querySelector(".cm-content").cmTile.root.view.state.doc.toString());
+    for (const query of ["Hello", "World"]) {
+      await cm.locator(".cm-content").click();
+      await win.keyboard.press("Control+f");
+      const panel = cm.locator(".cm-panel.cm-search");
+      await panel.waitFor({ state: "visible", timeout: 4000 });
+      await win.keyboard.type(query);
+      assert.equal(await panel.locator("input[name='search']").inputValue(), query);
+      await win.keyboard.press("Escape");
+      await panel.waitFor({ state: "detached", timeout: 4000 });
+      // Observe delayed forwarding after the action, without delaying input.
+      await win.waitForTimeout(1500);
+      assert.equal(await panel.count(), 0, "Find must not reopen after Escape");
+    }
+    assert.equal(await cm.evaluate(() => document.querySelector(".cm-content").cmTile.root.view.state.doc.toString()), before, "Search keystrokes must never edit the document");
+  });
+
   await test("markers hidden when cursor is not in the construct", async () => {
     // Click the last (plain) line so the cursor is away from heading/bold.
     await cm.locator(".cm-line").last().click();
@@ -1403,24 +1421,67 @@ try {
       `anchor setup must be away from document bottom: ${JSON.stringify(offBottom)}`
     );
 
-    const anchorBefore = await longCm.evaluate(() => {
+    const readAnchorState = (fixedPos = null) => longCm.evaluate((fixedPos) => {
+      const content = document.querySelector(".cm-content");
+      const view = content?.cmTile?.root?.view;
       const scroller = document.querySelector(".cm-scroller");
-      if (!scroller) return null;
-      const top = scroller.getBoundingClientRect().top;
-      const candidates = [...document.querySelectorAll(".cm-line")]
-        .map((element) => ({ element, text: element.textContent ?? "" }))
-        .filter(
-          ({ element, text }) =>
-            /Long Scroll Section \d+|printf\("section \d+/.test(text) &&
-            element.getBoundingClientRect().bottom >= top
-        )
-        .sort((a, b) => a.element.getBoundingClientRect().top - b.element.getBoundingClientRect().top);
-      const first = candidates[0];
-      return first
-        ? { text: first.text, offset: first.element.getBoundingClientRect().top - top }
-        : null;
-    });
-    assert.ok(anchorBefore, "a unique source anchor must be visible before layout invalidation");
+      if (!view || !scroller) return null;
+      const scrollerTop = scroller.getBoundingClientRect().top;
+      const lines = [...document.querySelectorAll(".cm-line")]
+        .map((element) => ({ element, rect: element.getBoundingClientRect() }))
+        .filter(({ rect }) => rect.bottom > scrollerTop + 0.5)
+        .sort((a, b) => a.rect.top - b.rect.top);
+      const first = lines[0];
+      const firstPos = first ? view.posAtDOM(first.element) : null;
+      const anchorPos = fixedPos === null ? view.scrollSnapshot().value.range.head : fixedPos;
+      const anchorLine = view.state.doc.lineAt(anchorPos);
+      const coords = view.coordsAtPos(anchorPos);
+      return {
+        scrollTop: scroller.scrollTop,
+        scrollHeight: scroller.scrollHeight,
+        clientHeight: scroller.clientHeight,
+        distanceFromBottom: scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop,
+        anchor: {
+          pos: anchorPos,
+          line: anchorLine.number,
+          text: anchorLine.text,
+          top: coords ? coords.top - scrollerTop : null,
+        },
+        firstVisible: first ? {
+          pos: firstPos,
+          line: view.state.doc.lineAt(firstPos).number,
+          text: first.element.textContent || "",
+          top: first.rect.top - scrollerTop,
+          height: first.rect.height,
+        } : null,
+        lineHeight: view.defaultLineHeight,
+      };
+    }, fixedPos);
+
+    // Independent contract, deliberately not the old 8px line-text assertion:
+    // 1. CM6's own anchor source position must not change and its viewport
+    //    offset must stay within 2px (native anchoring).
+    // 2. The source line at the top edge may move by at most one line when
+    //    font/width changes reflow heights, but must never jump to a new
+    //    section or a line several lines away.
+    const anchorProblems = (before, after) => {
+      const problems = [];
+      if (!after || !after.anchor || before.anchor.pos !== after.anchor.pos) {
+        problems.push(`anchor position changed: ${before.anchor.pos} -> ${after?.anchor?.pos}`);
+      }
+      if (after?.anchor && Math.abs(after.anchor.top - before.anchor.top) > 2) {
+        problems.push(`native anchor moved ${after.anchor.top - before.anchor.top}px`);
+      }
+      if (!after?.firstVisible) problems.push("no visible source line");
+      else if (Math.abs(after.firstVisible.line - before.firstVisible.line) > 1) {
+        problems.push(`top source line jumped ${before.firstVisible.line} -> ${after.firstVisible.line}`);
+      }
+      return problems;
+    };
+
+    const anchorBefore = await readAnchorState();
+    assert.ok(anchorBefore?.firstVisible, `a visible source line must exist before settings: ${JSON.stringify(anchorBefore)}`);
+    assert.ok(Number.isFinite(anchorBefore.anchor.top), `native anchor must have coordinates: ${JSON.stringify(anchorBefore)}`);
     const layoutVersionBeforeSettings = await longCm.evaluate(() => {
       const rack = document.querySelector(".ofm-table-measure-rack");
       return Number(rack?.getAttribute("data-ofm-table-layout-version") ?? 0);
@@ -1441,20 +1502,33 @@ try {
       layoutVersionBeforeSettings,
       { timeout: 15_000 }
     );
-    await win.waitForTimeout(300);
-    const anchorAfter = await longCm.evaluate((text) => {
-      const scroller = document.querySelector(".cm-scroller");
-      const line = [...document.querySelectorAll(".cm-line")].find(
-        (element) => element.textContent === text
-      );
-      if (!scroller || !line) return null;
-      return line.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
-    }, anchorBefore.text);
-    assert.ok(anchorAfter !== null, `source anchor must remain mounted: ${JSON.stringify(anchorBefore)}`);
-    assert.ok(
-      Math.abs(anchorAfter - anchorBefore.offset) <= 8,
-      `source anchor drifted after width/font settings change: before=${anchorBefore.offset}, after=${anchorAfter}`
-    );
+    // Let CM6 finish its own measure/scroll-anchor correction. This is a settle
+    // gate, not a delayed scroll restore: nothing here writes scrollTop.
+    await longCm.evaluate(() => new Promise((resolve) => {
+      let frame = 0;
+      const tick = () => {
+        frame++;
+        if (frame >= 4) resolve();
+        else requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    }));
+    const anchorAfter = await readAnchorState(anchorBefore.anchor.pos);
+    const problems = anchorProblems(anchorBefore, anchorAfter);
+    console.log("ANCHOR_CONTRACT", JSON.stringify({ before: anchorBefore, after: anchorAfter, problems }));
+    assert.deepEqual(problems, [], `source position jumped after font/width change: ${JSON.stringify(problems)}`);
+
+    // Negative control: the same predicate must reject a synthetic broken
+    // anchor (different source position / 40px drift / 5-line jump). This proves
+    // the probe is sensitive without relying on the old 8px threshold.
+    const negative = JSON.parse(JSON.stringify(anchorAfter));
+    negative.anchor.pos += 1;
+    negative.anchor.top -= 40;
+    negative.firstVisible.line += 5;
+    const negativeProblems = anchorProblems(anchorBefore, negative);
+    assert.ok(negativeProblems.length >= 3, `negative control was not rejected: ${JSON.stringify(negativeProblems)}`);
+    console.log("ANCHOR_NEGATIVE_CONTROL_REJECTED", JSON.stringify(negativeProblems));
+
     const heightBeforeOffscreenVisit = await scroller.evaluate((element) => element.scrollHeight);
     await scroller.evaluate((element) => {
       element.scrollTop = element.scrollHeight - element.clientHeight;

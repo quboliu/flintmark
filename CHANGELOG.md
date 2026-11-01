@@ -5,9 +5,15 @@ the editor stabilizes for the Marketplace.
 
 ## Unreleased
 
+## 0.33.1
+
+- **Find focus.** Opening Find inside Live Preview no longer runs the shortcut twice, so immediate typing and Escape keep working without a focus jump.
+
 - **Windows images.** Local images render when VS Code reports different drive-letter casing for the workspace and scanned files, including image-only notes without a trailing newline.
 
-- **Multiple Live Preview panes.** Concurrent edits to the same note are rebased and acknowledged per pane, preserving changes made before another pane catches up.
+- **Multiple Live Preview panes.** Concurrent edits to the same note are rebased and acknowledged per pane, preserving changes made before another pane catches up. Identical concurrent insertions remain separate edits, and LF/CRLF conversion no longer moves pending input.
+- **Synchronization recovery.** Transient edit conflicts retry automatically. Persistent conflicts offer Retry or an unsaved recovery copy; edits retained during the session can be recovered even after closing their preview.
+- **Todo navigation.** Source-view navigation reuses an existing hidden preview in its original editor group, avoiding stale or duplicate tabs.
 - **Save and undo after typing.** Keyboard save, undo, and redo wait for the pane's pending edits to synchronize. Switching between LF and CRLF preserves live-pane positions.
 - **Editing CRLF notes.** Typing, Backspace, task toggles and AI selections in Live Preview now land at the cursor in Windows-style (CRLF) notes instead of shifting by the number of preceding line breaks.
 

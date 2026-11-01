@@ -109,9 +109,14 @@ try {
   const liveHasExternalUpdate = liveText.includes(ADDED);
 
   await clickEditorAction("Code View");
-  await win.locator(".monaco-editor .view-lines").first().waitFor({ state: "visible", timeout: 8000 });
+  await win.locator(".editor-group-container .monaco-editor .view-lines").first().waitFor({ state: "visible", timeout: 8000 });
   const sourceText = normalizeEditorText(
-    await win.locator(".monaco-editor .view-lines").first().innerText()
+    await win.locator(".editor-group-container .monaco-editor .view-lines").first().evaluate((element) =>
+      [...element.querySelectorAll(".view-line")]
+        .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top)
+        .map((line) => line.textContent || "")
+        .join("\n"),
+    )
   );
   const diskText = readFileSync(notePath, "utf8");
 
@@ -120,13 +125,18 @@ try {
   assert.ok(liveHasExternalUpdate, `Live Preview did not show the external write. Live text was:\n${liveText}`);
 
   const SOURCE_ADDED = "This paragraph was typed in the source editor.";
-  await win.keyboard.press("End");
+  await win.keyboard.press("Control+End");
   await win.keyboard.press("Enter");
   await win.keyboard.press("Enter");
   await win.keyboard.type(SOURCE_ADDED);
   await win.waitForTimeout(1200);
   const sourceAfterTyping = normalizeEditorText(
-    await win.locator(".monaco-editor .view-lines").first().innerText()
+    await win.locator(".editor-group-container .monaco-editor .view-lines").first().evaluate((element) =>
+      [...element.querySelectorAll(".view-line")]
+        .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top)
+        .map((line) => line.textContent || "")
+        .join("\n"),
+    )
   );
   assert.ok(
     containsEditorText(sourceAfterTyping, SOURCE_ADDED),
@@ -151,14 +161,19 @@ try {
   const SPLIT_ADDED = "This paragraph was typed in a split source editor.";
   await clickEditorAction("Split Editor Right");
   await clickEditorAction("Code View");
-  await win.locator(".monaco-editor .view-lines").first().waitFor({ state: "visible", timeout: 8000 });
+  await win.locator(".editor-group-container .monaco-editor .view-lines").first().waitFor({ state: "visible", timeout: 8000 });
   await win.keyboard.press("Control+End");
   await win.keyboard.press("Enter");
   await win.keyboard.press("Enter");
   await win.keyboard.type(SPLIT_ADDED);
   await win.waitForTimeout(1200);
   const splitSourceText = normalizeEditorText(
-    await win.locator(".monaco-editor .view-lines").first().innerText()
+    await win.locator(".editor-group-container .monaco-editor .view-lines").first().evaluate((element) =>
+      [...element.querySelectorAll(".view-line")]
+        .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top)
+        .map((line) => line.textContent || "")
+        .join("\n"),
+    )
   );
   assert.ok(
     containsEditorText(splitSourceText, SPLIT_ADDED),

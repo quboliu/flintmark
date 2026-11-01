@@ -128,6 +128,7 @@ export function createEditor(
         return true;
       },
       preventDefault: true,
+      stopPropagation: true,
     },
     {
       key: "Mod-Shift-z",
@@ -136,6 +137,7 @@ export function createEditor(
         return true;
       },
       preventDefault: true,
+      stopPropagation: true,
     },
     {
       key: "Mod-y",
@@ -144,6 +146,7 @@ export function createEditor(
         return true;
       },
       preventDefault: true,
+      stopPropagation: true,
     },
   ]);
 
@@ -165,6 +168,7 @@ export function createEditor(
               return true;
             },
             preventDefault: true,
+      stopPropagation: true,
           },
         ]),
         // Markdown-aware Enter/Backspace: continue list/quote markers on Enter,
@@ -188,7 +192,12 @@ export function createEditor(
         // In-editor find/replace (Mod-F / Mod-Alt-F) — VS Code's native Find
         // can't reach into the webview, so the editor provides its own.
         search({ top: true }),
-        keymap.of(searchKeymap),
+        // Keep a locally handled Find shortcut inside the webview. The host also
+        // forwards keydowns, which otherwise runs ofm.find a second time and
+        // moves focus away from the search input during the next keystroke.
+        keymap.of(searchKeymap.map((binding) =>
+          binding.key === "Mod-f" ? { ...binding, stopPropagation: true } : binding
+        )),
 
         EditorView.lineWrapping,
 

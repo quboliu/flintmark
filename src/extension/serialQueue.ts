@@ -12,6 +12,9 @@
 // the only concern is async interleaving, which the promise chain serializes.
 export class SerialQueue {
   private chains = new Map<string, Promise<unknown>>();
+  // A stable tail also represents keys that have never queued work. Cleanup
+  // may compare snapshots to detect newer work without creating a new tail.
+  private readonly empty = Promise.resolve();
 
   /**
    * Append `task` to `key`'s chain. Resolves/rejects with the task's result once
@@ -27,7 +30,7 @@ export class SerialQueue {
 
   /** Resolves when the current tail for `key` settles (for flush / tests). */
   idle(key: string): Promise<unknown> {
-    return this.chains.get(key) ?? Promise.resolve();
+    return this.chains.get(key) ?? this.empty;
   }
 
   /** Drop all chains (e.g. on dispose). In-flight tasks still settle. */

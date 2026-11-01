@@ -184,12 +184,20 @@ try {
   await win.keyboard.press("Control+Backslash");
   await win.waitForTimeout(700);
   await win.locator('.editor-actions [aria-label*="Code View"]').last().click();
-  const source = win.locator(".monaco-editor .view-lines").last();
+  const source = win.locator(".editor-group-container .monaco-editor .view-lines").last();
   await source.waitFor({ state: "visible" });
   await source.click();
   await win.keyboard.press("Control+End");
+  assert.ok(
+    await win.evaluate(() => !!document.activeElement?.closest(".editor-group-container .monaco-editor")),
+    "Native source editor must own keyboard focus before insertion",
+  );
   await win.keyboard.insertText("HOST");
   await win.keyboard.press("Control+s");
+  await waitFor(
+    async () => readFileSync(file, "utf8") === "# " + marker + "\r\n\r\nalpha\r\nbeta\r\nHOST",
+    "Native source insertion was not saved to the test document",
+  );
   await waitFor(
     async () => (await text(preview)).endsWith("HOST"),
     "Host insertion not delivered to preview",

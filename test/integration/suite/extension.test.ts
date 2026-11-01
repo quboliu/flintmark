@@ -243,3 +243,51 @@ describe("Workspace image paths", () => {
     assert.strictEqual(relFromRoot(root, image), "c:/Notes/photo.png");
   });
 });
+
+// A source tab may coexist with a hidden custom-editor tab. Navigation must
+// reveal the existing preview instead of disposing and racing its replacement.
+describe("Todo navigation to an existing hidden preview", () => {
+  for (const split of [false, true]) {
+    it(`reuses the same preview tab${split ? " across editor groups" : " in one group"}`, async () => {
+      const folder = fs.mkdtempSync(path.join(os.tmpdir(), "ofm-hidden-preview-"));
+      const note = vscode.Uri.file(path.join(folder, "target.md"));
+      const other = vscode.Uri.file(path.join(folder, "other.txt"));
+      const text = "# Navigation\n\n- [ ] target task\n";
+      fs.writeFileSync(note.fsPath, text);
+      fs.writeFileSync(other.fsPath, "Another editor hides the preview.\n");
+      const matchingTabs = () => vscode.window.tabGroups.all.flatMap(group =>
+        group.tabs.filter(tab => tab.input instanceof vscode.TabInputCustom &&
+          tab.input.viewType === VIEW_TYPE && tab.input.uri.toString() === note.toString())
+          .map(tab => ({ group, tab })),
+      );
+      try {
+        await vscode.commands.executeCommand("vscode.openWith", note, VIEW_TYPE, { viewColumn: vscode.ViewColumn.One, preview: false });
+        await delay(1500);
+        assert.strictEqual(matchingTabs().length, 1);
+        const original = matchingTabs()[0];
+        const document = await vscode.workspace.openTextDocument(note);
+        await vscode.window.showTextDocument(other, { viewColumn: original.group.viewColumn, preview: false });
+        await vscode.window.showTextDocument(document, {
+          viewColumn: split ? vscode.ViewColumn.Beside : original.group.viewColumn,
+          preview: false,
+        });
+        assert.strictEqual(original.tab.isActive, false, "preview must actually be hidden before navigating");
+        const markerFrom = text.indexOf("[ ]");
+        await vscode.commands.executeCommand("ofm.gotoTodo", {
+          uri: note, version: document.version, status: " ", text: "target task",
+          line: 2, character: 2, markerFrom, markerTo: markerFrom + 3,
+        });
+        const deadline = Date.now() + 5000;
+        while (!original.tab.isActive && Date.now() < deadline) await delay(25);
+        const after = matchingTabs();
+        assert.strictEqual(after.length, 1, "navigation must not duplicate the preview");
+        assert.strictEqual(after[0].tab, original.tab, "navigation must preserve the existing tab");
+        assert.strictEqual(after[0].group.viewColumn, original.group.viewColumn, "preview must stay in its original group");
+        assert.strictEqual(original.tab.isActive, true, "navigation must reveal the hidden preview");
+        assert.strictEqual(vscode.window.tabGroups.activeTabGroup.viewColumn, original.group.viewColumn, "focus must follow the revealed preview");
+      } finally {
+        await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+      }
+    });
+  }
+});

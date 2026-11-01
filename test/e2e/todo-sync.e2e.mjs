@@ -213,16 +213,21 @@ try {
     await win.waitForTimeout(400);
     assert.ok((await selectionLine(alphaFrame)).includes("alpha active"));
     await win.keyboard.press("End");
-    await win.keyboard.type(" renamed");
+    // One input transaction has one unambiguous undo unit on every host.
+    await win.keyboard.insertText(" renamed");
     await waitTodoRows(
       (rows) => hasRow(rows, "alpha active renamed"),
       "renamed task should appear"
     );
     await win.keyboard.press("Control+z");
     await waitTodoRows(
-      (rows) => hasRow(rows, "alpha active") && !hasRow(rows, "alpha active renamed"),
+      (rows) => rows.some((text) => /^alpha active\s*\[\/\]/.test(text)),
       "undo should restore the old label"
     );
+    assert.equal(await alphaFrame.evaluate(() => {
+      const view = document.querySelector(".cm-content").cmTile.root.view;
+      return view.state.doc.toString().split("\n").find((line) => line.startsWith("- [/] alpha active"));
+    }), "- [/] alpha active", "undo must restore the entire task label");
     await win.keyboard.press("Control+y");
     await waitTodoRows(
       (rows) => hasRow(rows, "alpha active renamed"),
