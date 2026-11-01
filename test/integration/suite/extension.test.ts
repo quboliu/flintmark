@@ -1,4 +1,4 @@
-import { WorkspaceIndexDriver } from "../../../src/extension/vault/workspaceIndexDriver";
+import { relFromRoot, WorkspaceIndexDriver } from "../../../src/extension/vault/workspaceIndexDriver";
 // L2 integration tests: exercise the host/wiring layer that unit tests can't
 // reach (it needs a real VS Code) and that the L3 webview e2e doesn't cover —
 // command registration/activation integrity, the view-switching + set-default
@@ -194,5 +194,52 @@ describe("Workspace index scan scheduling", () => {
       driver.dispose();
       fs.rmSync(folder, { recursive: true, force: true });
     }
+  });
+});
+
+
+describe("Workspace image paths", () => {
+  const file = (path: string) => vscode.Uri.from({ scheme: "file", path });
+
+  it("strips the workspace root despite Windows drive-letter casing", () => {
+    for (const rootDrive of ["C", "c"]) {
+      for (const fileDrive of ["C", "c"]) {
+        for (const trailingSlash of ["", "/"]) {
+          assert.strictEqual(
+            relFromRoot(file("/" + rootDrive + ":/Notes" + trailingSlash), file("/" + fileDrive + ":/Notes/assets/Photo.PNG")),
+            "assets/Photo.PNG"
+          );
+        }
+      }
+    }
+  });
+
+  it("preserves spaces, Unicode, and filename case in image references", () => {
+    assert.strictEqual(
+      relFromRoot(file("/C:/My Notes"), file("/c:/My Notes/assets/画像 Photo.SVG")),
+      "assets/画像 Photo.SVG"
+    );
+  });
+
+  it("handles a Windows drive root", () => {
+    assert.strictEqual(relFromRoot(file("/D:/"), file("/d:/Photo.png")), "Photo.png");
+  });
+
+  it("does not confuse a neighboring folder or a different drive with the root", () => {
+    assert.strictEqual(relFromRoot(file("/C:/Notes"), file("/c:/Notes-archive/photo.png")), "c:/Notes-archive/photo.png");
+    assert.strictEqual(relFromRoot(file("/C:/Notes"), file("/d:/Notes/photo.png")), "d:/Notes/photo.png");
+  });
+
+  it("preserves case-sensitive directory boundaries and POSIX roots", () => {
+    assert.strictEqual(relFromRoot(file("/vault"), file("/vault/Photo.PNG")), "Photo.PNG");
+    assert.strictEqual(relFromRoot(file("/vault"), file("/Vault/Photo.PNG")), "Vault/Photo.PNG");
+    assert.strictEqual(relFromRoot(file("/"), file("/vault/Photo.PNG")), "vault/Photo.PNG");
+    assert.strictEqual(relFromRoot(file("/C:/Notes"), file("/c:/notes/Photo.PNG")), "c:/notes/Photo.PNG");
+  });
+
+  it("does not rewrite drive-like paths belonging to non-file providers", () => {
+    const root = vscode.Uri.from({ scheme: "custom", path: "/C:/Notes" });
+    const image = vscode.Uri.from({ scheme: "custom", path: "/c:/Notes/photo.png" });
+    assert.strictEqual(relFromRoot(root, image), "c:/Notes/photo.png");
   });
 });

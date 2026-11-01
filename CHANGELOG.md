@@ -5,9 +5,15 @@ the editor stabilizes for the Marketplace.
 
 ## Unreleased
 
+- **Windows images.** Local images render when VS Code reports different drive-letter casing for the workspace and scanned files, including image-only notes without a trailing newline.
+
 - **Multiple Live Preview panes.** Concurrent edits to the same note are rebased and acknowledged per pane, preserving changes made before another pane catches up.
 - **Save and undo after typing.** Keyboard save, undo, and redo wait for the pane's pending edits to synchronize. Switching between LF and CRLF preserves live-pane positions.
 - **Editing CRLF notes.** Typing, Backspace, task toggles and AI selections in Live Preview now land at the cursor in Windows-style (CRLF) notes instead of shifting by the number of preceding line breaks.
+
+### Contributors
+
+Thanks to [@Fujita0113](https://github.com/Fujita0113) for the CRLF editing fix in [#18](https://github.com/quboliu/flintmark/pull/18) and for reporting the Windows image and multiple-pane synchronization issues. The original contribution is retained in the commit history.
 
 ## 0.33.0
 
