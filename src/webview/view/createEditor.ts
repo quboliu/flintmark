@@ -1,8 +1,5 @@
-import {
-  EditorView,
-  keymap,
-  ViewUpdate,
-} from "@codemirror/view";
+import { collab } from "@codemirror/collab";
+import { EditorView, keymap, ViewUpdate } from "@codemirror/view";
 import {
   EditorSelection,
   EditorState,
@@ -68,6 +65,8 @@ export const hostOrigin = Annotation.define<boolean>();
 export interface EditorCallbacks {
   /** Called for user-originated document changes (NOT host-originated). */
   onUserEdit: (changes: DocChange[]) => void;
+  /** Called when the user presses Mod-s (save) — flush edits before saving. */
+  onRequestSave: () => void;
   /** Called when the user presses Mod-z (undo) — relay to host. */
   onRequestUndo: () => void;
   /** Called when the user presses Mod-Shift-z or Mod-y (redo) — relay to host. */
@@ -119,7 +118,7 @@ export function createEditor(
   parent: HTMLElement,
   initialText: string,
   callbacks: EditorCallbacks,
-  options: { dark: boolean }
+  options: { dark: boolean; syncVersion?: number },
 ): EditorHandle {
   const undoRedoKeymap = keymap.of([
     {
@@ -157,6 +156,17 @@ export function createEditor(
       doc: initialText,
       selection: EditorSelection.cursor(initialSelectionAnchor(initialText)),
       extensions: [
+        collab({ startVersion: options.syncVersion ?? 0 }),
+        keymap.of([
+          {
+            key: "Mod-s",
+            run: () => {
+              callbacks.onRequestSave();
+              return true;
+            },
+            preventDefault: true,
+          },
+        ]),
         // Markdown-aware Enter/Backspace: continue list/quote markers on Enter,
         // and remove them on Backspace at the line start (before defaultKeymap
         // so these win for those keys).
@@ -278,7 +288,8 @@ export function createEditor(
           }
           if (!update.docChanged) return;
           for (const tr of update.transactions) {
-            if (tr.annotation(hostOrigin)) continue;
+            if (tr.annotation(hostOrigin) || tr.annotation(Transaction.remote))
+              continue;
             callbacks.onUserEdit(extractChanges(tr));
           }
         }),

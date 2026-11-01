@@ -1,3 +1,10 @@
+import { ChangeSet } from "@codemirror/state";
+import type { Update } from "@codemirror/collab";
+import {
+  CollaborationAuthority,
+  decodeUpdates,
+  encodeUpdates,
+} from "../shared/collaboration";
 import { noteLinkTarget, noteLinkCandidates } from "./noteLinkTarget";
 import * as vscode from "vscode";
 import { DocumentSyncManager } from "./documentSync";
@@ -101,6 +108,39 @@ export class OfmCustomTextEditorProvider
 
   /** Serializes webview edits per URI — the concurrent-edit corruption guard. */
   private editQueue = new SerialQueue();
+  private authorities = new Map<string, CollaborationAuthority>();
+  private pendingUpdates = new Map<
+    string,
+    { updates: readonly Update[]; expected: string }
+  >();
+
+  private authority(document: vscode.TextDocument): CollaborationAuthority {
+    const uri = document.uri.toString();
+    let authority = this.authorities.get(uri);
+    if (!authority) {
+      authority = new CollaborationAuthority(
+        document.getText(),
+        isCrlf(document),
+      );
+      this.authorities.set(uri, authority);
+    }
+    return authority;
+  }
+  private broadcastUpdates(
+    document: vscode.TextDocument,
+    updates: readonly Update[],
+  ): void {
+    const msg: HostMsg = {
+      type: "syncUpdates",
+      version: document.version,
+      updates: encodeUpdates(updates),
+    };
+    for (const { panel } of this.panels
+      .get(document.uri.toString())
+      ?.values() ?? []) {
+      if (this.readyPanels.has(panel)) panel.webview.postMessage(msg);
+    }
+  }
 
   /** Last image-map JSON sent per panel, to avoid redundant webview re-renders. */
   private lastImageMap: WeakMap<vscode.WebviewPanel, string> = new WeakMap();
@@ -226,7 +266,13 @@ export class OfmCustomTextEditorProvider
     webviewPanel.onDidDispose(() => {
       const records = this.panels.get(uri);
       records?.delete(webviewPanel);
-      if (records?.size === 0) this.panels.delete(uri);
+      if (records?.size === 0) {
+        this.panels.delete(uri);
+        // Release collaboration history after the final panel closes.
+        void this.editQueue.idle(uri).then(() => {
+          if (!this.panels.has(uri)) this.authorities.delete(uri);
+        });
+      }
       // Drop the dedup cache so a REOPENED webview (which starts with an empty
       // imageMap) is re-sent the map even if the document text is unchanged.
       this.lastImageMap.delete(webviewPanel);
@@ -326,10 +372,11 @@ export class OfmCustomTextEditorProvider
 
       case "edit":
         // Serialize: never apply concurrently (fast typing would race/corrupt).
-        this.enqueueEdit(document, msg.changes);
+        this.enqueueEdit(document, panel, msg);
         return;
 
       case "requestSave":
+        await this.editQueue.idle(document.uri.toString());
         await document.save();
         return;
 
@@ -385,6 +432,7 @@ export class OfmCustomTextEditorProvider
 
     const initMsg: HostMsg = {
       type: "init",
+      syncVersion: this.authority(document).version,
       uri: document.uri.toString(),
       version,
       text,
@@ -414,27 +462,65 @@ export class OfmCustomTextEditorProvider
   // Handle edit from webview → minimal-range WorkspaceEdit
   // -----------------------------------------------------------------------
 
-  /**
-   * Enqueue a webview edit. Edits MUST apply strictly in order and one at a
-   * time: applyEdit is async and fast typing produces many "edit" messages; if
-   * applied concurrently, their offsets (computed by the webview against its
-   * optimistic-ahead document) race and corrupt/reorder the text. We serialize
-   * per-URI via a promise chain.
+  /** Rebase each panel's versioned updates, then apply them serially per URI.
+   * Overlapping batches are deduplicated by the authority, so a frame can send
+   * input immediately without waiting for an earlier acknowledgment.
    */
-  private enqueueEdit(document: vscode.TextDocument, changes: DocChange[]): void {
-    // Strict per-URI serialization — see SerialQueue. Offsets in `changes` were
-    // computed by the webview against its optimistic doc; running edits one at a
-    // time means each applies to a document that already contains every prior
-    // edit, so they map correctly instead of racing.
-    void this.editQueue.run(document.uri.toString(), () =>
-      this.applyWebviewEdit(document, changes)
-    );
+  private enqueueEdit(
+    document: vscode.TextDocument,
+    panel: vscode.WebviewPanel,
+    msg: Extract<WebviewMsg, { type: "edit" }>,
+  ): void {
+    const uri = document.uri.toString();
+    void this.editQueue
+      .run(uri, async () => {
+        const authority = this.authority(document);
+        const updates = authority.prepare(
+          msg.syncVersion,
+          decodeUpdates(msg.updates),
+        );
+        if (!updates.length) return;
+        let combined = ChangeSet.empty(authority.doc.length);
+        for (const update of updates)
+          combined = combined.compose(update.changes);
+        const changes: DocChange[] = [];
+        combined.iterChanges((from, to, _fromB, _toB, insert) =>
+          changes.push({ from, to, insert: insert.toString() }),
+        );
+        if (combined.empty) {
+          authority.commit(updates);
+          this.broadcastUpdates(document, updates);
+          return;
+        }
+        this.pendingUpdates.set(uri, {
+          updates,
+          expected: combined.apply(authority.doc).toString(),
+        });
+        try {
+          const applied = await this.applyWebviewEdit(document, changes);
+          if (!applied || this.pendingUpdates.has(uri))
+            throw new Error(
+              "Document changed before the edit could be applied. Your local edits are still pending.",
+            );
+        } finally {
+          this.pendingUpdates.delete(uri);
+        }
+      })
+      .catch((error: unknown) => {
+        const message = String(error);
+        console.error("[ofm] collaboration edit failed", error);
+        panel.webview.postMessage({
+          type: "syncError",
+          message,
+        } satisfies HostMsg);
+        void vscode.window.showErrorMessage(`Flintmark: ${message}`);
+      });
   }
 
   private async applyWebviewEdit(
     document: vscode.TextDocument,
-    changes: DocChange[]
-  ): Promise<void> {
+    changes: DocChange[],
+  ): Promise<boolean> {
     const uri = document.uri.toString();
 
     // Minimal-range WorkspaceEdit — never a full-document replace. Offsets are
@@ -463,16 +549,11 @@ export class OfmCustomTextEditorProvider
       this.syncManager.cancelSuppress(uri);
       console.warn("[ofm] WorkspaceEdit was not applied");
     }
+    return applied;
   }
 
   // -----------------------------------------------------------------------
-  // TODO (Slice 2+ hardening, per ADR-0002):
-  //   - validate msg.version against document.version before applying; on
-  //     mismatch, rebase or fall back to conflict handling instead of
-  //     applying at stale offsets.
-  //   - external multi-change reconciliation: ensure CM6 receives changes in
-  //     original-document coordinates (sorted) to avoid offset drift.
-
+  // Legacy host-side task toggles; current webviews submit versioned edits.
   // -----------------------------------------------------------------------
   // Handle toggleTask — flip [ ] <-> [x] at the marker range
   // -----------------------------------------------------------------------
@@ -1044,6 +1125,30 @@ export class OfmCustomTextEditorProvider
     // sendImageMap only posts when the set of image srcs actually changed.
     for (const { panel } of records) {
       this.sendImageMap(e.document, panel);
+    }
+
+    const authority = this.authorities.get(uri);
+    if (authority) {
+      const pending = this.pendingUpdates.get(uri);
+      const actual = e.document.getText().replace(/\r\n?|\n/g, "\n");
+      if (pending && actual === pending.expected) {
+        this.pendingUpdates.delete(uri);
+        this.syncManager.shouldSuppress(uri);
+        authority.commit(pending.updates);
+        authority.crlf = isCrlf(e.document);
+        this.broadcastUpdates(e.document, pending.updates);
+      } else {
+        // Event ranges refer to the OLD document, including its old EOL mode.
+        const changes = ChangeSet.of(
+          toDocChanges(e.contentChanges, authority.crlf),
+          authority.doc.length,
+        );
+        const updates = [{ clientID: "host", changes }];
+        authority.commit(updates);
+        authority.crlf = isCrlf(e.document);
+        this.broadcastUpdates(e.document, updates);
+      }
+      return;
     }
 
     // Echo suppression: if this change originated from our own webview edit,

@@ -5,6 +5,8 @@ the editor stabilizes for the Marketplace.
 
 ## Unreleased
 
+- **Multiple Live Preview panes.** Concurrent edits to the same note are rebased and acknowledged per pane, preserving changes made before another pane catches up.
+- **Save and undo after typing.** Keyboard save, undo, and redo wait for the pane's pending edits to synchronize. Switching between LF and CRLF preserves live-pane positions.
 - **Editing CRLF notes.** Typing, Backspace, task toggles and AI selections in Live Preview now land at the cursor in Windows-style (CRLF) notes instead of shifting by the number of preceding line breaks.
 
 ## 0.33.0
