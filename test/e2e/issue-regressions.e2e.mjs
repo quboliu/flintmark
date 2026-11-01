@@ -40,7 +40,7 @@ const app = await electron.launch({
   executablePath: process.env.VSCODE_BIN || "/usr/share/codium/codium",
   args: ["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage",
     "--user-data-dir=" + userData, "--extensions-dir=" + join(work, "ext"),
-    "--extensionDevelopmentPath=" + repo, work],
+    "--extensionDevelopmentPath=" + repo, work, join(work, "windows.md")],
 });
 try {
   const win = await app.firstWindow();
@@ -123,6 +123,22 @@ try {
     if (!image) await win.waitForTimeout(200);
   }
   assert.ok(image, "a single-line image with no trailing newline must render on open");
+  const loaded = await image.evaluate((img) => new Promise((resolve) => {
+    const snapshot = () => ({ complete: img.complete, width: img.naturalWidth, height: img.naturalHeight, src: img.src });
+    if (img.complete) { resolve(snapshot()); return; }
+    const timer = setTimeout(() => resolve(snapshot()), 30000);
+    const done = () => { clearTimeout(timer); resolve(snapshot()); };
+    img.addEventListener("load", done, { once: true });
+    img.addEventListener("error", done, { once: true });
+  }));
+  assert.ok(loaded.complete && loaded.width > 0 && loaded.height > 0,
+    `the image must load successfully before interaction: ${JSON.stringify(loaded)}`);
+  const expectedPath = (process.platform === "win32" ? "/" : "") + join(work, "pixel.png").replace(/\\/g, "/");
+  const pathKey = (value) => process.platform === "win32"
+    ? value.replace(/^\/[A-Z]:(?=\/)/, (drive) => drive.toLowerCase()) : value;
+  assert.equal(pathKey(decodeURIComponent(new URL(loaded.src).pathname)), pathKey(expectedPath),
+    "the loaded image URL must resolve to the exact fixture, without a duplicated root");
+  console.log("IMAGE_ONLY_LOADED", JSON.stringify(loaded));
   console.log("  ✓ an image-only note renders before the first interaction");
 } finally {
   await app.close();

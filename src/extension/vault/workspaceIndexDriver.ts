@@ -522,7 +522,7 @@ export class WorkspaceIndexDriver implements vscode.Disposable {
     if (scannedFiles) {
       this.indexedDirs.set(
         scanKey,
-        directoriesHoldingFiles(scannedFiles.map((f) => f.path), root.path)
+        directoriesHoldingFiles(scannedFiles.map(indexComparisonPath), indexComparisonPath(root))
       );
     }
     state.status = "ready";
@@ -553,6 +553,7 @@ export class WorkspaceIndexDriver implements vscode.Disposable {
   private routeUnavailableUri(uri: vscode.Uri, reason: string): void {
     if (isCommonlyExcluded(uri)) return;
     const route = routeUnavailablePath(uri.path);
+    const comparisonPath = indexComparisonPath(uri);
     if (route === "ignore") return;
     const folder = vscode.workspace.getWorkspaceFolder(uri);
     if (!folder) return;
@@ -568,8 +569,8 @@ export class WorkspaceIndexDriver implements vscode.Disposable {
       }
       // A directory can itself end in .md or .png. Known indexed directories
       // must invalidate every affected index, regardless of the leaf suffix.
-      if (route === kind || dirs?.has(uri.path) ||
-          (route === "all" && deletionAffectsIndex(uri.path, dirs))) {
+      if (route === kind || dirs?.has(comparisonPath) ||
+          (route === "all" && deletionAffectsIndex(comparisonPath, dirs))) {
         this.scheduleForUri(kind, uri, reason);
       }
     }
