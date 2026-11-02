@@ -607,6 +607,20 @@ try {
       secondActive.includes("plain line"),
       `Enter should jump to the next match, active line was: ${JSON.stringify(secondActive)}`
     );
+    // The host can echo select-all after typing starts. Both search fields
+    // must handle the shortcut synchronously without a delayed second selection.
+    const originalDocument = await cm.evaluate(() => document.querySelector('.cm-content').cmTile.root.view.state.doc.toString());
+    for (const name of ['search', 'replace']) {
+      const input = panel.locator('input[name="' + name + '"]').first();
+      await input.click();
+      for (let cycle = 0; cycle < 20; cycle++) {
+        const query = 'plain-' + name + '-' + cycle;
+        await win.keyboard.press('Control+a');
+        await win.keyboard.type(query);
+        assert.equal(await input.inputValue(), query, name + ' must retain every character after select-all');
+      }
+    }
+    assert.equal(await cm.evaluate(() => document.querySelector('.cm-content').cmTile.root.view.state.doc.toString()), originalDocument, 'typing in search fields must not edit the document');
     await win.keyboard.press("Escape"); // close so it doesn't shift later layout
     await win.waitForTimeout(200);
   });

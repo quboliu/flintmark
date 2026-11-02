@@ -263,6 +263,7 @@ function handleInit(msg: Extract<HostMsg, { type: "init" }>): void {
     { dark: initialMode === "dark", syncVersion: msg.syncVersion },
   );
   view = editorHandle.view;
+  view.dom.addEventListener("keydown", handleSearchSelectAll);
   ensureThemeObserver();
   syncThemeMode();
   // The frame may already hold focus by the time init arrives (VS Code focuses
@@ -276,6 +277,23 @@ function handleInit(msg: Extract<HostMsg, { type: "init" }>): void {
 // find, typing) sees nothing until the user clicks into the text. Pass that
 // focus on to the editor, as VS Code's built-in text editor does.
 // ---------------------------------------------------------------------------
+
+// Keep select-all local to the search fields. The host otherwise forwards the
+// same shortcut back asynchronously, selecting characters typed in the meantime.
+function handleSearchSelectAll(event: KeyboardEvent): void {
+  const input = event.target;
+  if (
+    !(input instanceof HTMLInputElement) ||
+    !input.matches(".cm-search input[name='search'], .cm-search input[name='replace']") ||
+    event.key.toLowerCase() !== "a" ||
+    event.altKey || event.shiftKey || event.isComposing
+  ) return;
+  const mac = /Mac|iP(?:ad|hone|od)/.test(navigator.platform);
+  if (!(mac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  input.select();
+}
 
 function focusEditorIfFrameFocused(): void {
   if (!view || view.hasFocus || !document.hasFocus()) return;

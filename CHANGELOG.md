@@ -7,6 +7,8 @@ the editor stabilizes for the Marketplace.
 
 ## 0.33.1
 
+- **Search input.** Select All in Find and Replace completes locally, preventing a delayed host shortcut from selecting and overwriting newly typed query characters.
+
 - **Stable reading position.** Font and width changes preserve the visible source block when long notes grow or shrink. Repeated layout changes retain fractional positioning, and new scrolling or navigation takes precedence over pending layout restoration.
 
 - **Large-document structure.** Outline and Todo skip unused inline syntax trees while extracting headings and tasks, reducing synchronous parsing work without changing source positions or rendered Markdown.
