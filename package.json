@@ -298,7 +298,7 @@
     "test:report": "node scripts/test-report.mjs",
     "build:test": "node esbuild.test.mjs",
     "test:integration": "npm run compile && npm run build:test && xvfb-run -a node out/test/runTest.js",
-    "test:e2e": "npm run compile && xvfb-run -a node test/e2e/native-scroll-anchor.e2e.mjs && xvfb-run -a node test/e2e/vault-ready-lifecycle.e2e.mjs && xvfb-run -a node test/e2e/livepreview.e2e.mjs && xvfb-run -a node test/e2e/todo-sync.e2e.mjs && xvfb-run -a node test/e2e/external-update.e2e.mjs && xvfb-run -a node test/e2e/theme-mode.e2e.mjs && xvfb-run -a node test/e2e/image-index-lifecycle.e2e.mjs && xvfb-run -a node test/e2e/issue-regressions.e2e.mjs && xvfb-run -a node test/e2e/panel-sync.e2e.mjs",
+    "test:e2e": "npm run compile && xvfb-run -a node test/e2e/native-scroll-anchor.e2e.mjs && xvfb-run -a node test/e2e/wheel-observer.e2e.mjs && xvfb-run -a node test/e2e/vault-ready-lifecycle.e2e.mjs && xvfb-run -a node test/e2e/livepreview.e2e.mjs && xvfb-run -a node test/e2e/todo-sync.e2e.mjs && xvfb-run -a node test/e2e/external-update.e2e.mjs && xvfb-run -a node test/e2e/theme-mode.e2e.mjs && xvfb-run -a node test/e2e/image-index-lifecycle.e2e.mjs && xvfb-run -a node test/e2e/issue-regressions.e2e.mjs && xvfb-run -a node test/e2e/panel-sync.e2e.mjs",
     "test:visual": "npm run compile && xvfb-run -a node test/e2e/visual.e2e.mjs",
     "test:visual:update": "npm run compile && xvfb-run -a node test/e2e/visual.e2e.mjs --update",
     "shots:features": "npm run compile && xvfb-run -a node scripts/capture-shots.mjs",

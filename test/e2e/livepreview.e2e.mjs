@@ -1391,7 +1391,7 @@ try {
         };
       });
     for (let i = 0; i < 80; i++) {
-      const sample = await positiveWheel(win, wheelSnapshot, 1800);
+      const sample = await positiveWheel(win, scroller, wheelSnapshot, 1800);
       const { after } = sample;
       for (const id of after.tableIds) if (id !== null) visitedTables.add(id);
       if (after.errors.length) maxPredictionErrorPx = Math.max(maxPredictionErrorPx, ...after.errors);
