@@ -7,6 +7,8 @@ the editor stabilizes for the Marketplace.
 
 ## 0.33.1
 
+- **Large-document structure.** Outline and Todo skip unused inline syntax trees while extracting headings and tasks, reducing synchronous parsing work without changing source positions or rendered Markdown.
+
 - **Checkbox focus.** Clicking a task checkbox focuses Live Preview without moving the selection, so immediate Save and Undo use the pending-edit queue. Keyboard activation keeps its existing focus behavior.
 
 - **Find focus.** Opening Find inside Live Preview no longer runs the shortcut twice, so immediate typing and Escape keep working without a focus jump.
