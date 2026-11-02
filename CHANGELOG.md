@@ -7,6 +7,8 @@ the editor stabilizes for the Marketplace.
 
 ## 0.33.1
 
+- **Heading-fold performance.** Layout refreshes scan only the requested section and reuse fold ranges while the document is unchanged, avoiding repeated whole-document copies for every heading.
+
 - **Search input.** Select All in Find and Replace completes locally, preventing a delayed host shortcut from selecting and overwriting newly typed query characters.
 
 - **Stable reading position.** Font and width changes preserve the visible source block when long notes grow or shrink. Repeated layout changes retain fractional positioning, and new scrolling or navigation takes precedence over pending layout restoration.

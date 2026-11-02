@@ -11,7 +11,7 @@ import {
   foldKeymap,
   syntaxTree,
 } from "@codemirror/language";
-import type { Extension, EditorState } from "@codemirror/state";
+import type { Extension, EditorState, Text } from "@codemirror/state";
 import type { SyntaxNode } from "@lezer/common";
 
 /** ATX heading level (1-6) for a line, or 0 if it isn't one. */
@@ -57,20 +57,45 @@ function headingLevelAt(state: EditorState, pos: number): number {
   return 0;
 }
 
-const headingFoldService = foldService.of((state, lineStart) => {
+// Text values are immutable and shared by selection/layout-only transactions.
+// Cache section boundaries by document identity without retaining old documents.
+const sectionRanges = new WeakMap<Text, Map<number, { from: number; to: number } | null>>();
+
+export function headingFoldRange(
+  state: EditorState,
+  lineStart: number
+): { from: number; to: number } | null {
   const line = state.doc.lineAt(lineStart);
+  // Parse progress can change without changing Text, so always apply this gate.
   const level = headingLevelAt(state, line.from);
   if (level === 0) return null;
 
-  const lines: string[] = [];
-  for (let n = 1; n <= state.doc.lines; n++) lines.push(state.doc.line(n).text);
-  const endIdx = sectionFoldEndLine(lines, line.number - 1, level);
-  if (endIdx <= line.number - 1) return null; // nothing below to fold
+  let ranges = sectionRanges.get(state.doc);
+  if (!ranges) sectionRanges.set(state.doc, (ranges = new Map()));
+  if (ranges.has(line.from)) return ranges.get(line.from)!;
 
-  const to = state.doc.line(endIdx + 1).to;
-  if (to <= line.to) return null;
-  return { from: line.to, to };
-});
+  let to = line.to;
+  let offset = line.to + 1;
+  let inFence = false;
+  if (line.number < state.doc.lines) {
+    // Visit only this section. Materializing every line for every heading made
+    // a full-layout gutter refresh scale with headings times document length.
+    for (const text of state.doc.iterLines(line.number + 1)) {
+      if (FENCE_RE.test(text)) inFence = !inFence;
+      if (!inFence) {
+        const nextLevel = headingLevel(text);
+        if (nextLevel > 0 && nextLevel <= level) break;
+      }
+      if (text.trim() !== "") to = offset + text.length;
+      offset += text.length + 1;
+    }
+  }
+  const range = to > line.to ? { from: line.to, to } : null;
+  ranges.set(line.from, range);
+  return range;
+}
+
+const headingFoldService = foldService.of(headingFoldRange);
 
 /** The folding extension bundle: enable folding, the gutter, heading ranges, keys. */
 export const markdownFolding: Extension = [
