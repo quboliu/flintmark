@@ -17,7 +17,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { PNG } from "pngjs";
 import pixelmatch from "pixelmatch";
-import { palette as openPalette } from "./quickInput.mjs";
+import { palette as openPalette, reopenLivePreview } from "./quickInput.mjs";
 
 const UPDATE = process.argv.includes("--update");
 const REPO = resolve(".");
@@ -149,10 +149,7 @@ try {
     await palette("Control+P", "note.md");
     cm = await findCmFrame(5000);
     if (cm) break;
-    await palette("Control+Shift+P", "Reopen Editor With");
-    await win.keyboard.type("Markdown Live Preview");
-    await win.waitForTimeout(900);
-    await win.keyboard.press("Enter");
+    await reopenLivePreview(win);
     cm = await findCmFrame(8000);
   }
   if (!cm) throw new Error("CM6 editor (.cm-content) never appeared");

@@ -14,7 +14,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import assert from "node:assert";
-import { palette } from "./quickInput.mjs";
+import { palette, reopenLivePreview } from "./quickInput.mjs";
 
 const REPO = resolve(".");
 const VSCODE = process.env.VSCODE_BIN || "/usr/share/codium/codium";
@@ -113,10 +113,7 @@ async function openLiveNote(win, spec) {
   await palette(win, "Control+P", spec);
   let cm = await findVisibleCmFrame(win, 8000, heading, imageFragment);
   if (!cm) {
-    await palette(win, "Control+Shift+P", "Reopen Editor With");
-    await win.keyboard.type("Markdown Live Preview");
-    await win.waitForTimeout(900);
-    await win.keyboard.press("Enter");
+    await reopenLivePreview(win);
     cm = await findVisibleCmFrame(win, 10000, heading, imageFragment);
   }
   assert.ok(cm, `Live Preview should open ${spec}`);
@@ -293,12 +290,27 @@ try {
   await win2.waitForSelector(".monaco-workbench", { timeout: 30000 });
   await win2.waitForTimeout(4500);
 
+  // Exercise the reopen fallback explicitly; automatic association otherwise
+  // hides stale editor-picker names until a slower CI startup needs it.
+  await palette(win2, "Control+Shift+P", "View: Reopen Editor with Text Editor");
+  await win2.locator(".monaco-editor .view-lines").first().waitFor({ state: "visible", timeout: 10000 });
+  await reopenLivePreview(win2);
   await openLiveNote(win2, "dynamic.md");
   mkdirSync(join(work, "dynamic", "assets"), { recursive: true });
   writeFileSync(join(work, "dynamic", "assets", "dynamic-pixel.png"), PIXEL_PNG);
   await waitForLoadedImage(win2, "/dynamic/assets/dynamic-pixel.png");
   console.log("  ✓ image index refreshes for externally-created nested trees");
   passed = true;
+} catch (error) {
+  const evidence = join(REPO, "out", "metrics");
+  mkdirSync(evidence, { recursive: true });
+  for (const [index, win] of app.windows().entries()) {
+    await win.screenshot({
+      path: join(evidence, `image-index-failure-${process.pid}-${index}.png`),
+      timeout: 5000,
+    }).catch(() => {});
+  }
+  throw error;
 } finally {
   await closeApp();
   if (passed) process.exit(0);

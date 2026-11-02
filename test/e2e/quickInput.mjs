@@ -37,9 +37,13 @@ export async function palette(win, combo, text, options = {}) {
           visible:!!element.getClientRects().length && getComputedStyle(element).visibility !== 'hidden',
         })));
         const exactCommands = commandMode ? candidates.filter(row => row.visible && row.name === text.slice(1)) : [];
-        const matches = exactCommands.length ? exactCommands : candidates.filter(row => {
+        // Cursor names the global command Close All Tabs. Never substitute the
+        // narrower Close All Editors in Group command for a global close.
+        const closeAll = commandMode && text.slice(1) === 'View: Close All Editors';
+        const aliases = closeAll ? candidates.filter(row => row.visible && row.name === 'View: Close All Tabs') : [];
+        const matches = exactCommands.length ? exactCommands : aliases.length ? aliases : candidates.filter(row => {
           if (!row.visible) return false;
-          if (commandMode) return row.text.replace(/\s+/g,' ').includes(text.slice(1));
+          if (commandMode) return !closeAll && row.text.replace(/\s+/g,' ').includes(text.slice(1));
           if (row.name !== basename) return false;
           const folder = row.description.replace(/\\/g,'/').replace(/^\.\//,'').replace(/\/$/,'');
           return !directory || folder === directory || folder.endsWith('/'+directory);
@@ -59,4 +63,20 @@ export async function palette(win, combo, text, options = {}) {
     } catch (error) { lastError = error; }
   }
   throw lastError;
+}
+
+// Select the contributed editor by its exact current display name. Typing the
+// legacy name into this picker produces no matches and leaves it open.
+export async function reopenLivePreview(win) {
+  await palette(win, 'Control+Shift+P', 'View: Reopen Editor With...');
+  const widget = win.locator('.quick-input-widget');
+  await widget.waitFor({state:'visible',timeout:10000});
+  const input = widget.locator('input:not([type=checkbox])').first();
+  await input.fill('Flintmark Live Preview');
+  const choice = widget.locator('.monaco-list-row').filter({
+    has: win.locator('.label-name', {hasText:/^Flintmark Live Preview$/}),
+  });
+  await choice.waitFor({state:'visible',timeout:10000});
+  await choice.click();
+  await widget.waitFor({state:'hidden',timeout:10000});
 }

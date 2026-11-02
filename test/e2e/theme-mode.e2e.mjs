@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import assert from "node:assert";
-import { palette as openPalette } from "./quickInput.mjs";
+import { palette as openPalette, reopenLivePreview } from "./quickInput.mjs";
 
 const REPO = resolve(".");
 const VSCODE = process.env.VSCODE_BIN || "/usr/share/codium/codium";
@@ -134,10 +134,7 @@ try {
     await palette("Control+P", "note.md");
     if (await findCmFrame(5000)) return true;
 
-    await palette("Control+Shift+P", "Reopen Editor With");
-    await win.keyboard.type("Markdown Live Preview");
-    await win.waitForTimeout(900);
-    await win.keyboard.press("Enter");
+    await reopenLivePreview(win);
     return !!(await findCmFrame(8000));
   }
 
