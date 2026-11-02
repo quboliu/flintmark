@@ -1,3 +1,4 @@
+import { isVisibleFrame } from "./visibleFrame.mjs";
 import { _electron as electron } from "playwright";
 import {
   mkdtempSync,
@@ -55,6 +56,7 @@ const app = await electron.launch({
     `--extensions-dir=${join(work, "ext")}`,
     `--extensionDevelopmentPath=${REPO}`,
     work,
+    join(work, "note.md"),
   ],
 });
 
@@ -77,7 +79,7 @@ try {
       for (const f of win.frames()) {
         try {
           const content = f.locator(".cm-content").first();
-          if ((await content.count()) > 0 && (!opts.visible || (await content.isVisible()))) {
+          if ((await content.count()) > 0 && (!opts.visible || ((await content.isVisible()) && await isVisibleFrame(f)))) {
             return f;
           }
         } catch {

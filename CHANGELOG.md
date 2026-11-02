@@ -7,6 +7,8 @@ the editor stabilizes for the Marketplace.
 
 ## 0.33.1
 
+- **Checkbox focus.** Clicking a task checkbox focuses Live Preview without moving the selection, so immediate Save and Undo use the pending-edit queue. Keyboard activation keeps its existing focus behavior.
+
 - **Find focus.** Opening Find inside Live Preview no longer runs the shortcut twice, so immediate typing and Escape keep working without a focus jump.
 
 - **Windows images.** Local images render when VS Code reports different drive-letter casing for the workspace and scanned files, including image-only notes without a trailing newline.

@@ -1,3 +1,4 @@
+import { isVisibleFrame } from "./visibleFrame.mjs";
 // L3 end-to-end test (docs/05): drives the REAL CM6 webview inside VSCodium
 // (headless under xvfb) and asserts the user-facing Live Preview behaviour that
 // L1/L2 cannot reach — marker hiding, cursor-driven Reveal, and the typing →
@@ -122,6 +123,7 @@ const app = await electron.launch({
     `--extensions-dir=${join(work, "ext")}`,
     `--extensionDevelopmentPath=${REPO}`,
     work,
+    notePath,
   ],
 });
 
@@ -141,7 +143,7 @@ try {
     while (Date.now() < deadline) {
       for (const f of win.frames()) {
         try {
-          if ((await f.locator(".cm-content").count()) > 0) return f;
+          if ((await f.locator(".cm-content").count()) > 0 && await isVisibleFrame(f)) return f;
         } catch {
           /* cross-origin */
         }
@@ -288,9 +290,23 @@ try {
     const box = cm.locator("input.ofm-task-checkbox").first();
     await box.waitFor({ state: "visible", timeout: 5000 });
     assert.equal(await box.isChecked(), false, "task should start unchecked");
+    await palette("F1", ">View: Show Explorer");
+    await win.locator(".explorer-folders-view").getByText("note.md", { exact: true }).click();
+    const selectionBefore = await cm.evaluate(() => {
+      const view = document.querySelector(".cm-content").cmTile.root.view;
+      return { focused: view.hasFocus, selection: view.state.selection.toJSON() };
+    });
+    assert.equal(selectionBefore.focused, false, "the checkbox interaction must start outside CM6");
     await box.click();
-    await win.waitForTimeout(1000); // toggle round-trips through the host
+    // Save immediately: native save can otherwise run before the local toggle
+    // reaches the host. The checkbox must route shortcuts through CM6's queue.
     await win.keyboard.press("Control+S");
+    const selectionAfter = await cm.evaluate(() => {
+      const view = document.querySelector(".cm-content").cmTile.root.view;
+      return { focused: view.hasFocus, selection: view.state.selection.toJSON() };
+    });
+    assert.equal(selectionAfter.focused, true, "clicking a checkbox must focus the editor");
+    assert.deepEqual(selectionAfter.selection, selectionBefore.selection, "checkbox focus must preserve the selection");
     await win.waitForTimeout(1500);
     const onDisk = readFileSync(notePath, "utf8");
     assert.ok(
@@ -1020,7 +1036,7 @@ try {
     for (let i = 0; i < 24; i++) {
       for (const f of win.frames()) {
         try {
-          if ((await f.locator(".cm-content").count()) === 0) continue;
+          if ((await f.locator(".cm-content").count()) === 0 || !await isVisibleFrame(f)) continue;
           const t = await f.locator(".cm-content").first().innerText();
           if (t.includes("body only")) return f;
         } catch {}
@@ -1041,7 +1057,7 @@ try {
   await test("callout with no custom title shows the capitalized type name", async () => {
     // Earlier tests called openFlintmark(), which replaced the Explorer with our
     // container — reopen the Explorer so the features.md row exists to click.
-    await win.locator('.activitybar a[aria-label*="Explorer"]').first().click();
+    await palette("F1", ">View: Show Explorer");
     await win.waitForTimeout(700);
     const row = win.locator(".monaco-list-row").filter({ hasText: "features.md" }).first();
     await row.dblclick(); // force-open (not just select/preview) regardless of editor state
@@ -1217,7 +1233,7 @@ try {
     while (Date.now() < deadline && !longCm) {
       for (const f of win.frames()) {
         try {
-          if ((await f.locator(".cm-content").count()) === 0) continue;
+          if ((await f.locator(".cm-content").count()) === 0 || !await isVisibleFrame(f)) continue;
           const text = await f.locator(".cm-content").first().innerText();
           if (text.includes("Long Scroll Section")) {
             longCm = f;
@@ -1566,7 +1582,7 @@ try {
     for (let i = 0; i < 40 && !frame; i++) {
       for (const f of win.frames()) {
         try {
-          if ((await f.locator(".cm-content").count()) === 0) continue;
+          if ((await f.locator(".cm-content").count()) === 0 || !await isVisibleFrame(f)) continue;
           if ((await f.locator(".cm-content").first().innerText()).includes("explorer-find body")) frame = f;
         } catch {}
       }

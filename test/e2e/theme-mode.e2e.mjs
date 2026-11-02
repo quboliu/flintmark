@@ -1,3 +1,4 @@
+import { isVisibleFrame } from "./visibleFrame.mjs";
 import { _electron as electron } from "playwright";
 import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -103,6 +104,7 @@ const app = await electron.launch({
     `--extensions-dir=${join(work, "ext")}`,
     `--extensionDevelopmentPath=${REPO}`,
     work,
+    notePath,
   ],
 });
 
@@ -118,7 +120,7 @@ try {
     while (Date.now() < deadline) {
       for (const f of win.frames()) {
         try {
-          if ((await f.locator(".cm-content").count()) > 0) return f;
+          if ((await f.locator(".cm-content").count()) > 0 && await isVisibleFrame(f)) return f;
         } catch {
           // Cross-origin frames are irrelevant here.
         }

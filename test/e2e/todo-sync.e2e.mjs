@@ -1,3 +1,4 @@
+import { isVisibleFrame } from "./visibleFrame.mjs";
 // Focused reliability E2E for the active-document Todo sidebar. Exercises the
 // real VS Code TreeView, TextDocument events, CM6, source editor, filesystem
 // watcher, undo/redo, tab switching, and the open-then-reveal handshake.
@@ -72,6 +73,7 @@ const app = await electron.launch({
     `--extensions-dir=${join(work, "ext")}`,
     `--extensionDevelopmentPath=${REPO}`,
     work,
+    alphaPath,
   ],
 });
 
@@ -90,7 +92,7 @@ try {
           const content = frame.locator(".cm-content").first();
           if (
             (await content.count()) > 0 &&
-            (await content.isVisible()) &&
+            (await content.isVisible()) && await isVisibleFrame(frame) &&
             (await content.innerText()).includes(text)
           ) {
             return frame;

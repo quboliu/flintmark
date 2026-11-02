@@ -1,3 +1,4 @@
+import { isVisibleFrame } from "./visibleFrame.mjs";
 // Real-editor regressions for issues #5, #10, #14 and PR #6.
 import { _electron as electron } from "playwright";
 import { mkdtempSync, writeFileSync, mkdirSync, readFileSync } from "node:fs";
@@ -50,7 +51,7 @@ try {
     for (let i = 0; i < 50; i++) {
       for (const frame of win.frames()) {
         try {
-          if (await frame.locator(".cm-content").count() &&
+          if (await frame.locator(".cm-content").count() && await isVisibleFrame(frame) &&
               (await frame.locator(".cm-content").innerText()).includes(marker)) return frame;
         } catch {}
       }

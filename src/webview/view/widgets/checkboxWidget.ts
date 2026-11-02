@@ -50,6 +50,10 @@ export class CheckboxWidget extends WidgetType {
     box.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
+      // Pointer clicks must route immediate Save/Undo through CM6 while
+      // preserving the selection. Leave keyboard/assistive activation focus
+      // unchanged so this pointer fix does not alter keyboard navigation.
+      if (e.detail > 0) view.focus();
       const toggle = view.state.facet(taskToggleFacet);
       toggle?.({ from: this.from, to: this.to });
     });

@@ -68,7 +68,7 @@ async function frames(marker) {
   return list;
 }
 async function open(name, marker) {
-  await palette(win, "Control+p", join(work, name));
+  await palette(win, "Control+p", name);
   await waitFor(
     async () => (await frames(marker)).length > 0,
     "No editor for " + marker,
