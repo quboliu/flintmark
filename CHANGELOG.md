@@ -7,6 +7,8 @@ the editor stabilizes for the Marketplace.
 
 ## 0.33.1
 
+- **Typing synchronization.** Consecutive queued input batches from the same pane are combined before native submission, reducing backlog on slower hosts while preserving command order, concurrent-pane edits, and recovery after a rejected edit.
+
 - **Heading-fold performance.** Layout refreshes scan only the requested section and reuse fold ranges while the document is unchanged, avoiding repeated whole-document copies for every heading.
 
 - **Search input.** Select All in Find and Replace completes locally, preventing a delayed host shortcut from selecting and overwriting newly typed query characters.

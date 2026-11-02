@@ -4,6 +4,7 @@ import {
   CollaborationAuthority,
   decodeUpdates,
   encodeUpdates,
+  extendsPendingUpdates,
 } from "../shared/collaboration";
 import { noteLinkTarget, noteLinkCandidates } from "./noteLinkTarget";
 import * as vscode from "vscode";
@@ -121,6 +122,11 @@ export class OfmCustomTextEditorProvider
 
   /** Serializes webview edits per URI — the concurrent-edit corruption guard. */
   private editQueue = new SerialQueue();
+  private readonly queuedEdits = new Map<string, {
+    panel: vscode.WebviewPanel;
+    message: Extract<WebviewMsg, { type: "edit" }>;
+    tail: Promise<unknown>;
+  }>();
   private authorities = new Map<string, CollaborationAuthority>();
   private authorityDocuments = new WeakMap<CollaborationAuthority, vscode.TextDocument>();
   private conflicts = new Map<string, Map<Extract<WebviewMsg, { type: "edit" }>, vscode.WebviewPanel>>();
@@ -513,52 +519,66 @@ export class OfmCustomTextEditorProvider
     msg: Extract<WebviewMsg, { type: "edit" }>,
   ): void {
     const uri = document.uri.toString();
-    void this.editQueue
-      .run(uri, async () => {
-        // A rejected WorkspaceEdit must never acknowledge an optimistic edit.
-        // Rebase and retry transient version conflicts while this queue owns it,
-        // including when the originating panel closes before the acknowledgment.
-        const deadline = Date.now() + 2000;
-        for (let attempt = 0; ; attempt++) {
-          const authority = this.authority(document);
-          const updates = authority.prepare(msg.syncVersion, decodeUpdates(msg.updates));
-          if (!updates.length) return;
-          let combined = ChangeSet.empty(authority.doc.length);
-          for (const update of updates) combined = combined.compose(update.changes);
-          const changes: DocChange[] = [];
-          combined.iterChanges((from, to, _fromB, _toB, insert) =>
-            changes.push({ from, to, insert: insert.toString() }),
-          );
-          if (combined.empty) {
-            authority.commit(updates);
-            this.broadcastUpdates(document, updates);
-            return;
-          }
-          const pending: PendingWebviewApply = {
-            updates,
-            expected: combined.apply(authority.doc).toString(),
-            baseVersion: document.version,
-            events: [],
-          };
-          this.pendingUpdates.set(uri, pending);
-          let applied = false;
-          try {
-            applied = await this.applyWebviewEdit(document, changes);
-          } finally {
-            this.pendingUpdates.delete(uri);
-            this.reconcileApplyResult(document, pending, applied);
-          }
-          if (applied) return;
-          if (document.version === pending.baseVersion || Date.now() >= deadline) {
-            throw new Error("VS Code could not apply your edit. Your local edits are still pending.");
-          }
-          // Yield during transient contention; a sustained conflict is retained
-          // below with its authority history and a visible Retry action.
-          await new Promise<void>((resolve) =>
-            setTimeout(resolve, Math.min(10 * (attempt + 1), 100)),
-          );
+    const waiting = this.queuedEdits.get(uri);
+    if (waiting && waiting.panel === panel &&
+        waiting.tail === this.editQueue.idle(uri) &&
+        extendsPendingUpdates(waiting.message, msg)) {
+      // Both messages are already in the host. Keep the complete newest batch
+      // without delaying input or moving it across another panel or command.
+      waiting.message = msg;
+      return;
+    }
+    const batch = { panel, message: msg, tail: this.editQueue.idle(uri) };
+    const queued = this.editQueue.run(uri, async () => {
+      if (this.queuedEdits.get(uri) === batch) this.queuedEdits.delete(uri);
+      msg = batch.message;
+      // A rejected WorkspaceEdit must never acknowledge an optimistic edit.
+      // Rebase and retry transient version conflicts while this queue owns it,
+      // including when the originating panel closes before the acknowledgment.
+      const deadline = Date.now() + 2000;
+      for (let attempt = 0; ; attempt++) {
+        const authority = this.authority(document);
+        const updates = authority.prepare(msg.syncVersion, decodeUpdates(msg.updates));
+        if (!updates.length) return;
+        let combined = ChangeSet.empty(authority.doc.length);
+        for (const update of updates) combined = combined.compose(update.changes);
+        const changes: DocChange[] = [];
+        combined.iterChanges((from, to, _fromB, _toB, insert) =>
+          changes.push({ from, to, insert: insert.toString() }),
+        );
+        if (combined.empty) {
+          authority.commit(updates);
+          this.broadcastUpdates(document, updates);
+          return;
         }
-      })
+        const pending: PendingWebviewApply = {
+          updates,
+          expected: combined.apply(authority.doc).toString(),
+          baseVersion: document.version,
+          events: [],
+        };
+        this.pendingUpdates.set(uri, pending);
+        let applied = false;
+        try {
+          applied = await this.applyWebviewEdit(document, changes);
+        } finally {
+          this.pendingUpdates.delete(uri);
+          this.reconcileApplyResult(document, pending, applied);
+        }
+        if (applied) return;
+        if (document.version === pending.baseVersion || Date.now() >= deadline) {
+          throw new Error("VS Code could not apply your edit. Your local edits are still pending.");
+        }
+        // Yield during transient contention; a sustained conflict is retained
+        // below with its authority history and a visible Retry action.
+        await new Promise<void>((resolve) =>
+          setTimeout(resolve, Math.min(10 * (attempt + 1), 100)),
+        );
+      }
+    });
+    batch.tail = queued;
+    this.queuedEdits.set(uri, batch);
+    void queued
       .then(() => {
         const conflicts = this.conflicts.get(uri);
         if (conflicts) {

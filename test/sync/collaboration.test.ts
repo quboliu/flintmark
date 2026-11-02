@@ -11,6 +11,7 @@ import {
   CollaborationAuthority,
   decodeUpdates,
   encodeUpdates,
+  extendsPendingUpdates,
 } from "../../src/shared/collaboration";
 
 function test(name: string, fn: () => void) {
@@ -187,4 +188,18 @@ test("eager overlapping batches survive panel closure without duplicated edits",
   b = b.update(receiveUpdates(b, server.updates)).state;
   assert.equal(a.doc.toString(), server.doc.toString());
   assert.equal(b.doc.toString(), server.doc.toString());
+});
+
+test("pending batches only coalesce an exact cumulative prefix at the same base", () => {
+  const first={clientID:"a",changes:[1,[0,"x"],1]};
+  const second={clientID:"a",changes:[2,[0,"y"],1]};
+  const previous={syncVersion:4,updates:[first]};
+  const next={syncVersion:4,updates:[first,second]};
+  assert.equal(extendsPendingUpdates(previous,next),true);
+  assert.equal(extendsPendingUpdates(previous,{...next,syncVersion:5}),false);
+  assert.equal(extendsPendingUpdates(previous,{...next,updates:[{...first,clientID:"b"},second]}),false);
+  assert.equal(extendsPendingUpdates(previous,{...next,updates:[{...first,changes:[1,[0,"z"],1]},second]}),false);
+  assert.equal(extendsPendingUpdates(previous,previous),false);
+  assert.equal(extendsPendingUpdates(next,previous),false);
+  assert.equal(extendsPendingUpdates({syncVersion:4,updates:[]},next),false);
 });
