@@ -33,6 +33,7 @@ const userData = join(work, "user-data");
 const settingsPath = join(userData, "User", "settings.json");
 mkdirSync(join(userData, "User"), { recursive: true });
 const baseSettings = {
+  "files.autoSave": "off",
   "workbench.editorAssociations": { "*.md": "ofm.livePreview" },
   "ofm.ai.trigger": "manual",
   "security.workspace.trust.enabled": false,
@@ -250,9 +251,25 @@ try {
     await win.keyboard.press("End");
     await win.keyboard.type(" EDITED");
     await win.waitForTimeout(1200); // let the serialized edits reach the host
+    const expected = Buffer.from(INITIAL.replace("\nplain line\n", "\nplain line EDITED\n"));
+    const saveStarted = performance.now();
+    const deadline = saveStarted + 10000;
     await win.keyboard.press("Control+S");
     await win.waitForTimeout(1500);
-    const onDisk = readFileSync(notePath, "utf8");
+    let bytes = readFileSync(notePath);
+    let readEnded = performance.now();
+    const checkpoint = { elapsedMs: readEnded - saveStarted, exact: bytes.equals(expected) };
+    // A keypress completion is not a disk-save completion. Keep the original
+    // checkpoint visible, then wait for the complete expected file, with one save.
+    while (!bytes.equals(expected) && performance.now() < deadline) {
+      await win.waitForTimeout(Math.min(100, Math.max(0, deadline - performance.now())));
+      bytes = readFileSync(notePath);
+      readEnded = performance.now();
+    }
+    const withinBudget = bytes.equals(expected) && readEnded <= deadline;
+    console.log("SINGLE_SAVE_COMPLETION", JSON.stringify({ checkpoint, completedMs: readEnded - saveStarted, budgetMs: 10000, exact: bytes.equals(expected), withinBudget }));
+    assert.ok(withinBudget, `one save must persist the entire expected source within the bounded functional wait: ${JSON.stringify({ checkpoint, completedMs: readEnded - saveStarted, actualBytes: bytes.length, expectedBytes: expected.length, exact: bytes.equals(expected) })}`);
+    const onDisk = bytes.toString("utf8");
     // The typed text must round-trip INTACT — this is the regression guard for
     // the concurrent-edit corruption that produced "ETD" from "EDITED" before
     // serialization. (Exact cursor line isn't the point.)
