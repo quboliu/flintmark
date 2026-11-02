@@ -61,7 +61,10 @@ try {
       'motion-read-unchanged-down', 'motion-write-unchanged-down',
       'motion-outer-read-down', 'motion-outer-write-up',
       'motion-window-read-down', 'motion-window-write-up',
-      'motion-bottom-read-up', 'motion-bottom-write-up']) {
+      'motion-bottom-read-up', 'motion-bottom-write-up',
+      'motion-late-down', 'motion-late-up',
+      'motion-outer-late-down', 'motion-outer-late-up',
+      'motion-window-late-down', 'motion-window-late-up']) {
       let result;
       try { result = await page.evaluate(({ kind, scale }) => window.anchorRegression.run(kind, scale), { kind, scale }); }
       catch (error) { result = { kind, scale, pass: false, error: String(error) }; }
@@ -71,7 +74,7 @@ try {
       if (!result.pass) await page.screenshot({ path: join(output, `${kind}-${scale}.png`) });
     }
   }
-  assert.equal(results.length, 75);
+  assert.equal(results.length, 93);
   assert.deepEqual(pageErrors, [], 'No uncaught browser errors');
   assert.equal(results.filter(result => !result.pass).length, 0, 'All native scroll anchor regressions pass');
 } finally {

@@ -177,7 +177,7 @@ window.anchorRegression.run = (kind, scale) =>
 // coordinate APIs. A scroll already committed must survive anchor restoration.
 window.anchorRegression.motion = async function(kind, scale) {
   await create(scale);
-  const phase = kind.includes('-write-') ? 'write' : 'read';
+  const phase = kind.includes('-late-') ? 'late' : kind.includes('-write-') ? 'write' : 'read';
   const delta = kind.endsWith('-up') ? -300 : 300;
   const resizeTo = kind.includes('-unchanged-') ? 2000 : 1800;
   let scroller = view.scrollDOM, parentScale = scale;
@@ -208,11 +208,17 @@ window.anchorRegression.motion = async function(kind, scale) {
     }
   };
   const measure = view.viewState.measure;
+  const offset = view.viewState.getScrollOffset;
+  // A geometry read may synchronize scrolling after the measure/write hooks.
+  if (phase === 'late') view.viewState.getScrollOffset = function(...args) {
+    if (view.updateState === 2) inject();
+    return offset.apply(this, args);
+  };
   if (phase === 'read') view.viewState.measure = function(...args) {
     inject();
     return measure.apply(this, args);
   };
-  else view.requestMeasure({read: () => null, write: inject});
+  else if (phase === 'write') view.requestMeasure({read: () => null, write: inject});
   try {
     view.dispatch({effects: resize.of(resizeTo)});
     view.requestMeasure();
@@ -230,7 +236,10 @@ window.anchorRegression.motion = async function(kind, scale) {
       pass: injected && Math.abs(after.scrollTop - expectedScrollTop) <= 1 &&
         stable.every(top => Math.abs(top - expectedScrollTop) <= 1) &&
         JSON.stringify(view.state.selection.toJSON()) === selection};
-  } finally { view.viewState.measure = measure; }
+  } finally {
+    view.viewState.measure = measure;
+    view.viewState.getScrollOffset = offset;
+  }
 };
 const runWithBoundaries = window.anchorRegression.run;
 window.anchorRegression.run = (kind, scale) => kind.startsWith('motion-')
