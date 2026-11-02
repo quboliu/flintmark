@@ -278,7 +278,11 @@ describe("Todo navigation to an existing hidden preview", () => {
           line: 2, character: 2, markerFrom, markerTo: markerFrom + 3,
         });
         const deadline = Date.now() + 5000;
-        while (!original.tab.isActive && Date.now() < deadline) await delay(25);
+        // The tab activation and active-group events can reach the extension
+        // host separately. Wait for both within the original deadline.
+        while ((!original.tab.isActive ||
+          vscode.window.tabGroups.activeTabGroup.viewColumn !== original.group.viewColumn) &&
+          Date.now() < deadline) await delay(25);
         const after = matchingTabs();
         assert.strictEqual(after.length, 1, "navigation must not duplicate the preview");
         assert.strictEqual(after[0].tab, original.tab, "navigation must preserve the existing tab");
