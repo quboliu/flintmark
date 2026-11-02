@@ -171,3 +171,67 @@ const runInternal = window.anchorRegression.run;
 window.anchorRegression.run = (kind, scale) =>
   ['top', 'bottom', 'outer', 'window', 'outer-scaled-parent', 'unattainable-target'].includes(kind)
     ? window.anchorRegression.boundary(kind, scale) : runInternal(kind, scale);
+
+// Inject physical movement at deterministic points inside the synchronous measure
+// cycle. This models a compositor scroll commit without flushing measurement via
+// coordinate APIs. A scroll already committed must survive anchor restoration.
+window.anchorRegression.motion = async function(kind, scale) {
+  await create(scale);
+  const phase = kind.includes('-write-') ? 'write' : 'read';
+  const delta = kind.endsWith('-up') ? -300 : 300;
+  const resizeTo = kind.includes('-unchanged-') ? 2000 : 1800;
+  let scroller = view.scrollDOM, parentScale = scale;
+  const external = kind.includes('-outer-') || kind.includes('-window-');
+  if (external) {
+    view.dom.style.height = 'auto'; view.scrollDOM.style.overflow = 'visible';
+    if (kind.includes('-outer-')) {
+      scroller = document.createElement('div');
+      scroller.style.cssText = 'height:400px;overflow:auto;position:relative;transform-origin:top left;transform:scaleY(0.75)';
+      document.body.append(scroller); scroller.append(view.dom); parentScale = 0.75;
+    } else { scroller = document.scrollingElement; parentScale = 1; }
+    view.requestMeasure(); await settle(); view.focus(); await settle();
+    const pos = view.state.doc.line(220).from;
+    const top = kind.includes('-outer-') ? scroller.getBoundingClientRect().top : 0;
+    scroller.scrollTop += (view.documentTop + view.lineBlockAt(pos).top - top - 24) / parentScale;
+    view.requestMeasure(); await settle();
+  } else if (kind.includes('-bottom-')) {
+    scroller.scrollTop = scroller.scrollHeight - scroller.clientHeight;
+    view.requestMeasure(); await settle();
+  }
+  const before = {...sample(view.state.doc.line(220).from), scrollTop: scroller.scrollTop};
+  const selection = JSON.stringify(view.state.selection.toJSON());
+  let injected = false;
+  const inject = () => {
+    if (!injected) {
+      scroller.scrollTop += delta;
+      injected = true;
+    }
+  };
+  const measure = view.viewState.measure;
+  if (phase === 'read') view.viewState.measure = function(...args) {
+    inject();
+    return measure.apply(this, args);
+  };
+  else view.requestMeasure({read: () => null, write: inject});
+  try {
+    view.dispatch({effects: resize.of(resizeTo)});
+    view.requestMeasure();
+    await settle();
+    const after = {...sample(before.pos), scrollTop: scroller.scrollTop};
+    const layoutDelta = (resizeTo - 2000) * (external ? view.scaleY / parentScale : 1);
+    const expectedScrollTop = before.scrollTop + layoutDelta + delta;
+    const stable = [];
+    for (let i = 0; i < 3; i++) {
+      view.requestMeasure();
+      await settle();
+      stable.push(scroller.scrollTop);
+    }
+    return {kind, scale, phase, delta, before, after, expectedScrollTop, injected, stable,
+      pass: injected && Math.abs(after.scrollTop - expectedScrollTop) <= 1 &&
+        stable.every(top => Math.abs(top - expectedScrollTop) <= 1) &&
+        JSON.stringify(view.state.selection.toJSON()) === selection};
+  } finally { view.viewState.measure = measure; }
+};
+const runWithBoundaries = window.anchorRegression.run;
+window.anchorRegression.run = (kind, scale) => kind.startsWith('motion-')
+  ? window.anchorRegression.motion(kind, scale) : runWithBoundaries(kind, scale);

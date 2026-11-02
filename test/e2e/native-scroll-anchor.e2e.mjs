@@ -56,7 +56,12 @@ try {
   for (const scale of [1, 0.8, 1.25]) {
     for (const kind of ['shrink-before-measure', 'fractional-changes', 'round-trips',
       'set-state-immediate-edit', 'edit-before-anchor', 'snapshot-restore', 'explicit-navigation',
-      'top', 'bottom', 'outer', 'window', 'outer-scaled-parent', 'unattainable-target']) {
+      'top', 'bottom', 'outer', 'window', 'outer-scaled-parent', 'unattainable-target',
+      'motion-read-down', 'motion-read-up', 'motion-write-down', 'motion-write-up',
+      'motion-read-unchanged-down', 'motion-write-unchanged-down',
+      'motion-outer-read-down', 'motion-outer-write-up',
+      'motion-window-read-down', 'motion-window-write-up',
+      'motion-bottom-read-up', 'motion-bottom-write-up']) {
       let result;
       try { result = await page.evaluate(({ kind, scale }) => window.anchorRegression.run(kind, scale), { kind, scale }); }
       catch (error) { result = { kind, scale, pass: false, error: String(error) }; }
@@ -66,7 +71,7 @@ try {
       if (!result.pass) await page.screenshot({ path: join(output, `${kind}-${scale}.png`) });
     }
   }
-  assert.equal(results.length, 39);
+  assert.equal(results.length, 75);
   assert.deepEqual(pageErrors, [], 'No uncaught browser errors');
   assert.equal(results.filter(result => !result.pass).length, 0, 'All native scroll anchor regressions pass');
 } finally {

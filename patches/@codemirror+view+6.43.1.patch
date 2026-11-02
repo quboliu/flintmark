@@ -1,5 +1,5 @@
 diff --git a/node_modules/@codemirror/view/dist/index.cjs b/node_modules/@codemirror/view/dist/index.cjs
-index 732c593..0bb2d10 100644
+index 732c593..5e7ae68 100644
 --- a/node_modules/@codemirror/view/dist/index.cjs
 +++ b/node_modules/@codemirror/view/dist/index.cjs
 @@ -3414,7 +3414,7 @@ class DocView {
@@ -64,7 +64,7 @@ index 732c593..0bb2d10 100644
          if (this.destroyed) {
              this.viewState.state = newState;
              return;
-@@ -8104,9 +8120,33 @@ class EditorView {
+@@ -8104,9 +8120,50 @@ class EditorView {
              this.observer.forceFlush();
          let updated = null;
          let scroll = this.viewState.scrollParent, scrollOffset = this.viewState.getScrollOffset();
@@ -97,10 +97,27 @@ index 732c593..0bb2d10 100644
 +            if (Math.abs(scrollOffset-this.viewState.scrollOffset)>1) scrollAnchorHeight=-1;
 +            if (scrollAnchorHeight>=0) anchorMargin=scrollAnchorHeight-scrollOffset;
 +        }
++        // Anchor restoration owns layout displacement, not physical movement that
++        // commits while this measure cycle is running. Compare actual positions
++        // (not fractional desired positions) so browser rounding is not drift.
++        const observeScroll = () => {
++            const max = maximum(), actual = physical();
++            const expected = Math.max(0, Math.min(max, measuredActual));
++            const movement = actual - expected;
++            if (movement) {
++                physicalScrollReference += movement;
++                scrollOffset += movement * measuredScrollScale;
++                if (anchorMargin !== undefined) anchorMargin -= movement * measuredScrollScale;
++            }
++            // A shrinking scroll range is browser clamping, not user movement.
++            if (expected !== measuredActual) recoverNeeded = true;
++            measuredActual = actual;
++            measuredMaximum = max;
++        };
          this.viewState.scrollAnchorHeight = -1;
          try {
              for (let i = 0;; i++) {
-@@ -8121,9 +8161,13 @@ class EditorView {
+@@ -8121,9 +8178,13 @@ class EditorView {
                          scrollAnchorHeight = block.top;
                      }
                  }
@@ -108,14 +125,19 @@ index 732c593..0bb2d10 100644
                  this.updateState = 1 /* UpdateState.Measuring */;
                  let changed = this.viewState.measure();
 -                if (!changed && !this.measureRequests.length && this.viewState.scrollTarget == null)
-+                measuredActual = physical(); measuredMaximum = maximum();
 +                measuredScrollScale = physicalScale();
++                observeScroll();
 +                const anchorHeightNow = scrollAnchorPos < 0 ? this.viewState.heightMap.height : this.viewState.lineBlockAt(scrollAnchorPos).top;
 +                if (!changed && !this.measureRequests.length && this.viewState.scrollTarget == null && anchorHeightNow === scrollAnchorHeight && !recoverNeeded)
                      break;
                  if (i > 5) {
                      console.warn(this.measureRequests.length
-@@ -8175,26 +8219,45 @@ class EditorView {
+@@ -8172,29 +8233,49 @@ class EditorView {
+                     }
+                 if (redrawn)
+                     this.docView.updateSelection(true);
++                // Writes can change layout or allow a compositor scroll commit too.
++                observeScroll();
                  if (!update.viewportChanged && this.measureRequests.length == 0) {
                      if (this.viewState.editorHeight) {
                          if (this.viewState.scrollTarget) {
@@ -146,7 +168,6 @@ index 732c593..0bb2d10 100644
 +                            const actual = physical();
 +                            const origin = this.viewState.getScrollOffset() - actual*measuredScrollScale;
 +                            const desired = (newAnchorHeight-anchorMargin-origin)/measuredScrollScale;
-+                            measuredMaximum = maximum();
 +                            const requested = Math.max(0, Math.min(measuredMaximum, desired));
 +                            if ((newAnchorHeight !== scrollAnchorHeight || recoverNeeded || requested !== physicalScrollReference) &&
                                  (scroll == this.scrollDOM || this.hasFocus ||
@@ -171,7 +192,7 @@ index 732c593..0bb2d10 100644
                          }
                      }
                      break;
-@@ -8204,6 +8267,9 @@ class EditorView {
+@@ -8204,6 +8285,9 @@ class EditorView {
          finally {
              this.updateState = 0 /* UpdateState.Idle */;
              this.measureScheduled = -1;
@@ -181,7 +202,7 @@ index 732c593..0bb2d10 100644
          }
          if (updated && !updated.empty)
              for (let listener of this.state.facet(updateListener))
-@@ -8632,8 +8698,10 @@ class EditorView {
+@@ -8632,8 +8716,10 @@ class EditorView {
      */
      scrollSnapshot() {
          let { scrollTop, scrollLeft } = this.scrollDOM;
@@ -195,7 +216,7 @@ index 732c593..0bb2d10 100644
      /**
      Enable or disable tab-focus mode, which disables key bindings
 diff --git a/node_modules/@codemirror/view/dist/index.js b/node_modules/@codemirror/view/dist/index.js
-index 0c0b3ee..3a087b5 100644
+index 0c0b3ee..e976634 100644
 --- a/node_modules/@codemirror/view/dist/index.js
 +++ b/node_modules/@codemirror/view/dist/index.js
 @@ -3410,7 +3410,7 @@ class DocView {
@@ -260,7 +281,7 @@ index 0c0b3ee..3a087b5 100644
          if (this.destroyed) {
              this.viewState.state = newState;
              return;
-@@ -8099,9 +8115,33 @@ class EditorView {
+@@ -8099,9 +8115,50 @@ class EditorView {
              this.observer.forceFlush();
          let updated = null;
          let scroll = this.viewState.scrollParent, scrollOffset = this.viewState.getScrollOffset();
@@ -293,10 +314,27 @@ index 0c0b3ee..3a087b5 100644
 +            if (Math.abs(scrollOffset-this.viewState.scrollOffset)>1) scrollAnchorHeight=-1;
 +            if (scrollAnchorHeight>=0) anchorMargin=scrollAnchorHeight-scrollOffset;
 +        }
++        // Anchor restoration owns layout displacement, not physical movement that
++        // commits while this measure cycle is running. Compare actual positions
++        // (not fractional desired positions) so browser rounding is not drift.
++        const observeScroll = () => {
++            const max = maximum(), actual = physical();
++            const expected = Math.max(0, Math.min(max, measuredActual));
++            const movement = actual - expected;
++            if (movement) {
++                physicalScrollReference += movement;
++                scrollOffset += movement * measuredScrollScale;
++                if (anchorMargin !== undefined) anchorMargin -= movement * measuredScrollScale;
++            }
++            // A shrinking scroll range is browser clamping, not user movement.
++            if (expected !== measuredActual) recoverNeeded = true;
++            measuredActual = actual;
++            measuredMaximum = max;
++        };
          this.viewState.scrollAnchorHeight = -1;
          try {
              for (let i = 0;; i++) {
-@@ -8116,9 +8156,13 @@ class EditorView {
+@@ -8116,9 +8173,13 @@ class EditorView {
                          scrollAnchorHeight = block.top;
                      }
                  }
@@ -304,14 +342,19 @@ index 0c0b3ee..3a087b5 100644
                  this.updateState = 1 /* UpdateState.Measuring */;
                  let changed = this.viewState.measure();
 -                if (!changed && !this.measureRequests.length && this.viewState.scrollTarget == null)
-+                measuredActual = physical(); measuredMaximum = maximum();
 +                measuredScrollScale = physicalScale();
++                observeScroll();
 +                const anchorHeightNow = scrollAnchorPos < 0 ? this.viewState.heightMap.height : this.viewState.lineBlockAt(scrollAnchorPos).top;
 +                if (!changed && !this.measureRequests.length && this.viewState.scrollTarget == null && anchorHeightNow === scrollAnchorHeight && !recoverNeeded)
                      break;
                  if (i > 5) {
                      console.warn(this.measureRequests.length
-@@ -8170,26 +8214,45 @@ class EditorView {
+@@ -8167,29 +8228,49 @@ class EditorView {
+                     }
+                 if (redrawn)
+                     this.docView.updateSelection(true);
++                // Writes can change layout or allow a compositor scroll commit too.
++                observeScroll();
                  if (!update.viewportChanged && this.measureRequests.length == 0) {
                      if (this.viewState.editorHeight) {
                          if (this.viewState.scrollTarget) {
@@ -342,7 +385,6 @@ index 0c0b3ee..3a087b5 100644
 +                            const actual = physical();
 +                            const origin = this.viewState.getScrollOffset() - actual*measuredScrollScale;
 +                            const desired = (newAnchorHeight-anchorMargin-origin)/measuredScrollScale;
-+                            measuredMaximum = maximum();
 +                            const requested = Math.max(0, Math.min(measuredMaximum, desired));
 +                            if ((newAnchorHeight !== scrollAnchorHeight || recoverNeeded || requested !== physicalScrollReference) &&
                                  (scroll == this.scrollDOM || this.hasFocus ||
@@ -367,7 +409,7 @@ index 0c0b3ee..3a087b5 100644
                          }
                      }
                      break;
-@@ -8199,6 +8262,9 @@ class EditorView {
+@@ -8199,6 +8280,9 @@ class EditorView {
          finally {
              this.updateState = 0 /* UpdateState.Idle */;
              this.measureScheduled = -1;
@@ -377,7 +419,7 @@ index 0c0b3ee..3a087b5 100644
          }
          if (updated && !updated.empty)
              for (let listener of this.state.facet(updateListener))
-@@ -8627,8 +8693,10 @@ class EditorView {
+@@ -8627,8 +8711,10 @@ class EditorView {
      */
      scrollSnapshot() {
          let { scrollTop, scrollLeft } = this.scrollDOM;
