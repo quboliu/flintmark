@@ -7,6 +7,8 @@ the editor stabilizes for the Marketplace.
 
 ## 0.33.1
 
+- **Stable reading position.** Font and width changes preserve the visible source block when long notes grow or shrink. Repeated layout changes retain fractional positioning, and new scrolling or navigation takes precedence over pending layout restoration.
+
 - **Large-document structure.** Outline and Todo skip unused inline syntax trees while extracting headings and tasks, reducing synchronous parsing work without changing source positions or rendered Markdown.
 
 - **Checkbox focus.** Clicking a task checkbox focuses Live Preview without moving the selection, so immediate Save and Undo use the pending-edit queue. Keyboard activation keeps its existing focus behavior.

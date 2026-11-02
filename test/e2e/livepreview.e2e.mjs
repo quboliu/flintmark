@@ -1466,6 +1466,11 @@ try {
       const anchorPos = fixedPos === null ? view.scrollSnapshot().value.range.head : fixedPos;
       const anchorLine = view.state.doc.lineAt(anchorPos);
       const coords = view.coordsAtPos(anchorPos);
+      const block = view.lineBlockAt(anchorPos);
+      if (!block || !Number.isFinite(block.top) || !Number.isFinite(view.documentTop) || !Number.isFinite(scrollerTop)) return null;
+      const dom = view.domAtPos(anchorPos).node;
+      const lineDom = (dom.nodeType === 1 ? dom : dom.parentElement)?.closest(".cm-line");
+      const lineRect = lineDom?.getBoundingClientRect();
       return {
         scrollTop: scroller.scrollTop,
         scrollHeight: scroller.scrollHeight,
@@ -1476,6 +1481,12 @@ try {
           line: anchorLine.number,
           text: anchorLine.text,
           top: coords ? coords.top - scrollerTop : null,
+          lineBlockTop: view.documentTop + block.top - scrollerTop,
+          lineBlockHeight: block.height,
+          lineDomTop: lineRect ? lineRect.top - scrollerTop : null,
+          lineDomHeight: lineRect?.height,
+          glyphWithinLine: coords && lineRect ? coords.top - lineRect.top : null,
+          snapshotMargin: view.scrollSnapshot().value.yMargin,
         },
         firstVisible: first ? {
           pos: firstPos,
@@ -1488,19 +1499,21 @@ try {
       };
     }, fixedPos);
 
-    // Independent contract, deliberately not the old 8px line-text assertion:
-    // 1. CM6's own anchor source position must not change and its viewport
-    //    offset must stay within 2px (native anchoring).
+    // CM6 anchors a source line block. Font metrics can move glyphs within
+    // that block, so keep glyph geometry as a separate diagnostic.
+    // 1. The source line-block offset must stay within 2px.
     // 2. The source line at the top edge may move by at most one line when
     //    font/width changes reflow heights, but must never jump to a new
     //    section or a line several lines away.
     const anchorProblems = (before, after) => {
       const problems = [];
-      if (!after || !after.anchor || before.anchor.pos !== after.anchor.pos) {
+      if (!after || !after.anchor || before.anchor.pos !== after.anchor.pos || before.anchor.line !== after.anchor.line || before.anchor.text !== after.anchor.text) {
         problems.push(`anchor position changed: ${before.anchor.pos} -> ${after?.anchor?.pos}`);
       }
-      if (after?.anchor && Math.abs(after.anchor.top - before.anchor.top) > 2) {
-        problems.push(`native anchor moved ${after.anchor.top - before.anchor.top}px`);
+      if (!Number.isFinite(before?.anchor?.lineBlockTop) || !Number.isFinite(after?.anchor?.lineBlockTop)) {
+        problems.push("native line-block anchor has no finite coordinates");
+      } else if (Math.abs(after.anchor.lineBlockTop - before.anchor.lineBlockTop) > 2) {
+        problems.push(`native line-block anchor moved ${after.anchor.lineBlockTop - before.anchor.lineBlockTop}px`);
       }
       if (!after?.firstVisible) problems.push("no visible source line");
       else if (Math.abs(after.firstVisible.line - before.firstVisible.line) > 1) {
@@ -1511,7 +1524,15 @@ try {
 
     const anchorBefore = await readAnchorState();
     assert.ok(anchorBefore?.firstVisible, `a visible source line must exist before settings: ${JSON.stringify(anchorBefore)}`);
-    assert.ok(Number.isFinite(anchorBefore.anchor.top), `native anchor must have coordinates: ${JSON.stringify(anchorBefore)}`);
+    assert.ok(Number.isFinite(anchorBefore.anchor.lineBlockTop), `native line-block anchor must have coordinates: ${JSON.stringify(anchorBefore)}`);
+    const blockNegative = structuredClone(anchorBefore);
+    blockNegative.anchor.lineBlockTop += 40;
+    assert.deepEqual(anchorProblems(anchorBefore, blockNegative), ["native line-block anchor moved 40px"]);
+    const nonfiniteNegative = structuredClone(anchorBefore);
+    nonfiniteNegative.anchor.lineBlockTop = NaN;
+    assert.deepEqual(anchorProblems(anchorBefore, nonfiniteNegative), ["native line-block anchor has no finite coordinates"]);
+    console.log("ANCHOR_BLOCK_ONLY_NEGATIVE_CONTROL_REJECTED", JSON.stringify(anchorProblems(anchorBefore, blockNegative)));
+
     const layoutVersionBeforeSettings = await longCm.evaluate(() => {
       const rack = document.querySelector(".ofm-table-measure-rack");
       return Number(rack?.getAttribute("data-ofm-table-layout-version") ?? 0);
@@ -1546,18 +1567,99 @@ try {
     const anchorAfter = await readAnchorState(anchorBefore.anchor.pos);
     const problems = anchorProblems(anchorBefore, anchorAfter);
     console.log("ANCHOR_CONTRACT", JSON.stringify({ before: anchorBefore, after: anchorAfter, problems }));
+    // Observe the full stability window; later drift must fail as well.
+    const anchorSamples = [];
+    const sampleStart = performance.now();
+    for (;;) {
+      const state = await readAnchorState(anchorBefore.anchor.pos);
+      const sample = { tMs: performance.now() - sampleStart, state, problems: anchorProblems(anchorBefore, state) };
+      anchorSamples.push(sample);
+      if (sample.tMs >= 500) break;
+      await win.waitForTimeout(16);
+    }
+    console.log("ANCHOR_CONTRACT_500MS", JSON.stringify({ initialProblems: problems, samples: anchorSamples }));
     assert.deepEqual(problems, [], `source position jumped after font/width change: ${JSON.stringify(problems)}`);
+    assert.deepEqual(anchorSamples.filter((sample) => sample.problems.length), [], "native anchor must remain stable through the full 500ms window");
 
     // Negative control: the same predicate must reject a synthetic broken
     // anchor (different source position / 40px drift / 5-line jump). This proves
     // the probe is sensitive without relying on the old 8px threshold.
     const negative = JSON.parse(JSON.stringify(anchorAfter));
     negative.anchor.pos += 1;
-    negative.anchor.top -= 40;
+    negative.anchor.lineBlockTop -= 40;
     negative.firstVisible.line += 5;
     const negativeProblems = anchorProblems(anchorBefore, negative);
     assert.ok(negativeProblems.length >= 3, `negative control was not rejected: ${JSON.stringify(negativeProblems)}`);
     console.log("ANCHOR_NEGATIVE_CONTROL_REJECTED", JSON.stringify(negativeProblems));
+
+    const originalSelection = await longCm.evaluate(() => document.querySelector('.cm-content').cmTile.root.view.state.selection.toJSON());
+    const roundTrips = [];
+    for (let cycle = 0; cycle < 12; cycle++) for (const layout of ['base', 'changed']) {
+      const previousVersion = await longCm.evaluate(() => Number(document.querySelector('.ofm-table-measure-rack').dataset.ofmTableLayoutVersion));
+      writeSettings(layout === 'base' ? baseSettings : { ...baseSettings, 'ofm.fontSize': 13, 'ofm.lineWidth': 28 });
+      await longCm.waitForFunction(({ previousVersion, font }) => {
+        const rack = document.querySelector('.ofm-table-measure-rack');
+        return Number(rack.dataset.ofmTableLayoutVersion) > previousVersion &&
+          rack.dataset.ofmTableMeasurementsPending === '0' &&
+          getComputedStyle(document.querySelector('.cm-content')).fontSize === font;
+      }, { previousVersion, font: layout === 'base' ? '9px' : '13px' }, { timeout: 15000 });
+      await win.waitForTimeout(650);
+      const after = await readAnchorState(anchorBefore.anchor.pos);
+      roundTrips.push({ cycle, layout, after });
+      assert.equal(after.anchor.pos, anchorBefore.anchor.pos, 'Every layout transition must retain source identity');
+      assert.ok(Math.abs(after.anchor.lineBlockTop - anchorBefore.anchor.lineBlockTop) <= 1,
+        'Round trips must stay within one pixel of the ORIGINAL anchor: ' + JSON.stringify({ cycle, layout, before: anchorBefore, after }));
+      assert.deepEqual(await longCm.evaluate(() => document.querySelector('.cm-content').cmTile.root.view.state.selection.toJSON()),
+        originalSelection, 'Layout must preserve selection');
+    }
+    mkdirSync(join(REPO, 'out', 'metrics'), { recursive: true });
+    writeFileSync(join(REPO, 'out', 'metrics', 'scroll-anchor-roundtrips.json'), JSON.stringify({ before: anchorBefore, roundTrips }, null, 2));
+
+    // A real wheel between a layout change and its scheduled measurement must
+    // supersede the old reading position. Restore measurement even if setup fails.
+    const held = await longCm.evaluate(() => {
+      const view = document.querySelector('.cm-content').cmTile.root.view;
+      window.__flintmarkHeldMeasure = { view, original: view.measure, calls: 0 };
+      view.measure = function () { window.__flintmarkHeldMeasure.calls++; this.measureScheduled = -1; };
+      return { version: Number(document.querySelector('.ofm-table-measure-rack').dataset.ofmTableLayoutVersion) };
+    });
+    let intent, beforeWheel;
+    try {
+      writeSettings(baseSettings);
+      await longCm.waitForFunction(() => getComputedStyle(document.querySelector('.cm-content')).fontSize === '9px', null, { timeout: 15000 });
+      beforeWheel = await scroller.evaluate(element => element.scrollTop);
+      await win.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await win.mouse.wheel(0, -1500);
+      await win.waitForTimeout(200);
+      intent = await longCm.evaluate(() => {
+        const held = window.__flintmarkHeldMeasure, view = held.view, snapshot = view.scrollSnapshot().value;
+        return { calls: held.calls, scrollTop: view.scrollDOM.scrollTop, pos: snapshot.range.head, margin: snapshot.yMargin,
+          selection: view.state.selection.toJSON(), text: view.state.doc.lineAt(snapshot.range.head).text };
+      });
+      assert.ok(intent.calls > 0, 'The test must actually intercept a pending measurement');
+      assert.ok(intent.scrollTop < beforeWheel - 500, 'The real wheel must move the scroller before measurement resumes');
+    } finally {
+      await longCm.evaluate(() => {
+        const held = window.__flintmarkHeldMeasure;
+        held.view.measure = held.original;
+        held.view.requestMeasure();
+        delete window.__flintmarkHeldMeasure;
+      });
+    }
+    await longCm.waitForFunction(({ version }) => {
+      const rack = document.querySelector('.ofm-table-measure-rack');
+      return Number(rack.dataset.ofmTableLayoutVersion) > version && rack.dataset.ofmTableMeasurementsPending === '0';
+    }, held, { timeout: 15000 });
+    await win.waitForTimeout(650);
+    const actualIntent = await longCm.evaluate(({ pos }) => {
+      const view = document.querySelector('.cm-content').cmTile.root.view;
+      return { margin: view.lineBlockAt(pos).top - view.scrollDOM.scrollTop,
+        text: view.state.doc.lineAt(pos).text, selection: view.state.selection.toJSON() };
+    }, intent);
+    writeFileSync(join(REPO, 'out', 'metrics', 'scroll-anchor-user-intent.json'), JSON.stringify({ beforeWheel, intent, actualIntent }, null, 2));
+    assert.ok(Math.abs(actualIntent.margin - intent.margin) <= 1, 'The new user anchor must survive pending layout: ' + JSON.stringify({ intent, actualIntent }));
+    assert.equal(actualIntent.text, intent.text);
+    assert.deepEqual(actualIntent.selection, intent.selection, 'Scrolling and layout must preserve selection');
 
     const heightBeforeOffscreenVisit = await scroller.evaluate((element) => element.scrollHeight);
     await scroller.evaluate((element) => {
