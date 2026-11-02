@@ -64,8 +64,11 @@ VSIX, checks its contents, and publishes two assets:
 - SHA256SUMS.txt — the VSIX checksum.
 
 Verify the workflow succeeds, the release is public, and both assets download.
-When VSCE_PAT is available, the workflow verifies publisher access and publishes
-the same VSIX. Without a PAT, Marketplace publishing is explicitly skipped.
+Tag-triggered releases publish to GitHub only. To also publish to Marketplace,
+manually run **Release** on the existing version tag and explicitly select
+**Also publish the validated VSIX to VS Code Marketplace**. The option defaults
+to off. An opted-in run verifies publisher access and publishes the same VSIX
+when VSCE_PAT is available; otherwise Marketplace publishing is skipped.
 
 Run **Marketplace auth check** before tagging only when automated Marketplace
 publishing is expected.
