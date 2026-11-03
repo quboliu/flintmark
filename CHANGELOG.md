@@ -33,7 +33,7 @@ the editor stabilizes for the Marketplace.
 
 Linux and macOS completed release acceptance in VS Code, VSCodium, and Cursor, including large-file editing and the 20,000-note / 4,200-image workspace stress test. Files above the Live Preview size limit use the intentional source-text fallback.
 
-Full Windows release acceptance was waived by the maintainer. The Windows large-workspace GUI stress test timed out in the test environment, so this release does not claim completed Windows acceptance. Antigravity was excluded from GUI acceptance because account login was out of scope.
+Windows: full release testing was not completed because of test-device availability constraints. Antigravity was excluded from GUI acceptance because account login was out of scope.
 
 ### Contributors
 
