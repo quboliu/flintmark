@@ -29,6 +29,9 @@ async function main(): Promise<void> {
     "extensions.autoUpdate":false, "extensions.autoCheckUpdates":false,
   }));
 
+  const reports = path.join(process.env.FLINTMARK_OUT || work, "integration-reports");
+  fs.mkdirSync(reports, {recursive:true});
+  process.env.FLINTMARK_INTEGRATION_REPORT_DIR = reports;
   try {
     await runTests({
       vscodeExecutablePath,
@@ -45,6 +48,15 @@ async function main(): Promise<void> {
         "--disable-workspace-trust",
       ],
     });
+    // Some editor variants return zero even when their test host fails.
+    // Require independent, complete Mocha evidence from every invoked host.
+    const files = fs.readdirSync(reports).filter(name => /^host-.*\.json$/.test(name));
+    if (files.length !== 1) throw new Error(`Expected one test host, found ${files.length}`);
+    for (const name of files) {
+      const report = JSON.parse(fs.readFileSync(path.join(reports, name), "utf8"));
+      if (!report.completed || report.failures !== 0 || report.stats?.passes !== 27 || report.stats?.pending !== 0)
+        throw new Error(`Incomplete or failed integration report: ${JSON.stringify(report)}`);
+    }
   } catch (err) {
     console.error("Integration tests failed:", err);
     process.exit(1);
