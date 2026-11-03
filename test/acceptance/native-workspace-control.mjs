@@ -31,7 +31,7 @@ try{
 }finally{
  try{writer.send({type:'stop'});}catch{}
  await new Promise(resolve=>setTimeout(resolve,1000));if(writer.exitCode===null)writer.kill();
- if(app){await Promise.race([app.close().catch(()=>{}),new Promise(r=>setTimeout(r,5000))]);if(app.process()?.exitCode===null)app.process().kill('SIGKILL');}
+ if(app){const child=app.process();await Promise.race([app.close().catch(()=>{}),new Promise(r=>setTimeout(r,5000))]);if(child?.exitCode===null)child.kill('SIGKILL');}
  result.durationMs=performance.now()-result.started;result.writer=messages.at(-1);fs.writeFileSync(path.join(out,'result.json'),JSON.stringify(result,null,2));console.log(JSON.stringify(result));
 }
 process.exit(result.passed?0:1);

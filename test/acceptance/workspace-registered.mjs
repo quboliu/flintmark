@@ -442,7 +442,7 @@ try {
       const rows=snapshot.stdout.trim().split('\n').map(line=>{const m=line.trim().match(/^(\d+)\s+(\d+)\s+([\d.]+)\s+(\d+)\s+(.*)$/);return m?{pid:+m[1],ppid:+m[2],cpu:+m[3],rssKiB:+m[4],command:m[5]}:null;}).filter(Boolean);
       const owned=new Set([app.process().pid]);for(let n=0;n<8;n++)for(const row of rows)if(owned.has(row.ppid))owned.add(row.pid);
       const relevant=rows.filter(row=>owned.has(row.pid));writeFileSync(join(OUT,'owned-processes.json'),JSON.stringify(relevant,null,2));
-      for(const row of relevant.sort((a,b)=>b.cpu-a.cpu).slice(0,2))spawnSync('sample',[String(row.pid),'2','-file',join(OUT,'sample-'+row.pid+'.txt')],{timeout:5000,stdio:'ignore'});
+      for(const row of relevant.sort((a,b)=>b.cpu-a.cpu).slice(0,2)){const sample=spawnSync('sample',[String(row.pid),'1','-file',join(OUT,'sample-'+row.pid+'.txt')],{timeout:20000,encoding:'utf8'});writeFileSync(join(OUT,'sample-'+row.pid+'-command.json'),JSON.stringify({pid:row.pid,status:sample.status,error:sample.error?.message,stdout:sample.stdout,stderr:sample.stderr}));}
     }catch(error){console.error('RESOURCE_DIAGNOSTIC_ERROR',String(error));}
   }
   process.exitCode = 1;
