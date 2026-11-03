@@ -35,26 +35,13 @@ permissions: {}
 
 jobs:
   verify:
-    name: Verify VS Code
-    runs-on: ubuntu-latest
-    timeout-minutes: 12
+    name: Full platform acceptance
+    uses: ./.github/workflows/acceptance.yml
     permissions:
       contents: read
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-      - run: npm ci
-      - run: npm run lint
-      - run: npx tsc --noEmit -p .
-      - run: npm run check:versions
-      - run: npm run test:unit
-      - run: npm run test:perf
 
   release:
-    name: Package VSIX · GitHub Release
+    name: Publish accepted VSIX · GitHub Release
     runs-on: ubuntu-latest
     needs: verify
     timeout-minutes: 15
@@ -96,8 +83,20 @@ jobs:
           echo "version=${PKG}" >> "$GITHUB_OUTPUT"
           echo "Releasing ${TAG}"
 
-      - name: Package VSIX (clean build via vscode:prepublish)
-        run: npx @vscode/vsce package
+      - name: Download the exact candidate accepted on every platform
+        uses: actions/download-artifact@v4
+        with:
+          name: release-candidate
+          path: .
+      - name: Download the acceptance proof
+        uses: actions/download-artifact@v4
+        with:
+          name: acceptance-verification
+          path: acceptance-proof/
+      - name: Verify accepted artifact and tagged source
+        run: |
+          sha256sum -c SHA256SUMS.txt
+          node -e 'const fs=require("fs"),a=require("node:assert/strict"),cp=require("child_process");const m=JSON.parse(fs.readFileSync("manifest.json")),v=JSON.parse(fs.readFileSync("acceptance-proof/verification.json"));a.equal(v.passed,true);a.equal(v.rows.length,12);a.equal(v.sourceCommit,m.sourceCommit);a.equal(m.sourceCommit,cp.execFileSync("git",["rev-parse","HEAD"],{encoding:"utf8"}).trim());a.equal(v.vsixSha256,m.vsixSha256);'
 
       - name: Assert VSIX is well-formed
         run: |
@@ -115,8 +114,8 @@ jobs:
             exit 1
           fi
 
-      - name: Checksum VSIX
-        run: sha256sum flintmark-*.vsix > SHA256SUMS.txt
+      - name: Recheck VSIX checksum before publication
+        run: sha256sum -c SHA256SUMS.txt
 
       - name: Extract release notes from CHANGELOG
         run: |

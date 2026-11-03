@@ -1,0 +1,15 @@
+import fs from 'node:fs';
+import {execFileSync} from 'node:child_process';
+import {createHash} from 'node:crypto';
+import assert from 'node:assert/strict';
+const sha=b=>createHash('sha256').update(b).digest('hex');
+const pkg=JSON.parse(fs.readFileSync('package.json'));
+const vsix=`candidate/flintmark-${pkg.version}.vsix`;
+const entries=execFileSync('unzip',['-Z1',vsix],{encoding:'utf8'}).trim().split('\n');
+assert(!entries.some(x=>/extension\/(test|scripts|src|node_modules|\.github)\/|extension\/out\/(test|coverage|metrics)|\.cjs$/.test(x)),'Candidate must contain production files only');
+const runtime=entries.filter(x=>x.startsWith('extension/out/')&&!x.endsWith('/')).map(name=>{const b=execFileSync('unzip',['-p',vsix,name],{maxBuffer:32*1024*1024});return {path:name.slice('extension/'.length),bytes:b.length,sha256:sha(b)};});
+for(const file of ['out/extension.js','out/webview.js','out/webview.css','out/mermaid.js'])assert(runtime.some(x=>x.path===file),file);
+const manifest={version:pkg.version,sourceCommit:execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),vsix:vsix.slice('candidate/'.length),vsixSha256:sha(fs.readFileSync(vsix)),runtime};
+fs.writeFileSync('candidate/manifest.json',JSON.stringify(manifest,null,2)+'\n');
+fs.writeFileSync('candidate/SHA256SUMS.txt',`${manifest.vsixSha256}  ${manifest.vsix}\n`);
+console.log(JSON.stringify({version:manifest.version,sourceCommit:manifest.sourceCommit,vsixSha256:manifest.vsixSha256,runtimeFiles:runtime.length}));

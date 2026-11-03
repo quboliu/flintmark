@@ -1,0 +1,142 @@
+name: Release acceptance
+on:
+  workflow_call:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  candidate:
+    name: Build one release candidate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run check:versions
+      - name: Package production VSIX and record runtime hashes
+        run: |
+          mkdir candidate
+          npx @vscode/vsce package --out candidate/
+          node scripts/ci/candidate-manifest.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-candidate
+          path: candidate/
+          retention-days: 14
+          if-no-files-found: error
+  quality:
+    name: Quality (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025, windows-11-arm, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    env:
+      FUZZ_RUNS: '200'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npx tsc --noEmit -p .
+      - run: npm run check:versions
+      - run: npm run test:unit
+      - run: npm run test:perf
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: acceptance-quality-${{ matrix.os }}
+          path: out/metrics/
+          retention-days: 14
+          if-no-files-found: warn
+  editors:
+    name: Acceptance (${{ matrix.os }}, ${{ matrix.editor }})
+    needs: candidate
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025, windows-11-arm, macos-15]
+        editor: [vscode, vscodium, cursor]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-candidate
+          path: candidate/
+      - name: Install Linux display dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libasound2t64 libgbm1 libgtk-3-0 libnss3
+      - name: Download pinned editor
+        run: node scripts/ci/download-editor.mjs ${{ matrix.editor }}
+      - name: Compile integration and native regression fixtures
+        run: |
+          npm run compile
+          npm run build:test
+      - name: Full acceptance on Linux
+        if: runner.os == 'Linux'
+        run: xvfb-run -a -s '-screen 0 1600x1200x24' node scripts/ci/run-acceptance.mjs
+      - name: Full acceptance on Windows or macOS
+        if: runner.os != 'Linux'
+        run: node scripts/ci/run-acceptance.mjs
+      - name: Preserve logs, screenshots, and saved-file evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acceptance-${{ matrix.os }}-${{ matrix.editor }}
+          path: |
+            out/acceptance/
+            out/metrics/
+            out/*.png
+            !out/acceptance/**/extensions/**
+            !out/acceptance/**/workspace/**
+          retention-days: 14
+          if-no-files-found: warn
+          compression-level: 6
+  verified:
+    name: All release acceptance passed
+    needs: [candidate, quality, editors]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Require every job to pass
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          node -e 'for (const [name,job] of Object.entries(JSON.parse(process.env.RESULTS))) { if(job.result !== "success") throw Error(name+": "+job.result); }'
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: acceptance-*
+          path: acceptance-evidence/
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-candidate
+          path: candidate/
+      - name: Verify complete matrix and matching candidate
+        run: node scripts/ci/verify-matrix.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: acceptance-verification
+          path: acceptance-evidence/verification.json
+          retention-days: 14
+          if-no-files-found: error

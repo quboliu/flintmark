@@ -1,0 +1,305 @@
+import {isVisibleFrame} from './visibleFrame.mjs';
+import {capture} from './capture.mjs';
+// Regression coverage for workspace index lifecycle edge cases that VS Code
+// file watchers do not report as complete per-file logs: parent directory
+// renames and externally-created nested resource trees.
+import {createRequire} from 'node:module';const require=createRequire(process.env.FLINTMARK_DEPS+'/package.json');const{_electron:electron}=require('playwright');
+import {adaptWindow} from './native-window.mjs';
+import {
+  mkdtempSync,
+  writeFileSync,
+  mkdirSync,
+  renameSync,
+  readFileSync,
+  rmSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import assert from "node:assert";
+import { palette, reopenLivePreview } from "./quickInput.mjs";
+
+const REPO = process.env.FLINTMARK_REPO || resolve(".");
+const VSCODE = process.env.VSCODE_BIN || "/usr/share/codium/codium";
+const PIXEL_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+  "base64"
+);
+
+const work = mkdtempSync(join(tmpdir(), "ofm-image-index-"));
+const userData = mkdtempSync(join(tmpdir(), "fm-p-"));
+mkdirSync(join(userData, "User"), { recursive: true });
+writeFileSync(
+  join(userData, "User", "settings.json"),
+  JSON.stringify({
+    "workbench.editorAssociations": { "*.md": "ofm.livePreview" },
+    "ofm.ai.trigger": "manual",
+    "security.workspace.trust.enabled": false,
+    "workbench.startupEditor": "none",
+    "telemetry.telemetryLevel": "off",
+    "update.mode": "none",
+    "window.commandCenter": false,
+  })
+);
+
+mkdirSync(join(work, "rename", "A", "assets"), { recursive: true });
+writeFileSync(join(work, "rename", "A", "assets", "pixel.png"), PIXEL_PNG);
+writeFileSync(
+  join(work, "rename", "A", "note.md"),
+  "# Mixed directory lifecycle\n\n![pixel](assets/pixel.png)\n\n[[Rename Target]]\n\nend\n"
+);
+writeFileSync(join(work, "rename", "A", "Rename Target.md"), "# Rename Target\n\nmoved target body\n");
+writeFileSync(
+  join(work, "outside.md"),
+  "# Outside mixed directory\n\n![[pixel.png]]\n\nautocomplete probe\n"
+);
+writeFileSync(
+  join(work, "dynamic.md"),
+  "# Dynamic image lifecycle\n\n![[dynamic-pixel.png]]\n\nend\n"
+);
+
+async function launchApp(initialFile = join(work, "rename", "A", "note.md")) {
+  return await electron.launch({
+    executablePath: VSCODE,
+    args: [...(/cursor/i.test(process.env.VSCODE_BIN||'')?['--skip-onboarding']:[]),
+      "--no-sandbox",
+      "--disable-gpu",
+      "--disable-dev-shm-usage",
+      `--user-data-dir=${userData}`,
+      `--extensions-dir=${join(work, "ext")}`,
+      `--extensionDevelopmentPath=${REPO}`,
+      work,
+      initialFile,
+    ],
+  });
+}
+
+let app = await launchApp();
+
+async function closeApp(target = app) {
+  let closed = false;
+  await Promise.race([
+    target.close().then(() => {
+      closed = true;
+    }),
+    new Promise((resolve) => setTimeout(resolve, 5000)),
+  ]);
+  if (!closed) target.process()?.kill("SIGTERM");
+}
+
+async function findVisibleCmFrame(win, ms, heading, imageFragment) {
+  const deadline = Date.now() + ms;
+  while (Date.now() < deadline) {
+    for (const f of win.frames()) {
+      try {
+        const content = f.locator(".cm-content").first();
+        if ((await content.count()) > 0 && (await content.isVisible()) && await isVisibleFrame(f)) {
+          const matches = await f.evaluate(({heading,imageFragment}) => {
+            const view = document.querySelector(".cm-content")?.cmTile?.root?.view;
+            if (!view?.state.doc.toString().startsWith(heading)) return false;
+            return !imageFragment || [...document.querySelectorAll("img.ofm-image")].some(img => decodeURIComponent(img.src).includes(imageFragment));
+          }, {heading,imageFragment});
+          if (matches) return f;
+        }
+      } catch {
+        /* cross-origin */
+      }
+    }
+    await win.waitForTimeout(250);
+  }
+  return null;
+}
+
+async function openLiveNote(win, spec) {
+  const heading = readFileSync(join(work, spec), "utf8").split(/\r?\n/, 1)[0]+"\n";
+  const imageFragment = /^rename\/[AB]\/note\.md$/.test(spec) ? "/"+spec.replace(/note\.md$/, "assets/pixel.png") : null;
+  await palette(win, "Control+P", spec);
+  let cm = await findVisibleCmFrame(win, 8000, heading, imageFragment);
+  if (!cm) {
+    await reopenLivePreview(win);
+    cm = await findVisibleCmFrame(win, 10000, heading, imageFragment);
+  }
+  assert.ok(cm, `Live Preview should open ${spec}`);
+  console.log('IMAGE_OPEN_TARGET',JSON.stringify({spec,heading,imageFragment,geometry:await cm.evaluate(()=>[...document.querySelectorAll('.cm-line')].map(e=>({text:e.textContent,rect:e.getBoundingClientRect().toJSON(),style:{display:getComputedStyle(e).display,visibility:getComputedStyle(e).visibility}})))}));
+  try {await cm.locator(".cm-line").last().click();} catch(error){await capture(win,'image-line-click-failure',{spec,work,userData,error:String(error)});throw error;}
+  return cm;
+}
+
+async function imageState(frame) {
+  return await frame.evaluate(() => {
+    const img = document.querySelector("img.ofm-image");
+    return img
+      ? {
+          src: img.getAttribute("src") || "",
+          complete: img.complete,
+          naturalWidth: img.naturalWidth,
+          naturalHeight: img.naturalHeight,
+        }
+      : { missing: true };
+  });
+}
+
+async function waitForLoadedImage(win, pathFragment) {
+  let state;
+  for (let i = 0; i < 40; i++) {
+    for (const f of win.frames()) {
+      try {
+        if ((await f.locator(".cm-content").count()) === 0 || !await isVisibleFrame(f)) continue;
+        state = await imageState(f);
+        if (
+          !state.missing &&
+          state.src.includes(pathFragment) &&
+          state.naturalWidth > 0
+        ) {
+          return state;
+        }
+      } catch {
+        /* cross-origin */
+      }
+    }
+    await win.waitForTimeout(500);
+  }
+  throw new Error(
+    `image did not load from ${pathFragment}; last state: ${JSON.stringify(state)}`
+  );
+}
+
+async function waitForFrameText(win, fragment, timeoutMs = 10000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    for (const frame of win.frames()) {
+      try {
+        const content = frame.locator(".cm-content").first();
+        if (!(await content.isVisible()) || !await isVisibleFrame(frame)) continue;
+        const text = await content.innerText();
+        if (text.includes(fragment)) return frame;
+      } catch {
+        /* cross-origin */
+      }
+    }
+    await win.waitForTimeout(250);
+  }
+  return null;
+}
+
+async function openLiveNoteWithText(win, spec, fragment, attempts = 3) {
+  let lastError = null;
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    try {
+      await openLiveNote(win, spec);
+      const frame = await waitForFrameText(win, fragment);
+      if (frame) return frame;
+      lastError = new Error(`${spec} did not render ${JSON.stringify(fragment)}`);
+    } catch (error) {
+      lastError = error;
+    }
+    await win.keyboard.press("Escape").catch(() => {});
+    await win.waitForTimeout(500);
+  }
+  throw lastError ?? new Error(`Live Preview should open ${spec}`);
+}
+
+async function waitForAutocompleteOptions(frame, win, timeoutMs = 10000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const options = await frame.locator(".cm-tooltip-autocomplete li").allInnerTexts();
+    if (options.length > 0) return options;
+    await win.waitForTimeout(250);
+  }
+  throw new Error("autocomplete options did not appear");
+}
+
+async function probeDeletedDirectoryIndexes(win, attempts = 3) {
+  let lastState = null;
+  let lastError = null;
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    try {
+      const outside = await openLiveNoteWithText(win, "outside.md", "autocomplete probe", 1);
+      const probe = outside.locator(".cm-line", { hasText: "autocomplete probe" }).first();
+      await probe.waitFor({ state: "visible", timeout: 10000 });
+      await probe.click();
+      await win.keyboard.press("End");
+      await win.keyboard.type(" [[");
+      const options = await waitForAutocompleteOptions(outside, win);
+      const deletedImage = await outside.evaluate(() => {
+        const img = document.querySelector("img.ofm-image");
+        return img ? { complete: img.complete, naturalWidth: img.naturalWidth } : null;
+      });
+      lastState = { options, deletedImage };
+      if (
+        options.every((text) => !text.includes("Rename Target")) &&
+        (!deletedImage || deletedImage.naturalWidth === 0)
+      ) {
+        return lastState;
+      }
+      await win.keyboard.press("Escape");
+      for (let i = 0; i < 3; i++) await win.keyboard.press("Backspace");
+    } catch (error) {
+      lastError = error;
+    }
+    await win.keyboard.press("Escape").catch(() => {});
+    await win.waitForTimeout(500);
+  }
+  if (lastState) return lastState;
+  throw lastError ?? new Error("deleted directory indexes could not be probed");
+}
+
+let passed = false;
+
+try {
+  const win = await adaptWindow(await app.firstWindow(),app);
+  await win.waitForSelector(".monaco-workbench", { timeout: 30000 });
+  await win.waitForTimeout(4500);
+
+  await openLiveNote(win, "rename/A/note.md");
+  await waitForLoadedImage(win, "/rename/A/assets/pixel.png");
+
+  renameSync(join(work, "rename", "A"), join(work, "rename", "B"));
+  await win.waitForTimeout(1500);
+
+  await openLiveNote(win, "rename/B/note.md");
+  await waitForLoadedImage(win, "/rename/B/assets/pixel.png");
+  const movedNote = await waitForFrameText(win, "Mixed directory lifecycle");
+  assert.ok(movedNote, "renamed mixed-directory note should be visible");
+  await movedNote
+    .locator(".ofm-internal-link", { hasText: "Rename Target" })
+    .first()
+    .evaluate((element) =>
+      element.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }))
+    );
+  assert.ok(
+    await waitForFrameText(win, "moved target body"),
+    "note index should resolve the target at its renamed directory URI"
+  );
+  console.log("  ✓ note + image indexes refresh after a mixed parent-directory rename");
+
+  await win.keyboard.press("Control+k");
+  await win.keyboard.press("w");
+  await win.waitForTimeout(400);
+  rmSync(join(work, "rename", "B"), { recursive: true });
+  const { options, deletedImage } = await probeDeletedDirectoryIndexes(win);
+  assert.ok(
+    options.every((text) => !text.includes("Rename Target")),
+    `deleted directory notes must leave autocomplete, got ${JSON.stringify(options)}`
+  );
+  assert.ok(
+    !deletedImage || deletedImage.naturalWidth === 0,
+    `deleted directory image must not remain resolved: ${JSON.stringify(deletedImage)}`
+  );
+  console.log("  ✓ note + image indexes refresh after a mixed parent-directory delete");
+
+  await closeApp(app);
+  app = await launchApp(join(work, "dynamic.md"));
+  const win2 = await adaptWindow(await app.firstWindow(),app);
+  await win2.waitForSelector(".monaco-workbench", { timeout: 30000 });
+  await win2.waitForTimeout(4500);
+
+  await openLiveNote(win2, "dynamic.md");
+  mkdirSync(join(work, "dynamic", "assets"), { recursive: true });
+  writeFileSync(join(work, "dynamic", "assets", "dynamic-pixel.png"), PIXEL_PNG);
+  await waitForLoadedImage(win2, "/dynamic/assets/dynamic-pixel.png");
+  console.log("  ✓ image index refreshes for externally-created nested trees");
+  passed = true;
+} finally {
+  await closeApp();
+  if (passed) process.exit(0);
+}

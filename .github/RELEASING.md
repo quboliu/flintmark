@@ -57,8 +57,11 @@ Microsoft's current PAT instructions and retirement notice are in
    git push origin vX.Y.Z
    ```
 
-The Release workflow validates the tag and package versions, builds a clean
-VSIX, checks its contents, and publishes two assets:
+The Release workflow calls the full acceptance matrix before publishing. It builds
+one clean VSIX, tests that exact package across Ubuntu x64, Windows x64,
+Windows ARM64, and macOS ARM64 in VS Code, VSCodium, and Cursor, and publishes
+only after every job and the complete-matrix audit pass. No untested rebuild is
+substituted after acceptance. It publishes two assets:
 
 - flintmark-X.Y.Z.vsix — the VS Code extension.
 - SHA256SUMS.txt — the VSIX checksum.
@@ -78,3 +81,18 @@ publishing is expected.
 Download the validated VSIX from the GitHub Release and upload it at the
 [publisher management page](https://marketplace.visualstudio.com/manage/publishers/quboliu).
 Do not substitute a package built from a development working tree.
+
+## Full platform acceptance
+
+See [the acceptance suite](../test/acceptance/README.md) for the local entry point,
+workload sizes, and evidence contract. `Release acceptance` runs on pull requests
+and can be dispatched manually. A version tag runs the same workflow before
+publishing; a failure, cancellation, skipped matrix job, missing report, or
+package hash mismatch prevents publication. It does not turn a passing retry
+into a clean pass.
+
+Local full acceptance remains a pre-release requirement. GitHub-hosted acceptance
+is a second independent run, including large-file editing and workspace stress.
+Editor versions are pinned in `scripts/ci/download-editor.mjs`; update those pins
+through a PR and require the complete matrix to pass. Antigravity is excluded
+because account login is outside this test scope.
