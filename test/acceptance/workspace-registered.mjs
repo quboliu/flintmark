@@ -254,7 +254,7 @@ let app = null;
 async function launchApp() {
   return await electron.launch({
     executablePath: VSCODE,
-    env: { ...process.env, FLINTMARK_TEST_VAULT_BUILD_GATE: buildGate },
+    env: { ...process.env, FLINTMARK_TEST_VAULT_BUILD_GATE: buildGate, FLINTMARK_TEST_INDEX_TRACE:join(OUT,"index-trace.jsonl") },
     args: [...(/cursor/i.test(process.env.VSCODE_BIN||'')?['--skip-onboarding']:[]),
       "--no-sandbox",
       "--disable-gpu",
@@ -436,6 +436,15 @@ try {
 } catch(error) {
   bodyError = String(error?.stack || error);
   console.error("WORKSPACE_FAILURE",bodyError);
+  if(process.platform==='darwin' && app?.process()?.pid){
+    try {
+      const snapshot=spawnSync('ps',['-axo','pid=,ppid=,%cpu=,rss=,comm='],{encoding:'utf8',timeout:3000});
+      const rows=snapshot.stdout.trim().split('\n').map(line=>{const m=line.trim().match(/^(\d+)\s+(\d+)\s+([\d.]+)\s+(\d+)\s+(.*)$/);return m?{pid:+m[1],ppid:+m[2],cpu:+m[3],rssKiB:+m[4],command:m[5]}:null;}).filter(Boolean);
+      const owned=new Set([app.process().pid]);for(let n=0;n<8;n++)for(const row of rows)if(owned.has(row.ppid))owned.add(row.pid);
+      const relevant=rows.filter(row=>owned.has(row.pid));writeFileSync(join(OUT,'owned-processes.json'),JSON.stringify(relevant,null,2));
+      for(const row of relevant.sort((a,b)=>b.cpu-a.cpu).slice(0,2))spawnSync('sample',[String(row.pid),'2','-file',join(OUT,'sample-'+row.pid+'.txt')],{timeout:5000,stdio:'ignore'});
+    }catch(error){console.error('RESOURCE_DIAGNOSTIC_ERROR',String(error));}
+  }
   process.exitCode = 1;
 
   // Failure diagnostics share one explicit budget so a stuck renderer cannot

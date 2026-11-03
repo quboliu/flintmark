@@ -1,3 +1,4 @@
+import { indexTrace } from "./indexTrace";
 // Vault Index · thin VS Code adapter (MAY import vscode).
 //
 // All real logic lives in the pure core (vaultIndex.ts / linkParser.ts). This
@@ -134,7 +135,9 @@ export class VaultIndexService implements vscode.Disposable {
     files: readonly vscode.Uri[],
     context: WorkspaceIndexBuildContext
   ): Promise<VaultRootSnapshot> {
+    indexTrace("note-gate-wait",{generation:context.generation,files:files.length});
     await waitForVaultBuildGate(process.env.FLINTMARK_TEST_VAULT_BUILD_GATE);
+    indexTrace("note-gate-released",{generation:context.generation});
     if (!context.isCurrent()) throw new WorkspaceIndexBuildCancelled();
     const inputs = new Map<string, NoteInput>();
     const uris = new Map<string, vscode.Uri>();
@@ -161,6 +164,7 @@ export class VaultIndexService implements vscode.Disposable {
         yieldNow: context.yieldNow,
       }
     );
+    indexTrace("notes-read",{generation:context.generation,files:results.length,readable:results.filter(Boolean).length});
     for (const result of results) {
       if (!result) continue;
       inputs.set(result.input.path, result.input);
@@ -187,6 +191,7 @@ export class VaultIndexService implements vscode.Disposable {
 
   private scheduleGlobalRebuild(): void {
     const generation = ++this.rebuildGeneration;
+    indexTrace("graph-request",{generation});
     this.fullRebuildInFlight = generation;
     const promise = this.rebuildGlobalSnapshot(generation);
     this.rebuildPromise = promise;
@@ -201,6 +206,7 @@ export class VaultIndexService implements vscode.Disposable {
       for (const [key, uri] of snapshot.uris) uris.set(key, uri);
     }
     try {
+      indexTrace("graph-start",{generation,notes:inputs.length});
       const index = await buildVaultIndexCooperatively(inputs, {
         now: monotonicNow,
         yieldNow: yieldImmediate,
@@ -214,8 +220,10 @@ export class VaultIndexService implements vscode.Disposable {
       this.index = index;
       this.uris = uris;
       this.vaultData = vaultData;
+      indexTrace("graph-published",{generation,notes:vaultData.notes.length,target:vaultData.notes.includes("Late Vault Target")});
       this._onDidChange.fire();
     } catch (error) {
+      indexTrace("graph-error",{generation,error:String(error)});
       if (error instanceof VaultIndexBuildCancelled) return;
       // Retain the last complete index. A later dirty/notReady document request
       // will retry because only successful publication advances freshness.
