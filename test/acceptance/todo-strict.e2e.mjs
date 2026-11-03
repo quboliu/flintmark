@@ -268,9 +268,16 @@ try {
     await rowFor("alpha active").click();
     await win.waitForTimeout(400);
     assert.ok((await selectionLine(alphaFrame)).includes("alpha active"));
+    const focusDeadline=Date.now()+5000;
+    while (!(await alphaFrame.evaluate(()=>document.querySelector('.cm-content').cmTile.root.view.hasFocus)) && Date.now()<focusDeadline) await win.waitForTimeout(25);
+    const inputState=()=>alphaFrame.evaluate(()=>{const v=document.querySelector('.cm-content').cmTile.root.view;return {text:v.state.doc.toString(),selection:v.state.selection.main,cmFocused:v.hasFocus,documentFocused:document.hasFocus(),active:document.activeElement?.className};});
+    console.log('TODO_INPUT_BEFORE_END',JSON.stringify(await inputState()));
+    assert.ok((await inputState()).cmFocused,'Todo navigation must focus the editor before typing');
     await win.keyboard.press("End");
+    console.log('TODO_INPUT_AFTER_END',JSON.stringify(await inputState()));
     // One input transaction has one unambiguous undo unit on every host.
     await win.keyboard.insertText(" renamed");
+    console.log("TODO_INPUT_AFTER_INSERT",JSON.stringify(await inputState()));
     await waitTodoRows(
       (rows) => hasRow(rows, "alpha active renamed"),
       "renamed task should appear"

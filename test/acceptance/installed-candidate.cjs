@@ -9,6 +9,8 @@ const expectedWebview=candidate.runtime.find(x=>x.path==='out/webview.js').sha25
 const hash=p=>crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');
 const installedProfiles = new Map();
 electron.launch=async options=>{
+ // Prevent the editor's delayed first-run sign-in dialog from consuming test input.
+ options={...options,args:[...(options.args||[]),'--skip-welcome','--skip-release-notes']};
  const args=options.args||[],arg=n=>args.find(a=>a.startsWith(n+'='))?.slice(n.length+1);
  const extensions=arg('--extensions-dir'),profile=arg('--user-data-dir'),vsix=process.env.FLINTMARK_VSIX,out=process.env.FLINTMARK_OUT;
  if(!extensions||!profile||!vsix||!out)throw Error('Installed test requires isolated directories and an explicit VSIX');
