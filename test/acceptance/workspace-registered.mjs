@@ -255,7 +255,7 @@ let app = null;
 async function launchApp() {
   return await electron.launch({
     executablePath: VSCODE,
-    env: { ...process.env, FLINTMARK_TEST_VAULT_BUILD_GATE: buildGate, FLINTMARK_TEST_INDEX_TRACE:join(OUT,"index-trace.jsonl") },
+    env: { ...process.env, FLINTMARK_TEST_VAULT_BUILD_GATE: buildGate },
     args: [...(/cursor/i.test(process.env.VSCODE_BIN||'')?['--skip-onboarding']:[]),
       "--no-sandbox",
       "--disable-gpu",

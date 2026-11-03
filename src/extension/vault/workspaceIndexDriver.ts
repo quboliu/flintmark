@@ -1,4 +1,3 @@
-import { indexTrace } from "./indexTrace";
 import { WorkspaceIndexScanQueue } from "./workspaceIndexScanQueue";
 // Workspace Index Driver · shared VS Code host plumbing for path-based indexes.
 //
@@ -346,7 +345,6 @@ export class WorkspaceIndexDriver implements vscode.Disposable {
     const generation = markDirty
       ? this.invalidate(kind, root)
       : this.bumpGeneration(timerKey);
-    indexTrace("request", {kind,reason,generation,mode,status:this.runtimeState(kind,root).status});
     const queuedMode = mode === "content" && stateIsBuilding(this.runtimeState(kind, root))
       ? "full"
       : mode;
@@ -432,7 +430,6 @@ export class WorkspaceIndexDriver implements vscode.Disposable {
     const scanKey = this.timerKey(kind, rootKey);
     const state = this.runtimeState(kind, root);
     const startedEpoch = state.dirtyEpoch;
-    indexTrace("scan-start", {kind,reason,generation:myGen,mode:batch.mode});
     state.status = "building";
     state.inFlight = true;
     state.inFlightGeneration = myGen;
@@ -488,7 +485,6 @@ export class WorkspaceIndexDriver implements vscode.Disposable {
           cancellation.dispose();
         }
         if (!isCurrent()) throw new WorkspaceIndexBuildCancelled();
-        indexTrace("files-found", {kind,generation:myGen,count:files.length});
         // Over-cap searches are incomplete: retain conservative delete routing.
         scannedFiles = cap === undefined || files.length <= cap ? files : undefined;
         if (cap !== undefined && files.length > cap) {
@@ -498,7 +494,6 @@ export class WorkspaceIndexDriver implements vscode.Disposable {
         }
       }
     } catch (error) {
-      indexTrace("scan-error", {kind,generation:myGen,current:isCurrent(),error:String(error)});
       if (!isCurrent() || error instanceof WorkspaceIndexBuildCancelled) {
         if (state.inFlightGeneration === myGen) {
           state.status = "cancelled";
@@ -514,7 +509,6 @@ export class WorkspaceIndexDriver implements vscode.Disposable {
     }
 
     if (!isCurrent()) {
-      indexTrace("scan-superseded",{kind,generation:myGen});
       if (state.inFlightGeneration === myGen) {
         state.status = "cancelled";
         state.inFlight = false;
@@ -536,7 +530,6 @@ export class WorkspaceIndexDriver implements vscode.Disposable {
     state.completedEpoch = startedEpoch;
     state.inFlight = false;
     state.inFlightGeneration = undefined;
-    indexTrace("scan-published", {kind,generation:myGen,version,reason,mode:completedMode});
     this.emitter.fire({ kind, root, version, reason, mode: completedMode, changedUris });
   }
 
