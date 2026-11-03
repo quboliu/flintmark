@@ -172,7 +172,7 @@ describe("Workspace index scan scheduling", () => {
         const current = calls;
         try {
           if (current === 1) { entered(); await gate; }
-          return context.isCurrent() ? files.map((file) => file.path) : ["stale"];
+          return context.isCurrent() ? files.map((file) => file.toString()) : ["stale"];
         } finally { active--; }
       },
     });
@@ -188,7 +188,7 @@ describe("Workspace index scan scheduling", () => {
       await done;
       assert.strictEqual(maximum, 1);
       assert.strictEqual(calls, 2);
-      assert.deepStrictEqual(handle.snapshot(root), [vscode.Uri.file(path.join(folder, "note.md")).path]);
+      assert.deepStrictEqual(handle.snapshot(root), [vscode.Uri.file(path.join(folder, "note.md")).toString()]);
     } finally {
       release();
       driver.dispose();
@@ -260,18 +260,28 @@ describe("Todo navigation to an existing hidden preview", () => {
           tab.input.viewType === VIEW_TYPE && tab.input.uri.toString() === note.toString())
           .map(tab => ({ group, tab })),
       );
+      let trace: vscode.Disposable | undefined;
       try {
         await vscode.commands.executeCommand("vscode.openWith", note, VIEW_TYPE, { viewColumn: vscode.ViewColumn.One, preview: false });
         await delay(1500);
         assert.strictEqual(matchingTabs().length, 1);
         const original = matchingTabs()[0];
+        const tabEvents: {kind:string; uri:string; viewType:string}[] = [];
+        trace = vscode.window.tabGroups.onDidChangeTabs(event => {
+          for (const kind of ["opened","closed","changed"] as const) for (const tab of event[kind]) {
+            if (tab.input instanceof vscode.TabInputCustom && tab.input.uri.toString() === note.toString())
+              tabEvents.push({kind,uri:tab.input.uri.toString(),viewType:tab.input.viewType});
+          }
+        });
         const document = await vscode.workspace.openTextDocument(note);
         await vscode.window.showTextDocument(other, { viewColumn: original.group.viewColumn, preview: false });
         await vscode.window.showTextDocument(document, {
           viewColumn: split ? vscode.ViewColumn.Beside : original.group.viewColumn,
           preview: false,
         });
-        assert.strictEqual(original.tab.isActive, false, "preview must actually be hidden before navigating");
+        assert.strictEqual(matchingTabs()[0].tab.isActive, false, "preview must actually be hidden before navigating");
+        const wrapperPreservedBeforeNavigation = matchingTabs()[0]?.tab === original.tab;
+        const eventsBeforeNavigation = tabEvents.length;
         const markerFrom = text.indexOf("[ ]");
         await vscode.commands.executeCommand("ofm.gotoTodo", {
           uri: note, version: document.version, status: " ", text: "target task",
@@ -280,16 +290,21 @@ describe("Todo navigation to an existing hidden preview", () => {
         const deadline = Date.now() + 5000;
         // The tab activation and active-group events can reach the extension
         // host separately. Wait for both within the original deadline.
-        while ((!original.tab.isActive ||
+        while ((!matchingTabs()[0]?.tab.isActive ||
           vscode.window.tabGroups.activeTabGroup.viewColumn !== original.group.viewColumn) &&
           Date.now() < deadline) await delay(25);
         const after = matchingTabs();
+        console.log("TAB_IDENTITY_DIAGNOSTIC",JSON.stringify({split,wrapperPreservedBeforeNavigation,wrapperPreservedAfterNavigation:after[0]?.tab===original.tab,eventsBeforeNavigation,tabEvents,afterCount:after.length,afterActive:after[0]?.tab.isActive,originalActive:original.tab.isActive}));
         assert.strictEqual(after.length, 1, "navigation must not duplicate the preview");
-        assert.strictEqual(after[0].tab, original.tab, "navigation must preserve the existing tab");
+        // Cursor can replace API Tab wrappers during an ordinary source-tab open,
+        // before Flintmark navigation runs. Assert actual tab lifetime instead.
+        assert.deepStrictEqual(tabEvents.filter(event => event.kind !== "changed"), [],
+          "hiding and revealing must not close or recreate the preview tab");
         assert.strictEqual(after[0].group.viewColumn, original.group.viewColumn, "preview must stay in its original group");
-        assert.strictEqual(original.tab.isActive, true, "navigation must reveal the hidden preview");
+        assert.strictEqual(after[0].tab.isActive, true, "navigation must reveal the hidden preview");
         assert.strictEqual(vscode.window.tabGroups.activeTabGroup.viewColumn, original.group.viewColumn, "focus must follow the revealed preview");
       } finally {
+        trace?.dispose();
         await vscode.commands.executeCommand("workbench.action.closeAllEditors");
       }
     });

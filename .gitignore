@@ -12,3 +12,7 @@ coverage/
 docs/
 CONTEXT.md
 examples/
+
+# Release acceptance artifacts
+candidate/
+acceptance-evidence/

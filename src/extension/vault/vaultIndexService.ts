@@ -1,3 +1,4 @@
+import { readIndexFile } from "./readIndexFile";
 // Vault Index · thin VS Code adapter (MAY import vscode).
 //
 // All real logic lives in the pure core (vaultIndex.ts / linkParser.ts). This
@@ -144,7 +145,7 @@ export class VaultIndexService implements vscode.Disposable {
       async (uri): Promise<{ input: NoteInput; uri: vscode.Uri } | undefined> => {
         if (isExcluded(uri)) return;
         try {
-          const bytes = await vscode.workspace.fs.readFile(uri);
+          const bytes = await readIndexFile(uri, (target) => vscode.workspace.fs.readFile(target));
           const key = uri.toString();
           return { input: { path: key, text: this.decoder.decode(bytes) }, uri };
         } catch {
@@ -178,7 +179,7 @@ export class VaultIndexService implements vscode.Disposable {
       snapshot,
       changedUris,
       (uri) => uri.toString(),
-      async (uri) => this.decoder.decode(await vscode.workspace.fs.readFile(uri)),
+      async (uri) => this.decoder.decode(await readIndexFile(uri, (target) => vscode.workspace.fs.readFile(target))),
       () => {
         if (!context.isCurrent()) throw new WorkspaceIndexBuildCancelled();
       }

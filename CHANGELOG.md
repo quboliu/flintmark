@@ -5,6 +5,22 @@ the editor stabilizes for the Marketplace.
 
 ## Unreleased
 
+## 0.33.2
+
+- **Large-workspace indexing.** Local note reads now run directly in the extension host instead of making a file-service IPC request for every file. This removes the Windows indexing bottleneck observed in the 20,000-note stress test. Remote and custom file systems continue to use their registered providers. The same routing applies to incremental updates.
+
+- **Release acceptance.** Every release now tests one packaged VSIX on Ubuntu x64, Windows x64, Windows ARM64, and macOS ARM64 in VS Code, VSCodium, and Cursor. Publication requires all 12 combinations and the quality checks to pass; the accepted package is published without rebuilding it.
+
+- **Test reliability.** Integration checks independently validate Mocha results even when an editor exits successfully after test failures. GUI tests wait for the visible preview, preserve real tab lifecycle assertions, and avoid first-run welcome screens intercepting input.
+
+### Validation scope
+
+The release gate covers 13 stages per editor, including image paths, CRLF editing, multiple-pane synchronization, scrolling, 14 large or adversarial Markdown fixtures with 42 edit/save checks, and a workspace with 20,000 notes and 4,200 images under continuous file creation and deletion. Linux and macOS also receive local acceptance. Windows validation uses GitHub-hosted runners; local Windows full release testing was not completed because of test-device availability constraints. Antigravity remains outside GUI acceptance because account login is out of scope.
+
+### Contributors
+
+Thanks again to [@Fujita0113](https://github.com/Fujita0113) for the CRLF fix in [#18](https://github.com/quboliu/flintmark/pull/18) and the Windows image and multiple-pane reports that helped drive this cross-platform validation. The original contribution remains in the commit history.
+
 ## 0.33.1
 
 - **Typing synchronization.** Consecutive queued input batches from the same pane are combined before native submission, reducing backlog on slower hosts while preserving command order, concurrent-pane edits, and recovery after a rejected edit.

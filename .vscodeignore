@@ -43,3 +43,7 @@ out/**
 
 # Dependency patches are applied before bundling; only the runtime ships.
 patches/**
+
+# Release acceptance artifacts
+candidate/
+acceptance-evidence/
