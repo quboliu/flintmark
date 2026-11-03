@@ -26,6 +26,9 @@ const stages=[
  ['corpus','test/acceptance/corpus-session.mjs',true,3600000],
  ['workspace','test/acceptance/workspace-registered.mjs',true,1800000],
 ];
+// Temporary diagnostic ordering: retain all stages, but reach the failing stress
+// case first. The aggregate release gate rejects diagnostic-order reports.
+stages.unshift(stages.pop());
 let desktop;
 if(process.platform==='win32'){
  const script="Add-Type -AssemblyName System.Windows.Forms;[pscustomobject]@{sessionId=(Get-Process -Id $PID).SessionId;interactive=[Environment]::UserInteractive;width=[System.Windows.Forms.SystemInformation]::VirtualScreen.Width;height=[System.Windows.Forms.SystemInformation]::VirtualScreen.Height}|ConvertTo-Json -Compress";
@@ -33,7 +36,7 @@ if(process.platform==='win32'){
  fs.writeFileSync(path.join(root,'desktop.json'),JSON.stringify(desktop,null,2)+'\n');
  assert(desktop.sessionId>0&&desktop.interactive&&desktop.width>0&&desktop.height>0,'Windows GUI acceptance requires an interactive desktop, not service session zero');
 }
-const report={desktop,sourceCommit:candidate.sourceCommit,vsixSha256:candidate.vsixSha256,version:candidate.version,platform:process.platform,arch:process.arch,editor,stages:[],passed:false};
+const report={diagnosticOrder:true,desktop,sourceCommit:candidate.sourceCommit,vsixSha256:candidate.vsixSha256,version:candidate.version,platform:process.platform,arch:process.arch,editor,stages:[],passed:false};
 const save=()=>fs.writeFileSync(summaryFile,JSON.stringify(report,null,2)+'\n');save();
 try{
  for(const [name,script,installed,timeout]of stages){

@@ -290,7 +290,15 @@ async function autocompleteOptions(cm, win) {
   await cm.evaluate(()=>{const e=document.querySelector('.cm-content');const v=e.cmTile?.root?.view||e.cmView?.view||e.parentElement.cmView?.view;const at=v.state.doc.toString().indexOf('selection-probe');v.dispatch({selection:{anchor:v.state.doc.lineAt(at).to}});v.focus();});
   await win.keyboard.type(" [[Late");
   await win.waitForTimeout(250);
-  return await cm.locator(".cm-tooltip-autocomplete li").allInnerTexts();
+  const options = await cm.locator(".cm-tooltip-autocomplete li").allInnerTexts();
+  const input = await cm.evaluate(() => {
+    const v=document.querySelector('.cm-content').cmTile.root.view;
+    return {text:v.state.doc.toString(),selection:{anchor:v.state.selection.main.anchor,head:v.state.selection.main.head},focused:v.hasFocus,documentFocused:document.hasFocus(),active:document.activeElement?.className,messages:window.__workspaceMessages||[]};
+  });
+  const trace={options,input};
+  writeFileSync(join(OUT,'workspace-input-latest.json'),JSON.stringify(trace,null,2));
+  console.log('WORKSPACE_INPUT',JSON.stringify(trace));
+  return options;
 }
 
 async function reopenWithFlintmark(win) {
@@ -359,6 +367,13 @@ try {
     if (!cm) await win.waitForTimeout(2500);
   }
   assert.ok(cm, "open.md should paint in Flintmark while the vault build runs");
+  await cm.evaluate(() => {
+    window.__workspaceMessages=[];
+    window.addEventListener('message',event=>{
+      const data=event.data;
+      if(data?.type==='vaultData') window.__workspaceMessages.push({type:data.type,notes:data.vault?.notes?.length,target:data.vault?.notes?.includes('Late Vault Target'),at:performance.now()});
+    });
+  });
   const nativeWindows = await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().filter(w=>!w.isDestroyed()).map(w=>({bounds:w.getBounds(),visible:w.isVisible(),minimized:w.isMinimized(),focused:w.isFocused()})));
   const rendererState = await win.evaluate(()=>({width:innerWidth,height:innerHeight,hidden:document.hidden,visibility:document.visibilityState,focused:document.hasFocus()}));
   const clickTarget = await cm.locator('.cm-line').filter({hasText:'selection-probe'}).first().boundingBox();
