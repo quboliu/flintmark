@@ -1,3 +1,4 @@
+import {isVisibleFrame} from "./visibleFrame.mjs";
 // Test-only external-writer adaptation of structure-final/harness/workspace-registered.mjs.
 // The 25 ms root create/unlink loop runs in an owned Node child, not the Playwright parent.
 // The GUI, gate-held assertions, exact click, selection/editor-instance/autocomplete checks,
@@ -274,7 +275,7 @@ async function findCmFrame(win, timeoutMs) {
     for (const frame of win.frames()) {
       try {
         const content = frame.locator(".cm-content").first();
-        if ((await content.count()) > 0 && (await content.isVisible())) return frame;
+        if ((await content.count()) > 0 && (await content.isVisible()) && await isVisibleFrame(frame)) return frame;
       } catch {
         /* cross-origin */
       }
@@ -301,30 +302,6 @@ async function autocompleteOptions(cm, win) {
   return options;
 }
 
-async function reopenWithFlintmark(win) {
-  await win.bringToFront();
-  await win.keyboard.press("Escape").catch(() => {});
-  await win.keyboard.press("F1");
-  const widget = win.locator(".quick-input-widget");
-  await widget.waitFor({ state: "visible", timeout: 10000 });
-  const input = widget.locator("input:not([type=checkbox])").first();
-  await input.waitFor({ state: "visible", timeout: 10000 });
-  await input.fill(">Reopen Editor With");
-  const command = widget
-    .locator(".monaco-list-row")
-    .filter({ hasText: /Reopen Editor With/ })
-    .first();
-  await command.waitFor({ state: "visible", timeout: 30000 });
-  await command.click();
-  await input.waitFor({ state: "visible", timeout: 10000 });
-  await input.fill("Flintmark");
-  const choice = widget
-    .locator(".monaco-list-row")
-    .filter({ hasText: /Flintmark|Markdown Live Preview/ })
-    .first();
-  await choice.waitFor({ state: "visible", timeout: 30000 });
-  await choice.click();
-}
 
 let bodyPassed = false;
 let bodyError = null;
@@ -354,18 +331,10 @@ try {
   app = await launchApp();
   const win = await app.firstWindow();await win.waitForSelector('.monaco-workbench',{timeout:120000});const welcome=win.locator('.antigravity-ide-welcome-button');if(await welcome.isVisible()){await welcome.click();await win.waitForTimeout(1500);}
   await win.waitForSelector(".monaco-workbench", { timeout: 30000 });
-  // Observe a cold Windows launch without racing its extension-host startup
-  // with command-palette actions. The vault gate remains held throughout.
-  let cm = await findCmFrame(win, process.platform === "win32" ? 180000 : 500);
-  for (let attempt = 0; attempt < 3 && !cm && process.platform !== "win32"; attempt++) {
-    try {
-      await reopenWithFlintmark(win);
-      cm = await findCmFrame(win, 10000);
-    } catch {
-      await win.keyboard.press("Escape").catch(() => {});
-    }
-    if (!cm) await win.waitForTimeout(2500);
-  }
+  // Readiness has already verified activation and the normal editor association.
+  // Wait for the visible webview on every platform. Reopening after only 500 ms
+  // raced initialization and could leave retained, hidden frames as false targets.
+  const cm = await withDiagnosticTimeout("visible preview readiness", () => findCmFrame(win, 30000), 30000);
   assert.ok(cm, "open.md should paint in Flintmark while the vault build runs");
   await cm.evaluate(() => {
     window.__workspaceMessages=[];
@@ -374,7 +343,7 @@ try {
       if(data?.type==='vaultData') window.__workspaceMessages.push({type:data.type,notes:data.vault?.notes?.length,target:data.vault?.notes?.includes('Late Vault Target'),at:performance.now()});
     });
   });
-  const nativeWindows = await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().filter(w=>!w.isDestroyed()).map(w=>({bounds:w.getBounds(),visible:w.isVisible(),minimized:w.isMinimized(),focused:w.isFocused()})));
+  const nativeWindows = await withDiagnosticTimeout("native window metrics", () => app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().filter(w=>!w.isDestroyed()).map(w=>({bounds:w.getBounds(),visible:w.isVisible(),minimized:w.isMinimized(),focused:w.isFocused()}))), 5000);
   const rendererState = await win.evaluate(()=>({width:innerWidth,height:innerHeight,hidden:document.hidden,visibility:document.visibilityState,focused:document.hasFocus()}));
   const clickTarget = await cm.locator('.cm-line').filter({hasText:'selection-probe'}).first().boundingBox();
   writeFileSync(join(OUT,'pre-click-window-state.json'),JSON.stringify({nativeWindows,rendererState,clickTarget},null,2));
@@ -385,7 +354,7 @@ try {
   await cm.locator(".cm-editor").evaluate((el) => {
     el.dataset.vaultReadyInstance = "original";
   });
-  const gatedOptions = await autocompleteOptions(cm, win);
+  const gatedOptions = await withDiagnosticTimeout("workspace input probe", () => autocompleteOptions(cm, win), 30000);
   assert.equal(
     gatedOptions.some((text) => text.includes("Late Vault Target")),
     false,
@@ -399,7 +368,7 @@ try {
   let eventualOptions = [];
   const deadline = performance.now() + 120000;
   while (performance.now() < deadline) {
-    eventualOptions = await autocompleteOptions(cm, win);
+    eventualOptions = await withDiagnosticTimeout("workspace input probe", () => autocompleteOptions(cm, win), 30000);
     if (eventualOptions.some((text) => text.includes("Late Vault Target"))) break;
     await win.keyboard.press("Escape");
     for (let i = 0; i < 7; i++) await win.keyboard.press("Backspace");
