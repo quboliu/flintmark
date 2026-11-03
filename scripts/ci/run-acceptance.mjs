@@ -37,7 +37,7 @@ const report={desktop,sourceCommit:candidate.sourceCommit,vsixSha256:candidate.v
 const save=()=>fs.writeFileSync(summaryFile,JSON.stringify(report,null,2)+'\n');save();
 try{
  for(const [name,script,installed,timeout]of stages){
-  const out=path.join(root,name);fs.mkdirSync(out,{recursive:true});const log=path.join(out,'runner.log'),fd=fs.openSync(log,'wx');
+  const out=path.join(root,name==='workspace'?'workspace-stress':name);fs.mkdirSync(out,{recursive:true});const log=path.join(out,'runner.log'),fd=fs.openSync(log,'wx');
   const env={...common,FLINTMARK_OUT:out,FLINTMARK_TRIAGE_OUT:path.join(out,'diagnostics'),FLINTMARK_ANCHOR_RESULTS:path.join(out,'results'),FLINTMARK_OBSERVER_RESULTS:path.join(out,'results')};
   const args=[...(installed?['--require',path.join(harness,'readiness.cjs'),'--require',path.join(harness,'installed-candidate.cjs')]:[]),path.resolve(script)];
   const started=performance.now();console.log(`Starting ${editor}/${name}`);

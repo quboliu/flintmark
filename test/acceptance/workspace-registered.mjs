@@ -420,6 +420,7 @@ try {
   bodyPassed = true;
 } catch(error) {
   bodyError = String(error?.stack || error);
+  console.error("WORKSPACE_FAILURE",bodyError);
   process.exitCode = 1;
 
   // Failure diagnostics share one explicit budget so a stuck renderer cannot
@@ -590,6 +591,7 @@ try {
     diagnosticErrors,
     error: bodyError,
   };
+  console.log("WORKSPACE_RESULT",JSON.stringify(result));
   writeFileSync(join(OUT, "workspace-stress.json"), JSON.stringify(result, null, 2) + "\n");
 }
 
