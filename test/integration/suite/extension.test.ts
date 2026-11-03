@@ -265,6 +265,13 @@ describe("Todo navigation to an existing hidden preview", () => {
         await delay(1500);
         assert.strictEqual(matchingTabs().length, 1);
         const original = matchingTabs()[0];
+        const tabEvents: {kind:string; uri:string; viewType:string}[] = [];
+        const trace = vscode.window.tabGroups.onDidChangeTabs(event => {
+          for (const kind of ["opened","closed","changed"] as const) for (const tab of event[kind]) {
+            if (tab.input instanceof vscode.TabInputCustom && tab.input.uri.toString() === note.toString())
+              tabEvents.push({kind,uri:tab.input.uri.toString(),viewType:tab.input.viewType});
+          }
+        });
         const document = await vscode.workspace.openTextDocument(note);
         await vscode.window.showTextDocument(other, { viewColumn: original.group.viewColumn, preview: false });
         await vscode.window.showTextDocument(document, {
@@ -272,6 +279,8 @@ describe("Todo navigation to an existing hidden preview", () => {
           preview: false,
         });
         assert.strictEqual(original.tab.isActive, false, "preview must actually be hidden before navigating");
+        const wrapperPreservedBeforeNavigation = matchingTabs()[0]?.tab === original.tab;
+        const eventsBeforeNavigation = tabEvents.length;
         const markerFrom = text.indexOf("[ ]");
         await vscode.commands.executeCommand("ofm.gotoTodo", {
           uri: note, version: document.version, status: " ", text: "target task",
@@ -284,6 +293,8 @@ describe("Todo navigation to an existing hidden preview", () => {
           vscode.window.tabGroups.activeTabGroup.viewColumn !== original.group.viewColumn) &&
           Date.now() < deadline) await delay(25);
         const after = matchingTabs();
+        trace.dispose();
+        console.log("TAB_IDENTITY_DIAGNOSTIC",JSON.stringify({split,wrapperPreservedBeforeNavigation,wrapperPreservedAfterNavigation:after[0]?.tab===original.tab,eventsBeforeNavigation,tabEvents,afterCount:after.length,afterActive:after[0]?.tab.isActive,originalActive:original.tab.isActive}));
         assert.strictEqual(after.length, 1, "navigation must not duplicate the preview");
         assert.strictEqual(after[0].tab, original.tab, "navigation must preserve the existing tab");
         assert.strictEqual(after[0].group.viewColumn, original.group.viewColumn, "preview must stay in its original group");
