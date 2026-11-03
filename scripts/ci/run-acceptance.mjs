@@ -47,6 +47,11 @@ try{
   const result=spawnSync(process.execPath,args,{cwd:repo,env,stdio:['ignore',fd,fd],timeout,killSignal:'SIGKILL'});fs.closeSync(fd);
   report.stages.push({name,exitCode:result.status,signal:result.signal,error:result.error?.message,durationMs:performance.now()-started,installed});save();
   const text=fs.readFileSync(log,'utf8');process.stdout.write(text.slice(-16000));
+  if(result.status!==0&&name==='workspace'&&process.platform==='darwin'&&editor==='cursor'){
+   const failure=read(path.join(out,'workspace-stress.json')),controlOut=path.join(out,'native-control');fs.mkdirSync(controlOut,{recursive:true});
+   const controlFd=fs.openSync(path.join(controlOut,'runner.log'),'wx');
+   spawnSync(process.execPath,[path.join(harness,'native-workspace-control.mjs')],{cwd:repo,env:{...common,FLINTMARK_OUT:controlOut,FLINTMARK_NATIVE_CONTROL_WORK:failure.work},stdio:['ignore',controlFd,controlFd],timeout:240000,killSignal:'SIGKILL'});fs.closeSync(controlFd);
+  }
   assert.equal(result.status,0,`${editor}/${name} failed; inspect the full runner.log`);
   if(installed)assert.equal(read(path.join(out,'installed-candidate.json')).vsixSha256,candidate.vsixSha256);
   if(name==='native-scroll'||name==='observer-controls'){
