@@ -29,6 +29,12 @@ the editor stabilizes for the Marketplace.
 - **Save and undo after typing.** Keyboard save, undo, and redo wait for the pane's pending edits to synchronize. Switching between LF and CRLF preserves live-pane positions.
 - **Editing CRLF notes.** Typing, Backspace, task toggles and AI selections in Live Preview now land at the cursor in Windows-style (CRLF) notes instead of shifting by the number of preceding line breaks.
 
+### Validation scope
+
+Linux and macOS completed release acceptance in VS Code, VSCodium, and Cursor, including large-file editing and the 20,000-note / 4,200-image workspace stress test. Files above the Live Preview size limit use the intentional source-text fallback.
+
+Full Windows release acceptance was waived by the maintainer. The Windows large-workspace GUI stress test timed out in the test environment, so this release does not claim completed Windows acceptance. Antigravity was excluded from GUI acceptance because account login was out of scope.
+
 ### Contributors
 
 Thanks to [@Fujita0113](https://github.com/Fujita0113) for the CRLF editing fix in [#18](https://github.com/quboliu/flintmark/pull/18) and for reporting the Windows image and multiple-pane synchronization issues. The original contribution is retained in the commit history.
