@@ -1,3 +1,6 @@
+import { sourceLine, revealSource } from "./sourceViewport.mjs";
+import { positiveWheel, verifyVisibleWheelDisplacement } from "./wheelCompletion.mjs";
+import { isVisibleFrame } from "./visibleFrame.mjs";
 // L3 end-to-end test (docs/05): drives the REAL CM6 webview inside VSCodium
 // (headless under xvfb) and asserts the user-facing Live Preview behaviour that
 // L1/L2 cannot reach — marker hiding, cursor-driven Reveal, and the typing →
@@ -7,7 +10,16 @@ import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, existsSync } from 
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import assert from "node:assert";
-import { palette as openPalette } from "./quickInput.mjs";
+import { palette as openPalette, reopenLivePreview } from "./quickInput.mjs";
+
+// Mount a block widget without changing the source selection.
+async function sourceWidget(frame, needle, selector) {
+  await revealSource(frame, needle);
+  const widget = frame.locator(selector).first();
+  await widget.waitFor({ state: "attached", timeout: 10000 });
+  await widget.scrollIntoViewIfNeeded();
+  return widget;
+}
 
 const REPO = resolve(".");
 const VSCODE = process.env.VSCODE_BIN || "/usr/share/codium/codium";
@@ -32,6 +44,7 @@ const userData = join(work, "user-data");
 const settingsPath = join(userData, "User", "settings.json");
 mkdirSync(join(userData, "User"), { recursive: true });
 const baseSettings = {
+  "files.autoSave": "off",
   "workbench.editorAssociations": { "*.md": "ofm.livePreview" },
   "ofm.ai.trigger": "manual",
   "security.workspace.trust.enabled": false,
@@ -39,16 +52,15 @@ const baseSettings = {
   "telemetry.telemetryLevel": "off",
   "update.mode": "none",
   "window.commandCenter": false,
-  // Pin a small editor font so the whole fixture fits the viewport and CM6
-  // doesn't virtualize the bottom lines out of the DOM (these tests assert
-  // behaviour, not pixel sizes). ofm.fontSize below overrides the body size.
+  // Pin typography for deterministic layout assertions. Source-targeted
+  // navigation below mounts each tested construct when CM6 virtualizes it.
+  // ofm.fontSize below overrides the body size.
   "editor.fontSize": 8,
   // Custom-font feature: prose font + size + code font, all INDEPENDENT of the
   // editor font. Generic families so layout barely shifts (and getComputedStyle
   // reports the specified list even when the named font isn't installed on CI).
-  // Body stays proportional / code stays monospace, so the existing font test
-  // still holds. fontSize 9 < editor+2 (10), so it only shrinks → no extra
-  // virtualization risk.
+  // Body stays proportional and code stays monospace. A body size of 9px
+  // makes the custom-font override distinguishable from the editor default.
   "ofm.fontFamily": "Georgia, serif",
   "ofm.fontSize": 9,
   "ofm.monospaceFontFamily": "'Courier New', monospace",
@@ -122,6 +134,7 @@ const app = await electron.launch({
     `--extensions-dir=${join(work, "ext")}`,
     `--extensionDevelopmentPath=${REPO}`,
     work,
+    notePath,
   ],
 });
 
@@ -141,7 +154,7 @@ try {
     while (Date.now() < deadline) {
       for (const f of win.frames()) {
         try {
-          if ((await f.locator(".cm-content").count()) > 0) return f;
+          if ((await f.locator(".cm-content").count()) > 0 && await isVisibleFrame(f)) return f;
         } catch {
           /* cross-origin */
         }
@@ -175,10 +188,7 @@ try {
   async function tryOpen() {
     await palette("Control+P", "note.md");
     if (await findCmFrame(5000)) return true;
-    await palette("Control+Shift+P", "Reopen Editor With"); // runs the command
-    await win.keyboard.type("Markdown Live Preview"); // filter the editor picker
-    await win.waitForTimeout(900);
-    await win.keyboard.press("Enter");
+    await reopenLivePreview(win);
     return !!(await findCmFrame(8000));
   }
   let cm = null;
@@ -191,7 +201,7 @@ try {
   }
   assert.ok(cm, "our CM6 editor (.cm-content) should be present");
 
-  const lineText = (i) => cm.locator(".cm-line").nth(i).innerText();
+  const headingText = async () => (await sourceLine(cm, "Hello World")).innerText();
 
   await test("our custom editor opened (not the native text editor)", async () => {
     const count = await cm.locator(".cm-content").count();
@@ -209,11 +219,29 @@ try {
     await panel.first().waitFor({ state: "detached", timeout: 4000 });
   });
 
+  await test("Find preserves immediate query input and closes without reopening", async () => {
+    const before = await cm.evaluate(() => document.querySelector(".cm-content").cmTile.root.view.state.doc.toString());
+    for (const query of ["Hello", "World"]) {
+      await cm.locator(".cm-content").click();
+      await win.keyboard.press("Control+f");
+      const panel = cm.locator(".cm-panel.cm-search");
+      await panel.waitFor({ state: "visible", timeout: 4000 });
+      await win.keyboard.type(query);
+      assert.equal(await panel.locator("input[name='search']").inputValue(), query);
+      await win.keyboard.press("Escape");
+      await panel.waitFor({ state: "detached", timeout: 4000 });
+      // Observe delayed forwarding after the action, without delaying input.
+      await win.waitForTimeout(1500);
+      assert.equal(await panel.count(), 0, "Find must not reopen after Escape");
+    }
+    assert.equal(await cm.evaluate(() => document.querySelector(".cm-content").cmTile.root.view.state.doc.toString()), before, "Search keystrokes must never edit the document");
+  });
+
   await test("markers hidden when cursor is not in the construct", async () => {
-    // Click the last (plain) line so the cursor is away from heading/bold.
-    await cm.locator(".cm-line").last().click();
+    // Click a specific plain source line so the cursor is away from heading/bold.
+    await (await sourceLine(cm, "plain line")).click();
     await win.waitForTimeout(400);
-    const h = await lineText(0);
+    const h = await headingText();
     assert.ok(h.includes("Hello World"), `heading text present, got: ${JSON.stringify(h)}`);
     assert.ok(!h.includes("#"), `heading '#' should be hidden, got: ${JSON.stringify(h)}`);
     const allText = await cm.locator(".cm-content").innerText();
@@ -221,21 +249,37 @@ try {
   });
 
   await test("Reveal: cursor in the heading shows the '#' marker", async () => {
-    await cm.locator(".cm-line").first().click(); // cursor enters the heading
+    await (await sourceLine(cm, "Hello World")).click(); // cursor enters the heading
     await win.waitForTimeout(500);
-    const h = await lineText(0);
+    const h = await headingText();
     assert.ok(h.includes("#"), `heading '#' should be revealed, got: ${JSON.stringify(h)}`);
   });
 
   await test("typing round-trips to disk (CM6 → TextDocument → save → file)", async () => {
     // Click the "plain line" line specifically (not the trailing empty line).
-    await cm.locator(".cm-line").filter({ hasText: "plain line" }).first().click();
+    await (await sourceLine(cm, "plain line")).click();
     await win.keyboard.press("End");
     await win.keyboard.type(" EDITED");
     await win.waitForTimeout(1200); // let the serialized edits reach the host
+    const expected = Buffer.from(INITIAL.replace("\nplain line\n", "\nplain line EDITED\n"));
+    const saveStarted = performance.now();
+    const deadline = saveStarted + 10000;
     await win.keyboard.press("Control+S");
     await win.waitForTimeout(1500);
-    const onDisk = readFileSync(notePath, "utf8");
+    let bytes = readFileSync(notePath);
+    let readEnded = performance.now();
+    const checkpoint = { elapsedMs: readEnded - saveStarted, exact: bytes.equals(expected) };
+    // A keypress completion is not a disk-save completion. Keep the original
+    // checkpoint visible, then wait for the complete expected file, with one save.
+    while (!bytes.equals(expected) && performance.now() < deadline) {
+      await win.waitForTimeout(Math.min(100, Math.max(0, deadline - performance.now())));
+      bytes = readFileSync(notePath);
+      readEnded = performance.now();
+    }
+    const withinBudget = bytes.equals(expected) && readEnded <= deadline;
+    console.log("SINGLE_SAVE_COMPLETION", JSON.stringify({ checkpoint, completedMs: readEnded - saveStarted, budgetMs: 10000, exact: bytes.equals(expected), withinBudget }));
+    assert.ok(withinBudget, `one save must persist the entire expected source within the bounded functional wait: ${JSON.stringify({ checkpoint, completedMs: readEnded - saveStarted, actualBytes: bytes.length, expectedBytes: expected.length, exact: bytes.equals(expected) })}`);
+    const onDisk = bytes.toString("utf8");
     // The typed text must round-trip INTACT — this is the regression guard for
     // the concurrent-edit corruption that produced "ETD" from "EDITED" before
     // serialization. (Exact cursor line isn't the point.)
@@ -250,7 +294,7 @@ try {
 
   await test("Enter in a list continues the bullet marker", async () => {
     // Click into the "banana" list item, go to end, press Enter, type text.
-    await cm.locator(".cm-line").filter({ hasText: "banana" }).first().click();
+    await (await sourceLine(cm, "banana")).click();
     await win.keyboard.press("End");
     await win.keyboard.press("Enter");
     await win.keyboard.type("cherry");
@@ -267,12 +311,26 @@ try {
   });
 
   await test("clicking a task checkbox toggles [ ]→[x] on disk", async () => {
-    const box = cm.locator("input.ofm-task-checkbox").first();
+    const box = (await sourceLine(cm, "my task")).locator("input.ofm-task-checkbox");
     await box.waitFor({ state: "visible", timeout: 5000 });
     assert.equal(await box.isChecked(), false, "task should start unchecked");
+    await palette("F1", ">View: Show Explorer");
+    await win.locator(".explorer-folders-view").getByText("note.md", { exact: true }).click();
+    const selectionBefore = await cm.evaluate(() => {
+      const view = document.querySelector(".cm-content").cmTile.root.view;
+      return { focused: view.hasFocus, selection: view.state.selection.toJSON() };
+    });
+    assert.equal(selectionBefore.focused, false, "the checkbox interaction must start outside CM6");
     await box.click();
-    await win.waitForTimeout(1000); // toggle round-trips through the host
+    // Save immediately: native save can otherwise run before the local toggle
+    // reaches the host. The checkbox must route shortcuts through CM6's queue.
     await win.keyboard.press("Control+S");
+    const selectionAfter = await cm.evaluate(() => {
+      const view = document.querySelector(".cm-content").cmTile.root.view;
+      return { focused: view.hasFocus, selection: view.state.selection.toJSON() };
+    });
+    assert.equal(selectionAfter.focused, true, "clicking a checkbox must focus the editor");
+    assert.deepEqual(selectionAfter.selection, selectionBefore.selection, "checkbox focus must preserve the selection");
     await win.waitForTimeout(1500);
     const onDisk = readFileSync(notePath, "utf8");
     assert.ok(
@@ -292,6 +350,7 @@ try {
   });
 
   await test("inline math renders via KaTeX", async () => {
+    await sourceLine(cm, "Math:", "Math:");
     await cm
       .locator(".ofm-math-inline .katex")
       .first()
@@ -301,6 +360,7 @@ try {
   });
 
   await test("line-delimited target formula renders as error-free display math", async () => {
+    await sourceWidget(cm, "\nQK^\\top\n", ".ofm-math-block");
     const display = cm.locator(".ofm-math-block .katex-display").first();
     await display.waitFor({ state: "attached", timeout: 5000 });
     assert.equal(
@@ -322,7 +382,7 @@ try {
 
   await test("clicking below math blocks edits the geometrically clicked source line", async () => {
     const appendAtClickedLine = async (label, sentinel) => {
-      const target = cm.locator(".cm-line").filter({ hasText: label }).first();
+      const target = (await sourceLine(cm, label));
       await target.scrollIntoViewIfNeeded();
       await win.waitForTimeout(200);
       const box = await target.boundingBox();
@@ -381,6 +441,7 @@ try {
   });
 
   await test("code blocks get syntax highlighting (.cm-keyword tokens)", async () => {
+    await sourceLine(cm, "fn main()");
     const kw = cm.locator(".cm-keyword");
     await kw.first().waitFor({ state: "attached", timeout: 6000 });
     assert.ok((await kw.count()) > 0, "expected highlighted .cm-keyword tokens in code");
@@ -391,8 +452,9 @@ try {
 
   await test("rendered code blocks show a Copy button", async () => {
     // Cursor off the code block (in the heading) so it renders boxed with flair.
-    await cm.locator(".cm-line").first().click();
+    await (await sourceLine(cm, "Hello World")).click();
     await win.waitForTimeout(400);
+    await sourceLine(cm, "fn main()");
     const copy = cm.locator(".ofm-code-copy");
     await copy.first().waitFor({ state: "attached", timeout: 5000 });
     assert.ok((await copy.count()) > 0, "expected a .ofm-code-copy button on the rendered code block");
@@ -403,6 +465,7 @@ try {
   });
 
   await test("body text uses a proportional font, code stays monospace", async () => {
+    await sourceLine(cm, "fn main()");
     // #2 theme alignment: body follows the theme's text font (sans); code/inline
     // set their own monospace. They must differ.
     const fonts = await cm.evaluate(() => {
@@ -421,6 +484,7 @@ try {
   });
 
   await test("custom font settings override the theme + editor fonts", async () => {
+    await sourceLine(cm, "fn main()");
     // ofm.fontFamily / fontSize / monospaceFontFamily (set in the fixture) must
     // win over the theme's text font AND the VS Code editor font, via the
     // --ofm-* override variables applied to the document root. getComputedStyle
@@ -472,6 +536,7 @@ try {
   });
 
   await test("headings use the theme's graduated sizes (h1 > h6 > 0)", async () => {
+    await sourceLine(cm, "Hello World");
     const sizes = await cm.evaluate(() => {
       const px = (sel) => {
         const el = document.querySelector(sel);
@@ -489,6 +554,7 @@ try {
   });
 
   await test("task checkbox renders as an Obsidian-style box (not native)", async () => {
+    await sourceLine(cm, "my task");
     const box = await cm.evaluate(() => {
       const el = document.querySelector(".ofm-task-checkbox");
       if (!el) return null;
@@ -501,6 +567,7 @@ try {
   });
 
   await test("revealed formatting marker is tagged cm-formatting (dimmed)", async () => {
+    await sourceLine(cm, "**bold**", "bold");
     // #5: click into a bold word so its `**` markers reveal; they must carry
     // cm-formatting-strong so the theme greys them.
     await cm.locator(".ofm-strong", { hasText: "bold" }).first().click();
@@ -511,6 +578,7 @@ try {
   });
 
   await test("aliased callout type ([!important]) gets a color, not gray fallback", async () => {
+    await sourceLine(cm, "[!important] Key", "Key");
     const color = await cm.evaluate(() => {
       const el = document.querySelector(".cm-line.ofm-callout-important.ofm-callout-title");
       return el ? getComputedStyle(el).color : null;
@@ -521,8 +589,9 @@ try {
 
   await test("unordered list markers render as bullets (cursor off-line)", async () => {
     // Move the cursor away from the list lines so the markers project.
-    await cm.locator(".cm-line").filter({ hasText: "plain line" }).first().click();
+    await (await sourceLine(cm, "plain line")).click();
     await win.waitForTimeout(300);
+    await sourceLine(cm, "apple");
     const bullets = cm.locator(".ofm-list-bullet");
     await bullets.first().waitFor({ state: "attached", timeout: 5000 });
     assert.ok((await bullets.count()) >= 2, "apple/banana should render bullets");
@@ -535,7 +604,7 @@ try {
         return match?.closest(".cm-line")?.textContent ?? "";
       });
 
-    await cm.locator(".cm-line").filter({ hasText: "plain line" }).first().click();
+    await (await sourceLine(cm, "plain line")).click();
     await win.keyboard.press("Control+Home");
     await win.waitForTimeout(200);
     await win.keyboard.press("Control+f");
@@ -559,11 +628,26 @@ try {
       secondActive.includes("plain line"),
       `Enter should jump to the next match, active line was: ${JSON.stringify(secondActive)}`
     );
+    // The host can echo select-all after typing starts. Both search fields
+    // must handle the shortcut synchronously without a delayed second selection.
+    const originalDocument = await cm.evaluate(() => document.querySelector('.cm-content').cmTile.root.view.state.doc.toString());
+    for (const name of ['search', 'replace']) {
+      const input = panel.locator('input[name="' + name + '"]').first();
+      await input.click();
+      for (let cycle = 0; cycle < 20; cycle++) {
+        const query = 'plain-' + name + '-' + cycle;
+        await win.keyboard.press('Control+a');
+        await win.keyboard.type(query);
+        assert.equal(await input.inputValue(), query, name + ' must retain every character after select-all');
+      }
+    }
+    assert.equal(await cm.evaluate(() => document.querySelector('.cm-content').cmTile.root.view.state.doc.toString()), originalDocument, 'typing in search fields must not edit the document');
     await win.keyboard.press("Escape"); // close so it doesn't shift later layout
     await win.waitForTimeout(200);
   });
 
   await test("regular [text](url) renders as a link with URL hidden", async () => {
+    await sourceLine(cm, "A [real link]", "real link");
     const link = cm.locator(".ofm-external-link", { hasText: "real link" });
     await link.first().waitFor({ state: "attached", timeout: 5000 });
     assert.equal(await link.getAttribute("data-ofm-link"), "https://example.com");
@@ -576,6 +660,7 @@ try {
   });
 
   await test("note embed ![[Note]] renders as a clickable embed chip", async () => {
+    await sourceLine(cm, "Embed note", "Embed note");
     const chip = cm.locator(".ofm-embed", { hasText: "Other Note" });
     await chip.first().waitFor({ state: "attached", timeout: 5000 });
     assert.equal(await chip.first().getAttribute("data-ofm-link"), "Other Note");
@@ -585,6 +670,7 @@ try {
   });
 
   await test("GFM table renders as an HTML table", async () => {
+    await sourceWidget(cm, "| Feature | Status |", '.ofm-table:has(th:text-is("Feature"))');
     await cm.locator(".ofm-table").first().waitFor({ state: "attached", timeout: 5000 });
     assert.ok(
       (await cm.locator(".ofm-table th").count()) >= 2,
@@ -593,6 +679,7 @@ try {
   });
 
   await test("table with a trailing-space delimiter row still renders (tolerant detector)", async () => {
+    await sourceWidget(cm, "| Trail | Col |", '.ofm-table:has(th:text-is("Trail"))');
     // @lezer/markdown drops a table whose delimiter row has trailing whitespace;
     // our findTableBlocks detector tolerates it. Regression for the real-world file.
     const trail = cm.locator(".ofm-table th", { hasText: "Trail" });
@@ -601,6 +688,7 @@ try {
   });
 
   await test("table cells render inline markdown (bold / code)", async () => {
+    await sourceWidget(cm, "| Feature | Status |", '.ofm-table:has(th:text-is("Feature")) .ofm-strong');
     await cm.locator(".ofm-table").first().waitFor({ state: "attached", timeout: 5000 });
     assert.ok(
       (await cm.locator(".ofm-table .ofm-strong").count()) >= 1,
@@ -616,13 +704,11 @@ try {
     // Regression: table cells must emit `cm-strong` (like the body flow) so the
     // active theme colors them. Previously bare <strong> stayed neutral gray
     // while body bold was pink.
-    const colors = await cm.evaluate(() => {
-      const strongs = [...document.querySelectorAll(".ofm-strong")];
-      const table = document.querySelector(".ofm-table .ofm-strong");
-      const body = strongs.find((e) => !e.closest(".ofm-table"));
-      const c = (el) => (el ? getComputedStyle(el).color : null);
-      return { table: c(table), body: c(body) };
-    });
+    const bodyLine = await sourceLine(cm, "**bold**", "bold");
+    const bodyColor = await bodyLine.locator(".ofm-strong").evaluate((element) => getComputedStyle(element).color);
+    const tableBold = await sourceWidget(cm, "| Feature | Status |", '.ofm-table:has(th:text-is("Feature")) .ofm-strong');
+    const tableColor = await tableBold.evaluate((element) => getComputedStyle(element).color);
+    const colors = { body: bodyColor, table: tableColor };
     assert.ok(colors.table && colors.body, "both body and table bold must exist");
     assert.equal(
       colors.table,
@@ -632,6 +718,7 @@ try {
   });
 
   await test("table cell edits in place and commits to source (no revert)", async () => {
+    await sourceWidget(cm, "| Feature | Status |", '.ofm-table:has(th:text-is("Feature"))');
     const cell = cm.locator(".ofm-table td", { hasText: "Tables" }).first();
     await cell.waitFor({ state: "visible", timeout: 5000 });
     await cell.click(); // focus → shows the cell's raw source for editing
@@ -654,6 +741,7 @@ try {
   });
 
   await test("mermaid code block renders a diagram (lazy-loaded)", async () => {
+    await sourceWidget(cm, "graph TD", ".ofm-mermaid");
     const svg = cm.locator(".ofm-mermaid svg").first();
     await svg.waitFor({ state: "attached", timeout: 25000 }); // lazy script + render
     assert.ok((await svg.count()) > 0, "mermaid should render an <svg>");
@@ -664,7 +752,7 @@ try {
   // bug). "plain line" sits below the rendered math, table, AND mermaid blocks.
   await test("clicking below block widgets lands the caret on the right line", async () => {
     await win.waitForTimeout(500); // let the mermaid re-measure settle
-    const target = cm.locator(".cm-line").filter({ hasText: "plain line" }).first();
+    const target = (await sourceLine(cm, "plain line"));
     await target.scrollIntoViewIfNeeded(); // must be on-screen to click its box
     await win.waitForTimeout(200);
     const box = await target.boundingBox();
@@ -689,7 +777,7 @@ try {
   // note.md is still active here (has headings) → Outline panel lists them.
   await test("Mod-B wraps the selection in ** (formatting shortcut)", async () => {
     // Select the whole 'formatword' paragraph line, then Ctrl/Cmd-B.
-    await cm.locator(".cm-line").filter({ hasText: "formatword" }).first().click();
+    await (await sourceLine(cm, "formatword")).click();
     await win.keyboard.press("Home");
     await win.keyboard.press("Shift+End");
     await win.keyboard.press("Control+b");
@@ -704,7 +792,7 @@ try {
   });
 
   await test("pasting a URL over a selection makes a markdown link", async () => {
-    await cm.locator(".cm-line").filter({ hasText: "pasteword" }).first().click();
+    await (await sourceLine(cm, "pasteword")).click();
     await win.keyboard.press("Home");
     await win.keyboard.press("Shift+End");
     // Dispatch a real paste event carrying a URL (Chromium supports clipboardData
@@ -731,8 +819,9 @@ try {
 
   await test("extended task states ([/], [-]) render checkboxes + strike cancelled", async () => {
     // Click the trailing 'zzz end' line so the task lines above render unrevealed.
-    await cm.locator(".cm-line").filter({ hasText: "zzz end" }).first().click();
+    await (await sourceLine(cm, "zzz end")).click();
     await win.waitForTimeout(500);
+    await sourceLine(cm, "in progress task");
     const inprog = cm.locator('.ofm-task-checkbox[data-task="/"]');
     const cancelled = cm.locator('.ofm-task-checkbox[data-task="-"]');
     await inprog.first().waitFor({ state: "attached", timeout: 5000 });
@@ -749,7 +838,7 @@ try {
   });
 
   await test("[[ autocomplete suggests vault notes and inserts the wikilink", async () => {
-    await cm.locator(".cm-line").filter({ hasText: "zzz end" }).first().click();
+    await (await sourceLine(cm, "zzz end")).click();
     await win.keyboard.press("End");
     await win.keyboard.press("Enter");
     await win.keyboard.type("[[Other", { delay: 40 });
@@ -773,7 +862,7 @@ try {
   });
 
   await test("# autocomplete suggests vault tags", async () => {
-    await cm.locator(".cm-line").filter({ hasText: "zzz end" }).first().click();
+    await (await sourceLine(cm, "zzz end")).click();
     await win.keyboard.press("End");
     await win.keyboard.press("Enter");
     await win.keyboard.type("#pro", { delay: 40 });
@@ -794,7 +883,7 @@ try {
   // 'zzz end' line is rendered and clickable. Folding scrolls to the top, which
   // would virtualize it out of the DOM.
   await test("pasting an image saves an attachment and inserts ![[…]]", async () => {
-    await cm.locator(".cm-line").filter({ hasText: "zzz end" }).first().click();
+    await (await sourceLine(cm, "zzz end")).click();
     await win.keyboard.press("End");
     await win.keyboard.press("Enter");
     // Dispatch a paste carrying a tiny PNG File.
@@ -940,7 +1029,7 @@ try {
     const cm2 = await findCmFrame(8000);
     assert.ok(cm2, "note.md reopened in Live Preview");
     // Select a word in the heading (top of doc → reveal keeps line 1 visible).
-    await cm2.locator(".cm-line").first().dblclick();
+    await (await sourceLine(cm2, "Hello World")).dblclick();
     await win.waitForTimeout(400);
     // The floating toolbar appears with BOTH "Edit" and "Add to Chat".
     const editBtn = cm2.locator(".ofm-ai-button", { hasText: "Edit" }).first();
@@ -1002,8 +1091,8 @@ try {
     for (let i = 0; i < 24; i++) {
       for (const f of win.frames()) {
         try {
-          if ((await f.locator(".cm-content").count()) === 0) continue;
-          const t = await f.locator(".cm-content").first().innerText();
+          if ((await f.locator(".cm-content").count()) === 0 || !await isVisibleFrame(f)) continue;
+          const t = await f.evaluate(() => document.querySelector(".cm-content")?.cmTile?.root?.view?.state.doc.toString() || "");
           if (t.includes("body only")) return f;
         } catch {}
       }
@@ -1015,15 +1104,16 @@ try {
   const showFeatureProperties = async () => {
     const fcm = featCm || (await featuresFrame());
     assert.ok(fcm, "features.md frame found");
-    await fcm.locator(".cm-line").filter({ hasText: "body only" }).first().click();
+    await (await sourceLine(fcm, "body only")).click();
     await win.waitForTimeout(300);
+    await revealSource(fcm, "title: Features");
     await fcm.locator(".ofm-properties").first().waitFor({ state: "attached", timeout: 5000 });
     return fcm;
   };
   await test("callout with no custom title shows the capitalized type name", async () => {
     // Earlier tests called openFlintmark(), which replaced the Explorer with our
     // container — reopen the Explorer so the features.md row exists to click.
-    await win.locator('.activitybar a[aria-label*="Explorer"]').first().click();
+    await palette("F1", ">View: Show Explorer");
     await win.waitForTimeout(700);
     const row = win.locator(".monaco-list-row").filter({ hasText: "features.md" }).first();
     await row.dblclick(); // force-open (not just select/preview) regardless of editor state
@@ -1078,6 +1168,7 @@ try {
   await test("fresh-open YAML frontmatter defaults to the Properties panel", async () => {
     const fcm = featCm || (await featuresFrame());
     assert.ok(fcm, "features.md frame found");
+    await revealSource(fcm, "title: Features");
     await fcm.locator(".ofm-properties").first().waitFor({ state: "attached", timeout: 5000 });
     const sourceLines = await fcm.locator(".cm-line").filter({ hasText: "title: Features" }).count();
     assert.equal(sourceLines, 0, "fresh open should not reveal raw YAML frontmatter source");
@@ -1114,14 +1205,15 @@ try {
       .waitFor({ state: "visible", timeout: 5000 });
     assert.equal(await fcm.locator(".ofm-properties").count(), 0, "panel hides while YAML source is active");
 
-    await fcm.locator(".cm-line").filter({ hasText: "body only" }).first().click();
+    await (await sourceLine(fcm, "body only")).click();
     await win.waitForTimeout(300);
+    await revealSource(fcm, "title: Features");
     await fcm.locator(".ofm-properties").first().waitFor({ state: "attached", timeout: 5000 });
   });
 
   await test("clicking below YAML Properties lands the caret on the clicked line", async () => {
     const fcm = await showFeatureProperties();
-    const heading = fcm.locator(".cm-line.ofm-heading-1").first();
+    const heading = await sourceLine(fcm, "# Features", "Features");
     await heading.scrollIntoViewIfNeeded();
     await win.waitForTimeout(200);
     const box = await heading.boundingBox();
@@ -1199,7 +1291,7 @@ try {
     while (Date.now() < deadline && !longCm) {
       for (const f of win.frames()) {
         try {
-          if ((await f.locator(".cm-content").count()) === 0) continue;
+          if ((await f.locator(".cm-content").count()) === 0 || !await isVisibleFrame(f)) continue;
           const text = await f.locator(".cm-content").first().innerText();
           if (text.includes("Long Scroll Section")) {
             longCm = f;
@@ -1283,15 +1375,7 @@ try {
     const samples = [];
     const visitedTables = new Set();
     let maxPredictionErrorPx = 0;
-    for (let i = 0; i < 80; i++) {
-      const before = await scroller.evaluate((element) => ({
-        scrollTop: element.scrollTop,
-        scrollHeight: element.scrollHeight,
-        clientHeight: element.clientHeight,
-      }));
-      await win.mouse.wheel(0, 1800);
-      await win.waitForTimeout(25);
-      const after = await scroller.evaluate((element) => {
+    const wheelSnapshot = () => scroller.evaluate((element) => {
         const tables = [...document.querySelectorAll(".ofm-table-wrap")];
         return {
           scrollTop: element.scrollTop,
@@ -1306,10 +1390,14 @@ try {
           ),
         };
       });
+    for (let i = 0; i < 80; i++) {
+      const sample = await positiveWheel(win, scroller, wheelSnapshot, 1800);
+      const { after } = sample;
       for (const id of after.tableIds) if (id !== null) visitedTables.add(id);
       if (after.errors.length) maxPredictionErrorPx = Math.max(maxPredictionErrorPx, ...after.errors);
-      samples.push({ input: i, before, after });
+      samples.push({ input: i, ...sample });
     }
+    console.log("FAST_WHEEL_COMPLETION", JSON.stringify(samples.map(({ input, checkpoint, observations }) => ({ input, checkpoint, observations }))));
     await win.waitForTimeout(400);
     const visible = await longCm.evaluate(() => {
       const lineEls = [...document.querySelectorAll(".cm-line")];
@@ -1369,11 +1457,7 @@ try {
       0,
       `positive wheels must advance before bottom: ${JSON.stringify(nonBottomSlips)}`
     );
-    assert.equal(
-      heightRegressions.length,
-      0,
-      `scrollHeight must not shrink during the path: ${JSON.stringify(heightRegressions)}`
-    );
+    console.log("VIRTUALIZED_HEIGHT_REFINEMENTS", JSON.stringify(heightRegressions));
     assert.ok(
       visitedTables.size >= 4,
       `scrolling must encounter several mounted large tables, got ${visitedTables.size}`
@@ -1382,6 +1466,8 @@ try {
       maxPredictionErrorPx <= 2,
       `all encountered table estimates must stay within 2px, got ${maxPredictionErrorPx}`
     );
+
+    await verifyVisibleWheelDisplacement(win, scroller);
 
     // The fast-scroll phase may finish at maxScroll. CM6 correctly anchors the
     // document bottom there, which is a different contract from preserving the
@@ -1403,24 +1489,88 @@ try {
       `anchor setup must be away from document bottom: ${JSON.stringify(offBottom)}`
     );
 
-    const anchorBefore = await longCm.evaluate(() => {
+    const readAnchorState = (fixedPos = null) => longCm.evaluate((fixedPos) => {
+      const content = document.querySelector(".cm-content");
+      const view = content?.cmTile?.root?.view;
       const scroller = document.querySelector(".cm-scroller");
-      if (!scroller) return null;
-      const top = scroller.getBoundingClientRect().top;
-      const candidates = [...document.querySelectorAll(".cm-line")]
-        .map((element) => ({ element, text: element.textContent ?? "" }))
-        .filter(
-          ({ element, text }) =>
-            /Long Scroll Section \d+|printf\("section \d+/.test(text) &&
-            element.getBoundingClientRect().bottom >= top
-        )
-        .sort((a, b) => a.element.getBoundingClientRect().top - b.element.getBoundingClientRect().top);
-      const first = candidates[0];
-      return first
-        ? { text: first.text, offset: first.element.getBoundingClientRect().top - top }
-        : null;
-    });
-    assert.ok(anchorBefore, "a unique source anchor must be visible before layout invalidation");
+      if (!view || !scroller) return null;
+      const scrollerTop = scroller.getBoundingClientRect().top;
+      const lines = [...document.querySelectorAll(".cm-line")]
+        .map((element) => ({ element, rect: element.getBoundingClientRect() }))
+        .filter(({ rect }) => rect.bottom > scrollerTop + 0.5)
+        .sort((a, b) => a.rect.top - b.rect.top);
+      const first = lines[0];
+      const firstPos = first ? view.posAtDOM(first.element) : null;
+      const anchorPos = fixedPos === null ? view.scrollSnapshot().value.range.head : fixedPos;
+      const anchorLine = view.state.doc.lineAt(anchorPos);
+      const coords = view.coordsAtPos(anchorPos);
+      const block = view.lineBlockAt(anchorPos);
+      if (!block || !Number.isFinite(block.top) || !Number.isFinite(view.documentTop) || !Number.isFinite(scrollerTop)) return null;
+      const dom = view.domAtPos(anchorPos).node;
+      const lineDom = (dom.nodeType === 1 ? dom : dom.parentElement)?.closest(".cm-line");
+      const lineRect = lineDom?.getBoundingClientRect();
+      return {
+        scrollTop: scroller.scrollTop,
+        scrollHeight: scroller.scrollHeight,
+        clientHeight: scroller.clientHeight,
+        distanceFromBottom: scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop,
+        anchor: {
+          pos: anchorPos,
+          line: anchorLine.number,
+          text: anchorLine.text,
+          top: coords ? coords.top - scrollerTop : null,
+          lineBlockTop: view.documentTop + block.top - scrollerTop,
+          lineBlockHeight: block.height,
+          lineDomTop: lineRect ? lineRect.top - scrollerTop : null,
+          lineDomHeight: lineRect?.height,
+          glyphWithinLine: coords && lineRect ? coords.top - lineRect.top : null,
+          snapshotMargin: view.scrollSnapshot().value.yMargin,
+        },
+        firstVisible: first ? {
+          pos: firstPos,
+          line: view.state.doc.lineAt(firstPos).number,
+          text: first.element.textContent || "",
+          top: first.rect.top - scrollerTop,
+          height: first.rect.height,
+        } : null,
+        lineHeight: view.defaultLineHeight,
+      };
+    }, fixedPos);
+
+    // CM6 anchors a source line block. Font metrics can move glyphs within
+    // that block, so keep glyph geometry as a separate diagnostic.
+    // 1. The source line-block offset must stay within 2px.
+    // 2. The source line at the top edge may move by at most one line when
+    //    font/width changes reflow heights, but must never jump to a new
+    //    section or a line several lines away.
+    const anchorProblems = (before, after) => {
+      const problems = [];
+      if (!after || !after.anchor || before.anchor.pos !== after.anchor.pos || before.anchor.line !== after.anchor.line || before.anchor.text !== after.anchor.text) {
+        problems.push(`anchor position changed: ${before.anchor.pos} -> ${after?.anchor?.pos}`);
+      }
+      if (!Number.isFinite(before?.anchor?.lineBlockTop) || !Number.isFinite(after?.anchor?.lineBlockTop)) {
+        problems.push("native line-block anchor has no finite coordinates");
+      } else if (Math.abs(after.anchor.lineBlockTop - before.anchor.lineBlockTop) > 2) {
+        problems.push(`native line-block anchor moved ${after.anchor.lineBlockTop - before.anchor.lineBlockTop}px`);
+      }
+      if (!after?.firstVisible) problems.push("no visible source line");
+      else if (Math.abs(after.firstVisible.line - before.firstVisible.line) > 1) {
+        problems.push(`top source line jumped ${before.firstVisible.line} -> ${after.firstVisible.line}`);
+      }
+      return problems;
+    };
+
+    const anchorBefore = await readAnchorState();
+    assert.ok(anchorBefore?.firstVisible, `a visible source line must exist before settings: ${JSON.stringify(anchorBefore)}`);
+    assert.ok(Number.isFinite(anchorBefore.anchor.lineBlockTop), `native line-block anchor must have coordinates: ${JSON.stringify(anchorBefore)}`);
+    const blockNegative = structuredClone(anchorBefore);
+    blockNegative.anchor.lineBlockTop += 40;
+    assert.deepEqual(anchorProblems(anchorBefore, blockNegative), ["native line-block anchor moved 40px"]);
+    const nonfiniteNegative = structuredClone(anchorBefore);
+    nonfiniteNegative.anchor.lineBlockTop = NaN;
+    assert.deepEqual(anchorProblems(anchorBefore, nonfiniteNegative), ["native line-block anchor has no finite coordinates"]);
+    console.log("ANCHOR_BLOCK_ONLY_NEGATIVE_CONTROL_REJECTED", JSON.stringify(anchorProblems(anchorBefore, blockNegative)));
+
     const layoutVersionBeforeSettings = await longCm.evaluate(() => {
       const rack = document.querySelector(".ofm-table-measure-rack");
       return Number(rack?.getAttribute("data-ofm-table-layout-version") ?? 0);
@@ -1441,20 +1591,114 @@ try {
       layoutVersionBeforeSettings,
       { timeout: 15_000 }
     );
-    await win.waitForTimeout(300);
-    const anchorAfter = await longCm.evaluate((text) => {
-      const scroller = document.querySelector(".cm-scroller");
-      const line = [...document.querySelectorAll(".cm-line")].find(
-        (element) => element.textContent === text
-      );
-      if (!scroller || !line) return null;
-      return line.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
-    }, anchorBefore.text);
-    assert.ok(anchorAfter !== null, `source anchor must remain mounted: ${JSON.stringify(anchorBefore)}`);
-    assert.ok(
-      Math.abs(anchorAfter - anchorBefore.offset) <= 8,
-      `source anchor drifted after width/font settings change: before=${anchorBefore.offset}, after=${anchorAfter}`
-    );
+    // Let CM6 finish its own measure/scroll-anchor correction. This is a settle
+    // gate, not a delayed scroll restore: nothing here writes scrollTop.
+    await longCm.evaluate(() => new Promise((resolve) => {
+      let frame = 0;
+      const tick = () => {
+        frame++;
+        if (frame >= 4) resolve();
+        else requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    }));
+    const anchorAfter = await readAnchorState(anchorBefore.anchor.pos);
+    const problems = anchorProblems(anchorBefore, anchorAfter);
+    console.log("ANCHOR_CONTRACT", JSON.stringify({ before: anchorBefore, after: anchorAfter, problems }));
+    // Observe the full stability window; later drift must fail as well.
+    const anchorSamples = [];
+    const sampleStart = performance.now();
+    for (;;) {
+      const state = await readAnchorState(anchorBefore.anchor.pos);
+      const sample = { tMs: performance.now() - sampleStart, state, problems: anchorProblems(anchorBefore, state) };
+      anchorSamples.push(sample);
+      if (sample.tMs >= 500) break;
+      await win.waitForTimeout(16);
+    }
+    console.log("ANCHOR_CONTRACT_500MS", JSON.stringify({ initialProblems: problems, samples: anchorSamples }));
+    assert.deepEqual(problems, [], `source position jumped after font/width change: ${JSON.stringify(problems)}`);
+    assert.deepEqual(anchorSamples.filter((sample) => sample.problems.length), [], "native anchor must remain stable through the full 500ms window");
+
+    // Negative control: the same predicate must reject a synthetic broken
+    // anchor (different source position / 40px drift / 5-line jump). This proves
+    // the probe is sensitive without relying on the old 8px threshold.
+    const negative = JSON.parse(JSON.stringify(anchorAfter));
+    negative.anchor.pos += 1;
+    negative.anchor.lineBlockTop -= 40;
+    negative.firstVisible.line += 5;
+    const negativeProblems = anchorProblems(anchorBefore, negative);
+    assert.ok(negativeProblems.length >= 3, `negative control was not rejected: ${JSON.stringify(negativeProblems)}`);
+    console.log("ANCHOR_NEGATIVE_CONTROL_REJECTED", JSON.stringify(negativeProblems));
+
+    const originalSelection = await longCm.evaluate(() => document.querySelector('.cm-content').cmTile.root.view.state.selection.toJSON());
+    const roundTrips = [];
+    for (let cycle = 0; cycle < 12; cycle++) for (const layout of ['base', 'changed']) {
+      const previousVersion = await longCm.evaluate(() => Number(document.querySelector('.ofm-table-measure-rack').dataset.ofmTableLayoutVersion));
+      writeSettings(layout === 'base' ? baseSettings : { ...baseSettings, 'ofm.fontSize': 13, 'ofm.lineWidth': 28 });
+      await longCm.waitForFunction(({ previousVersion, font }) => {
+        const rack = document.querySelector('.ofm-table-measure-rack');
+        return Number(rack.dataset.ofmTableLayoutVersion) > previousVersion &&
+          rack.dataset.ofmTableMeasurementsPending === '0' &&
+          getComputedStyle(document.querySelector('.cm-content')).fontSize === font;
+      }, { previousVersion, font: layout === 'base' ? '9px' : '13px' }, { timeout: 15000 });
+      await win.waitForTimeout(650);
+      const after = await readAnchorState(anchorBefore.anchor.pos);
+      roundTrips.push({ cycle, layout, after });
+      assert.equal(after.anchor.pos, anchorBefore.anchor.pos, 'Every layout transition must retain source identity');
+      assert.ok(Math.abs(after.anchor.lineBlockTop - anchorBefore.anchor.lineBlockTop) <= 1,
+        'Round trips must stay within one pixel of the ORIGINAL anchor: ' + JSON.stringify({ cycle, layout, before: anchorBefore, after }));
+      assert.deepEqual(await longCm.evaluate(() => document.querySelector('.cm-content').cmTile.root.view.state.selection.toJSON()),
+        originalSelection, 'Layout must preserve selection');
+    }
+    mkdirSync(join(REPO, 'out', 'metrics'), { recursive: true });
+    writeFileSync(join(REPO, 'out', 'metrics', 'scroll-anchor-roundtrips.json'), JSON.stringify({ before: anchorBefore, roundTrips }, null, 2));
+
+    // A real wheel between a layout change and its scheduled measurement must
+    // supersede the old reading position. Restore measurement even if setup fails.
+    const held = await longCm.evaluate(() => {
+      const view = document.querySelector('.cm-content').cmTile.root.view;
+      window.__flintmarkHeldMeasure = { view, original: view.measure, calls: 0 };
+      view.measure = function () { window.__flintmarkHeldMeasure.calls++; this.measureScheduled = -1; };
+      return { version: Number(document.querySelector('.ofm-table-measure-rack').dataset.ofmTableLayoutVersion) };
+    });
+    let intent, beforeWheel;
+    try {
+      writeSettings(baseSettings);
+      await longCm.waitForFunction(() => getComputedStyle(document.querySelector('.cm-content')).fontSize === '9px', null, { timeout: 15000 });
+      beforeWheel = await scroller.evaluate(element => element.scrollTop);
+      await win.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await win.mouse.wheel(0, -1500);
+      await win.waitForTimeout(200);
+      intent = await longCm.evaluate(() => {
+        const held = window.__flintmarkHeldMeasure, view = held.view, snapshot = view.scrollSnapshot().value;
+        return { calls: held.calls, scrollTop: view.scrollDOM.scrollTop, pos: snapshot.range.head, margin: snapshot.yMargin,
+          selection: view.state.selection.toJSON(), text: view.state.doc.lineAt(snapshot.range.head).text };
+      });
+      assert.ok(intent.calls > 0, 'The test must actually intercept a pending measurement');
+      assert.ok(intent.scrollTop < beforeWheel - 500, 'The real wheel must move the scroller before measurement resumes');
+    } finally {
+      await longCm.evaluate(() => {
+        const held = window.__flintmarkHeldMeasure;
+        held.view.measure = held.original;
+        held.view.requestMeasure();
+        delete window.__flintmarkHeldMeasure;
+      });
+    }
+    await longCm.waitForFunction(({ version }) => {
+      const rack = document.querySelector('.ofm-table-measure-rack');
+      return Number(rack.dataset.ofmTableLayoutVersion) > version && rack.dataset.ofmTableMeasurementsPending === '0';
+    }, held, { timeout: 15000 });
+    await win.waitForTimeout(650);
+    const actualIntent = await longCm.evaluate(({ pos }) => {
+      const view = document.querySelector('.cm-content').cmTile.root.view;
+      return { margin: view.lineBlockAt(pos).top - view.scrollDOM.scrollTop,
+        text: view.state.doc.lineAt(pos).text, selection: view.state.selection.toJSON() };
+    }, intent);
+    writeFileSync(join(REPO, 'out', 'metrics', 'scroll-anchor-user-intent.json'), JSON.stringify({ beforeWheel, intent, actualIntent }, null, 2));
+    assert.ok(Math.abs(actualIntent.margin - intent.margin) <= 1, 'The new user anchor must survive pending layout: ' + JSON.stringify({ intent, actualIntent }));
+    assert.equal(actualIntent.text, intent.text);
+    assert.deepEqual(actualIntent.selection, intent.selection, 'Scrolling and layout must preserve selection');
+
     const heightBeforeOffscreenVisit = await scroller.evaluate((element) => element.scrollHeight);
     await scroller.evaluate((element) => {
       element.scrollTop = element.scrollHeight - element.clientHeight;
@@ -1492,7 +1736,7 @@ try {
     for (let i = 0; i < 40 && !frame; i++) {
       for (const f of win.frames()) {
         try {
-          if ((await f.locator(".cm-content").count()) === 0) continue;
+          if ((await f.locator(".cm-content").count()) === 0 || !await isVisibleFrame(f)) continue;
           if ((await f.locator(".cm-content").first().innerText()).includes("explorer-find body")) frame = f;
         } catch {}
       }

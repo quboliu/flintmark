@@ -1,3 +1,11 @@
+import { ChangeSet } from "@codemirror/state";
+import type { Update } from "@codemirror/collab";
+import {
+  CollaborationAuthority,
+  decodeUpdates,
+  encodeUpdates,
+  extendsPendingUpdates,
+} from "../shared/collaboration";
 import { noteLinkTarget, noteLinkCandidates } from "./noteLinkTarget";
 import * as vscode from "vscode";
 import { DocumentSyncManager } from "./documentSync";
@@ -6,7 +14,7 @@ import { ImageIndexService } from "./vault/imageIndexService";
 import { DEFAULT_THEME_ID, findTheme } from "./themes";
 import { openSourceWithSelection, triggerNativeAi, addSelectionToChat } from "./ai/aiBridge";
 import { aiLog } from "./ai/aiLog";
-import { clampOffsetRange } from "../shared/ranges";
+import { clampOffsetRange, cmToHostOffsets, hostToCmOffset } from "../shared/ranges";
 import { DEFAULT_LINE_WIDTH, normalizeSettings } from "../shared/settings";
 import { resolveNewNoteName } from "./vault/newNote";
 import { attachmentName, dedupeName } from "./vault/attachment";
@@ -51,15 +59,46 @@ function readSettings(): Settings {
 // Helpers
 // ---------------------------------------------------------------------------
 
+// The webview's offsets are CodeMirror's, where a CRLF is 1 character; the
+// TextDocument counts it as 2. toHostOffsets maps the webview's offsets to the
+// document's (toDocChanges maps back). Both are no-ops for LF documents.
+function isCrlf(document: vscode.TextDocument): boolean {
+  return document.eol === vscode.EndOfLine.CRLF;
+}
+
+function toHostOffsets(document: vscode.TextDocument, offsets: number[]): number[] {
+  if (!isCrlf(document)) return offsets;
+  return cmToHostOffsets(document.getText(), offsets);
+}
+
+// Each change's range and rangeOffset describe the document BEFORE the event
+// (the event's document is already after it, and several changes share those
+// coordinates), so the CodeMirror offset comes from the range's line numbers.
 function toDocChanges(
-  contentChanges: readonly vscode.TextDocumentContentChangeEvent[]
+  contentChanges: readonly vscode.TextDocumentContentChangeEvent[],
+  crlf: boolean
 ): DocChange[] {
   return contentChanges.map((c) => ({
-    from: c.rangeOffset,
-    to: c.rangeOffset + c.rangeLength,
+    from: crlf ? hostToCmOffset(c.rangeOffset, c.range.start.line) : c.rangeOffset,
+    to: crlf
+      ? hostToCmOffset(c.rangeOffset + c.rangeLength, c.range.end.line)
+      : c.rangeOffset + c.rangeLength,
     insert: c.text,
   }));
 }
+
+type BufferedDocumentChange = {
+  contentChanges: readonly vscode.TextDocumentContentChangeEvent[];
+  version: number;
+  text: string;
+  crlf: boolean;
+};
+type PendingWebviewApply = {
+  updates: readonly Update[];
+  expected: string;
+  baseVersion: number;
+  events: BufferedDocumentChange[];
+};
 
 type PanelRecord = {
   document: vscode.TextDocument;
@@ -83,6 +122,65 @@ export class OfmCustomTextEditorProvider
 
   /** Serializes webview edits per URI — the concurrent-edit corruption guard. */
   private editQueue = new SerialQueue();
+  private readonly queuedEdits = new Map<string, {
+    panel: vscode.WebviewPanel;
+    message: Extract<WebviewMsg, { type: "edit" }>;
+    tail: Promise<unknown>;
+  }>();
+  private authorities = new Map<string, CollaborationAuthority>();
+  private authorityDocuments = new WeakMap<CollaborationAuthority, vscode.TextDocument>();
+  private conflicts = new Map<string, Map<Extract<WebviewMsg, { type: "edit" }>, vscode.WebviewPanel>>();
+  private conflictNotifications = new Set<string>();
+  private recoveryCopies = new Map<string, string[]>();
+  private pendingUpdates = new Map<
+    string,
+    PendingWebviewApply
+  >();
+
+  private authority(document: vscode.TextDocument): CollaborationAuthority {
+    const uri = document.uri.toString();
+    let authority = this.authorities.get(uri);
+    if (authority && this.authorityDocuments.get(authority) !== document &&
+        this.conflicts.has(uri) && !this.pendingUpdates.has(uri) &&
+        authority.doc.toString() !== document.getText().replace(/\r\n?|\n/g, "\n")) {
+      // A closed document can change without emitting events to this provider.
+      // Preserve its pending version separately instead of rebasing old offsets
+      // into unrelated text when the document is reopened.
+      this.recoveryCopies.set(uri, [...(this.recoveryCopies.get(uri) ?? []), this.recoveryText(uri)]);
+      this.conflicts.delete(uri);
+      this.authorities.delete(uri);
+      authority = undefined;
+      void vscode.window.showWarningMessage(
+        "This file changed while closed. Flintmark preserved your unsynchronized edits in a recovery copy.",
+        "Open Recovery Copy",
+      ).then(action => { if (action) void this.openRecoveryCopy(uri); });
+    }
+    if (!authority) {
+      authority = new CollaborationAuthority(
+        document.getText(),
+        isCrlf(document),
+      );
+      this.authorities.set(uri, authority);
+    }
+    if (this.authorityDocuments.get(authority) !== document) authority.crlf = isCrlf(document);
+    this.authorityDocuments.set(authority, document);
+    return authority;
+  }
+  private broadcastUpdates(
+    document: vscode.TextDocument,
+    updates: readonly Update[],
+  ): void {
+    const msg: HostMsg = {
+      type: "syncUpdates",
+      version: document.version,
+      updates: encodeUpdates(updates),
+    };
+    for (const { panel } of this.panels
+      .get(document.uri.toString())
+      ?.values() ?? []) {
+      if (this.readyPanels.has(panel)) panel.webview.postMessage(msg);
+    }
+  }
 
   /** Last image-map JSON sent per panel, to avoid redundant webview re-renders. */
   private lastImageMap: WeakMap<vscode.WebviewPanel, string> = new WeakMap();
@@ -208,7 +306,10 @@ export class OfmCustomTextEditorProvider
     webviewPanel.onDidDispose(() => {
       const records = this.panels.get(uri);
       records?.delete(webviewPanel);
-      if (records?.size === 0) this.panels.delete(uri);
+      if (records?.size === 0) {
+        this.panels.delete(uri);
+        this.releaseAuthorityWhenIdle(uri);
+      }
       // Drop the dedup cache so a REOPENED webview (which starts with an empty
       // imageMap) is re-sent the map even if the document text is unchanged.
       this.lastImageMap.delete(webviewPanel);
@@ -304,23 +405,33 @@ export class OfmCustomTextEditorProvider
   ): Promise<void> {
     switch (msg.type) {
       case "ready":
+        await this.editQueue.idle(document.uri.toString()).catch(() => undefined);
         return this.handleReady(document, panel);
 
       case "edit":
         // Serialize: never apply concurrently (fast typing would race/corrupt).
-        this.enqueueEdit(document, msg.changes);
+        this.enqueueEdit(document, panel, msg);
         return;
 
       case "requestSave":
+        await this.editQueue.idle(document.uri.toString()).catch(() => undefined);
+        if (this.conflicts.has(document.uri.toString())) {
+          this.notifyConflict(document);
+          return;
+        }
         await document.save();
         return;
 
       case "requestUndo":
-        await vscode.commands.executeCommand("undo");
+        await this.editQueue.run(document.uri.toString(), async () => {
+          await vscode.commands.executeCommand("undo");
+        });
         return;
 
       case "requestRedo":
-        await vscode.commands.executeCommand("redo");
+        await this.editQueue.run(document.uri.toString(), async () => {
+          await vscode.commands.executeCommand("redo");
+        });
         return;
 
       case "selectionChanged":
@@ -367,6 +478,7 @@ export class OfmCustomTextEditorProvider
 
     const initMsg: HostMsg = {
       type: "init",
+      syncVersion: this.authority(document).version,
       uri: document.uri.toString(),
       version,
       text,
@@ -377,6 +489,7 @@ export class OfmCustomTextEditorProvider
 
     panel.webview.postMessage(initMsg);
     this.readyPanels.add(panel);
+    if (this.conflicts.has(document.uri.toString())) this.notifyConflict(document);
     const pendingReveal = this.pendingReveals.get(document.uri.toString());
     if (pendingReveal) {
       this.pendingReveals.delete(document.uri.toString());
@@ -396,61 +509,263 @@ export class OfmCustomTextEditorProvider
   // Handle edit from webview → minimal-range WorkspaceEdit
   // -----------------------------------------------------------------------
 
-  /**
-   * Enqueue a webview edit. Edits MUST apply strictly in order and one at a
-   * time: applyEdit is async and fast typing produces many "edit" messages; if
-   * applied concurrently, their offsets (computed by the webview against its
-   * optimistic-ahead document) race and corrupt/reorder the text. We serialize
-   * per-URI via a promise chain.
+  /** Rebase each panel's versioned updates, then apply them serially per URI.
+   * Overlapping batches are deduplicated by the authority, so a frame can send
+   * input immediately without waiting for an earlier acknowledgment.
    */
-  private enqueueEdit(document: vscode.TextDocument, changes: DocChange[]): void {
-    // Strict per-URI serialization — see SerialQueue. Offsets in `changes` were
-    // computed by the webview against its optimistic doc; running edits one at a
-    // time means each applies to a document that already contains every prior
-    // edit, so they map correctly instead of racing.
-    void this.editQueue.run(document.uri.toString(), () =>
-      this.applyWebviewEdit(document, changes)
+  private enqueueEdit(
+    document: vscode.TextDocument,
+    panel: vscode.WebviewPanel,
+    msg: Extract<WebviewMsg, { type: "edit" }>,
+  ): void {
+    const uri = document.uri.toString();
+    const waiting = this.queuedEdits.get(uri);
+    if (waiting && waiting.panel === panel &&
+        waiting.tail === this.editQueue.idle(uri) &&
+        extendsPendingUpdates(waiting.message, msg)) {
+      // Both messages are already in the host. Keep the complete newest batch
+      // without delaying input or moving it across another panel or command.
+      waiting.message = msg;
+      return;
+    }
+    const batch = { panel, message: msg, tail: this.editQueue.idle(uri) };
+    const queued = this.editQueue.run(uri, async () => {
+      if (this.queuedEdits.get(uri) === batch) this.queuedEdits.delete(uri);
+      msg = batch.message;
+      // A rejected WorkspaceEdit must never acknowledge an optimistic edit.
+      // Rebase and retry transient version conflicts while this queue owns it,
+      // including when the originating panel closes before the acknowledgment.
+      const deadline = Date.now() + 2000;
+      for (let attempt = 0; ; attempt++) {
+        const authority = this.authority(document);
+        const updates = authority.prepare(msg.syncVersion, decodeUpdates(msg.updates));
+        if (!updates.length) return;
+        let combined = ChangeSet.empty(authority.doc.length);
+        for (const update of updates) combined = combined.compose(update.changes);
+        const changes: DocChange[] = [];
+        combined.iterChanges((from, to, _fromB, _toB, insert) =>
+          changes.push({ from, to, insert: insert.toString() }),
+        );
+        if (combined.empty) {
+          authority.commit(updates);
+          this.broadcastUpdates(document, updates);
+          return;
+        }
+        const pending: PendingWebviewApply = {
+          updates,
+          expected: combined.apply(authority.doc).toString(),
+          baseVersion: document.version,
+          events: [],
+        };
+        this.pendingUpdates.set(uri, pending);
+        let applied = false;
+        try {
+          applied = await this.applyWebviewEdit(document, changes);
+        } finally {
+          this.pendingUpdates.delete(uri);
+          this.reconcileApplyResult(document, pending, applied);
+        }
+        if (applied) return;
+        if (document.version === pending.baseVersion || Date.now() >= deadline) {
+          throw new Error("VS Code could not apply your edit. Your local edits are still pending.");
+        }
+        // Yield during transient contention; a sustained conflict is retained
+        // below with its authority history and a visible Retry action.
+        await new Promise<void>((resolve) =>
+          setTimeout(resolve, Math.min(10 * (attempt + 1), 100)),
+        );
+      }
+    });
+    batch.tail = queued;
+    this.queuedEdits.set(uri, batch);
+    void queued
+      .then(() => {
+        const conflicts = this.conflicts.get(uri);
+        if (conflicts) {
+          const authority = this.authorities.get(uri);
+          for (const failed of conflicts.keys()) {
+            try {
+              if (authority && !authority.prepare(failed.syncVersion, decodeUpdates(failed.updates)).length) conflicts.delete(failed);
+            } catch (error) {
+              console.error("[ofm] retained edit could not be checked for acknowledgment", error);
+            }
+          }
+          if (!conflicts.size) this.conflicts.delete(uri);
+        }
+        if (!this.panels.has(uri)) this.releaseAuthorityWhenIdle(uri);
+      })
+      .catch((error: unknown) => {
+        const conflicts = this.conflicts.get(uri) ?? new Map();
+        conflicts.set(msg, panel);
+        this.conflicts.set(uri, conflicts);
+        const message = String(error);
+        console.error("[ofm] collaboration edit failed", error);
+        if (this.panels.get(uri)?.has(panel)) {
+          void Promise.resolve(panel.webview.postMessage({
+            type: "syncError",
+            message,
+          } satisfies HostMsg)).catch(() => undefined);
+        }
+        this.notifyConflict(document);
+      });
+  }
+
+  private releaseAuthorityWhenIdle(uri: string): void {
+    const tail = this.editQueue.idle(uri);
+    void tail.then(() => {
+      if (this.editQueue.idle(uri) !== tail) {
+        this.releaseAuthorityWhenIdle(uri);
+      } else if (!this.panels.has(uri) && !this.conflicts.has(uri)) {
+        this.authorities.delete(uri);
+      }
+    }).catch(() => {
+      // Failed edits retain history; unrelated command failures do not.
+      if (!this.panels.has(uri) && !this.conflicts.has(uri)) this.authorities.delete(uri);
+    });
+  }
+
+  private recoveryText(uri: string): string {
+    const authority = this.authorities.get(uri);
+    if (!authority) return this.recoveryCopies.get(uri)?.at(-1) ?? "";
+    const copy = new CollaborationAuthority(authority.doc.toString(), authority.crlf);
+    copy.updates.push(...authority.updates);
+    for (const msg of this.conflicts.get(uri)?.keys() ?? []) {
+      copy.commit(copy.prepare(msg.syncVersion, decodeUpdates(msg.updates)));
+    }
+    return copy.crlf ? copy.doc.toString().replace(/\n/g, "\r\n") : copy.doc.toString();
+  }
+
+  private async openRecoveryCopy(uri: string): Promise<void> {
+    const texts = [...(this.recoveryCopies.get(uri) ?? [])];
+    if (this.conflicts.has(uri)) texts.push(this.recoveryText(uri));
+    for (const text of new Set(texts)) {
+      const copy = await vscode.workspace.openTextDocument({ language: "markdown", content: text });
+      await vscode.window.showTextDocument(copy, { preview: false });
+    }
+  }
+
+  private async retryConflicts(document: vscode.TextDocument): Promise<void> {
+    const current = document.isClosed ? await vscode.workspace.openTextDocument(document.uri) : document;
+    this.authority(current);
+    for (const [msg, panel] of this.conflicts.get(current.uri.toString()) ?? []) {
+      this.enqueueEdit(current, panel, msg);
+    }
+  }
+
+  private notifyConflict(document: vscode.TextDocument): void {
+    const uri = document.uri.toString();
+    if (this.conflictNotifications.has(uri)) return;
+    this.conflictNotifications.add(uri);
+    void vscode.window.showErrorMessage(
+      "Flintmark could not synchronize all edits. Native saves include only synchronized text. Retry or save a recovery copy before closing the application.",
+      "Retry",
+      "Open Recovery Copy",
+    ).then((action) => {
+      this.conflictNotifications.delete(uri);
+      if (action === "Retry") {
+        void this.retryConflicts(document);
+      } else if (action === "Open Recovery Copy") {
+        void this.openRecoveryCopy(uri);
+      }
+    });
+  }
+
+  private applyExternalChange(document: vscode.TextDocument, event: BufferedDocumentChange): void {
+    const authority = this.authority(document);
+    // VS Code represents an EOL-only conversion as a full-document replace.
+    // Its normalized text has not changed, so rebasing it as a replacement
+    // would incorrectly move concurrent insertions to the end of the document.
+    if (event.crlf !== authority.crlf && event.text === authority.doc.toString()) {
+      authority.crlf = event.crlf;
+      return;
+    }
+    const changes = ChangeSet.of(
+      toDocChanges(event.contentChanges, authority.crlf),
+      authority.doc.length,
     );
+    authority.crlf = event.crlf;
+    if (changes.empty) return;
+    const updates = [{ clientID: "host", changes }];
+    authority.commit(updates);
+    this.broadcastUpdates(document, updates);
+  }
+
+  private reconcileApplyResult(
+    document: vscode.TextDocument,
+    pending: PendingWebviewApply,
+    applied: boolean,
+  ): void {
+    const authority = this.authority(document);
+    let acknowledged = false;
+    if (applied) this.syncManager.shouldSuppress(document.uri.toString());
+    for (const event of pending.events) {
+      // The real API validates the captured document version. Only a successful
+      // apply can own its next-version event; equal text from a rejected apply
+      // is an independent host change, not an acknowledgment.
+      if (applied && !acknowledged &&
+          event.version === pending.baseVersion + 1 && event.text === pending.expected) {
+        authority.commit(pending.updates);
+        authority.crlf = event.crlf;
+        this.broadcastUpdates(document, pending.updates);
+        acknowledged = true;
+      } else {
+        this.applyExternalChange(document, event);
+      }
+    }
+    if (applied && !acknowledged) {
+      // A nonempty replacement can leave the text identical and emit no event.
+      if (pending.events.length === 0 && authority.doc.toString() === pending.expected) {
+        authority.commit(pending.updates);
+        this.broadcastUpdates(document, pending.updates);
+      } else {
+        throw new Error("The applied edit did not produce its expected document change.");
+      }
+    }
   }
 
   private async applyWebviewEdit(
     document: vscode.TextDocument,
-    changes: DocChange[]
-  ): Promise<void> {
+    changes: DocChange[],
+  ): Promise<boolean> {
     const uri = document.uri.toString();
 
     // Minimal-range WorkspaceEdit — never a full-document replace. Offsets are
     // resolved against the CURRENT document, which (because we serialize) already
     // contains every prior webview edit, so they map correctly.
     const edit = new vscode.WorkspaceEdit();
-    for (const ch of changes) {
+    const offsets = toHostOffsets(document, changes.flatMap((ch) => [ch.from, ch.to]));
+    changes.forEach((ch, i) => {
       edit.replace(
         document.uri,
-        new vscode.Range(document.positionAt(ch.from), document.positionAt(ch.to)),
+        new vscode.Range(
+          document.positionAt(offsets[2 * i]),
+          document.positionAt(offsets[2 * i + 1])
+        ),
         ch.insert
       );
-    }
+    });
 
     // Mark this URI so the resulting onDidChangeTextDocument is suppressed.
     this.syncManager.markSuppressNext(uri);
 
-    const applied = await vscode.workspace.applyEdit(edit);
+    let applied: boolean;
+    try {
+      applied = await vscode.workspace.applyEdit(edit);
+    } catch (error) {
+      this.syncManager.cancelSuppress(uri);
+      throw error;
+    }
     if (!applied) {
       // No change event will arrive to consume the mark — roll it back so it
       // doesn't leak onto the next genuinely-external change.
       this.syncManager.cancelSuppress(uri);
       console.warn("[ofm] WorkspaceEdit was not applied");
     }
+    return applied;
   }
 
   // -----------------------------------------------------------------------
-  // TODO (Slice 2+ hardening, per ADR-0002):
-  //   - validate msg.version against document.version before applying; on
-  //     mismatch, rebase or fall back to conflict handling instead of
-  //     applying at stale offsets.
-  //   - external multi-change reconciliation: ensure CM6 receives changes in
-  //     original-document coordinates (sorted) to avoid offset drift.
-
+  // Legacy host-side task toggles; current webviews submit versioned edits.
   // -----------------------------------------------------------------------
   // Handle toggleTask — flip [ ] <-> [x] at the marker range
   // -----------------------------------------------------------------------
@@ -460,9 +775,10 @@ export class OfmCustomTextEditorProvider
     from: number,
     to: number
   ): Promise<void> {
+    const [hostFrom, hostTo] = toHostOffsets(document, [from, to]);
     const range = new vscode.Range(
-      document.positionAt(from),
-      document.positionAt(to)
+      document.positionAt(hostFrom),
+      document.positionAt(hostTo)
     );
     const marker = document.getText(range);
     const toggled = /\[[xX]\]/.test(marker) ? "[ ]" : "[x]";
@@ -689,9 +1005,11 @@ export class OfmCustomTextEditorProvider
     to: number,
     mode: "edit" | "chat"
   ): Promise<void> {
-    // Node 1+2: clamp offsets to the document (selection == source offsets).
+    // Node 1+2: clamp offsets to the document (selection == source offsets,
+    // once mapped from CodeMirror's to the document's).
     const len = document.getText().length;
-    const { from: a, to: bClamped } = clampOffsetRange(from, to, len);
+    const [hostFrom, hostTo] = toHostOffsets(document, [from, to]);
+    const { from: a, to: bClamped } = clampOffsetRange(hostFrom, hostTo, len);
     const sel = new vscode.Selection(
       document.positionAt(a),
       document.positionAt(bClamped)
@@ -826,12 +1144,19 @@ export class OfmCustomTextEditorProvider
   ): Promise<void> {
     const key = uri.toString();
     const records = [...(this.panels.get(key)?.values() ?? [])];
-    const record =
+    const hasLiveTab = vscode.window.tabGroups.all.some((group) =>
+      group.tabs.some((tab) => tab.input instanceof vscode.TabInputCustom &&
+        tab.input.viewType === "ofm.livePreview" && tab.input.uri.toString() === key),
+    );
+    // Switching to source can leave a valid preview tab hidden. Reveal that
+    // existing tab; disposing it races the host closing/reopening the same tab.
+    const record = hasLiveTab ? (
       records.find((candidate) => candidate.panel.active) ??
-      records.find((candidate) => candidate.panel.visible);
+      records.find((candidate) => candidate.panel.visible) ?? records[0]
+    ) : undefined;
 
     if (record) {
-      record.panel.reveal(undefined, false);
+      record.panel.reveal(record.panel.viewColumn, false);
       if (this.readyPanels.has(record.panel)) {
         this.postReveal(record.panel, line, character);
       } else {
@@ -1021,6 +1346,22 @@ export class OfmCustomTextEditorProvider
       this.sendImageMap(e.document, panel);
     }
 
+    const authority = this.authorities.get(uri);
+    if (authority) {
+      const crlf = isCrlf(e.document);
+      if (e.contentChanges.length === 0 && authority.crlf === crlf) return;
+      const event: BufferedDocumentChange = {
+        contentChanges: e.contentChanges,
+        version: e.document.version,
+        text: e.document.getText().replace(/\r\n?|\n/g, "\n"),
+        crlf,
+      };
+      const pending = this.pendingUpdates.get(uri);
+      if (pending) pending.events.push(event);
+      else this.applyExternalChange(e.document, event);
+      return;
+    }
+
     // Echo suppression: if this change originated from our own webview edit,
     // do NOT send it back (prevents echo loop and cursor jumps).
     if (this.syncManager.shouldSuppress(uri)) {
@@ -1029,14 +1370,16 @@ export class OfmCustomTextEditorProvider
 
     if (records.length === 0) return;
 
-    const changes = toDocChanges(e.contentChanges);
+    const changes = toDocChanges(e.contentChanges, isCrlf(e.document));
 
     // If the document was completely replaced (e.g. external reload),
     // use replaceAll to avoid cascading incremental changes.
     if (changes.length === 1 && changes[0].from === 0) {
       const text = e.document.getText();
       // Heuristic: if the replace covers most of the document, treat as replaceAll.
-      if (changes[0].to >= text.length || changes[0].insert === text) {
+      // (`to` is in CodeMirror offsets, `text` in document offsets: compare in the latter.)
+      const hostTo = e.contentChanges[0].rangeOffset + e.contentChanges[0].rangeLength;
+      if (hostTo >= text.length || changes[0].insert === text) {
         const replaceAllMsg: HostMsg = {
           type: "replaceAll",
           version: e.document.version,

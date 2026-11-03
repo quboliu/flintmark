@@ -40,3 +40,6 @@ out/**
 !out/*.woff2
 !out/*.woff
 !out/*.ttf
+
+# Dependency patches are applied before bundling; only the runtime ships.
+patches/**

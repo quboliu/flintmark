@@ -1,3 +1,4 @@
+import type { WireUpdate } from "./collaboration";
 // === Message types for Host ↔ Webview communication ===
 // Following docs/03-solution-design.md section 4 exactly.
 // Origin + DocVersion on every change message are the foundation of echo suppression (ADR-0002).
@@ -14,7 +15,12 @@ export type DocVersion = number;
 
 export type WebviewMsg =
   | { type: "ready" }
-  | { type: "edit"; version: DocVersion; changes: DocChange[] }
+  | {
+      type: "edit";
+      version: DocVersion;
+      syncVersion: number;
+      updates: WireUpdate[];
+    }
   | { type: "selectionChanged"; selection: LiveSelection | null }
   | { type: "requestSave" }
   | { type: "requestUndo" }
@@ -22,8 +28,8 @@ export type WebviewMsg =
   | { type: "toggleTask"; from: number; to: number }
   | { type: "openLink"; target: string }
   // AI Selection Bridge: relocate this CM6 selection to the source editor and
-  // hand off to the host's native AI. from/to are document offsets (== source
-  // offsets, since the doc content is identical to the source). mode picks the
+  // hand off to the host's native AI. from/to use LF-normalized CodeMirror
+  // offsets; the host maps them to the document's EOL representation. mode picks the
   // handoff: "edit" → inline edit (Cmd+K); "chat" → add selection to chat.
   | { type: "aiEditSelection"; from: number; to: number; mode: "edit" | "chat" }
   // Image paste/drop: send the bytes (base64) to the host, which writes an
@@ -46,8 +52,11 @@ export type WebviewMsg =
 // ---------------------------------------------------------------------------
 
 export type HostMsg =
+  | { type: "syncUpdates"; version: DocVersion; updates: WireUpdate[] }
+  | { type: "syncError"; message: string }
   | {
       type: "init";
+      syncVersion: number;
       uri: string;
       version: DocVersion;
       text: string;

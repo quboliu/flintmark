@@ -1,9 +1,10 @@
+import { isVisibleFrame } from "./visibleFrame.mjs";
 import { _electron as electron } from "playwright";
 import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import assert from "node:assert";
-import { palette as openPalette } from "./quickInput.mjs";
+import { palette as openPalette, reopenLivePreview } from "./quickInput.mjs";
 
 const REPO = resolve(".");
 const VSCODE = process.env.VSCODE_BIN || "/usr/share/codium/codium";
@@ -103,6 +104,7 @@ const app = await electron.launch({
     `--extensions-dir=${join(work, "ext")}`,
     `--extensionDevelopmentPath=${REPO}`,
     work,
+    notePath,
   ],
 });
 
@@ -118,7 +120,7 @@ try {
     while (Date.now() < deadline) {
       for (const f of win.frames()) {
         try {
-          if ((await f.locator(".cm-content").count()) > 0) return f;
+          if ((await f.locator(".cm-content").count()) > 0 && await isVisibleFrame(f)) return f;
         } catch {
           // Cross-origin frames are irrelevant here.
         }
@@ -132,10 +134,7 @@ try {
     await palette("Control+P", "note.md");
     if (await findCmFrame(5000)) return true;
 
-    await palette("Control+Shift+P", "Reopen Editor With");
-    await win.keyboard.type("Markdown Live Preview");
-    await win.waitForTimeout(900);
-    await win.keyboard.press("Enter");
+    await reopenLivePreview(win);
     return !!(await findCmFrame(8000));
   }
 

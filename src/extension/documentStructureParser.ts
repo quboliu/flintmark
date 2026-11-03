@@ -1,4 +1,16 @@
 import { markdownLanguage } from "@codemirror/lang-markdown";
+import type { MarkdownParser } from "@lezer/markdown";
+
+// Outline and Todo consume block nodes and source text, never inline nodes.
+// Keep the existing GFM block grammar while skipping unused inline decoration
+// trees, which can otherwise stall the extension host on large documents.
+const structureParser = (markdownLanguage.parser as MarkdownParser).configure({
+  parseInline: [{
+    name: "StructureText",
+    before: "Escape",
+    parse: (context) => context.end,
+  }],
+});
 
 export interface HeadingInfo {
   level: number;
@@ -123,7 +135,7 @@ function todoAfterListMark(
 }
 
 /**
- * Parse headings and task-list items from one GFM syntax tree. This is the
+ * Parse headings and task-list items from one GFM block syntax tree. This is the
  * shared structural scan used by Outline, Todo, and the native symbol provider.
  */
 export function parseDocumentStructure(text: string): DocumentStructure {
@@ -131,7 +143,7 @@ export function parseDocumentStructure(text: string): DocumentStructure {
   const todos: TodoInfo[] = [];
   const starts = lineStartsOf(text);
   const frontmatterEnd = FRONTMATTER_RE.exec(text)?.[0].length ?? 0;
-  const tree = markdownLanguage.parser.parse(text);
+  const tree = structureParser.parse(text);
 
   tree.iterate({
     enter(node) {

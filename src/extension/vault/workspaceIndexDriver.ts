@@ -87,11 +87,20 @@ interface RuntimeState extends IndexFreshnessState {
 
 const TREE_EVENT_DEBOUNCE_MS = 50;
 
+/** VS Code can preserve /C:/ on a workspace root but return /c:/ from findFiles.
+ *  Canonicalize only the drive letter; directory and filename case must survive. */
+function indexComparisonPath(uri: vscode.Uri): string {
+  return uri.scheme === "file"
+    ? uri.path.replace(/^\/[A-Z]:(?=\/)/, (drive) => drive.toLowerCase())
+    : uri.path;
+}
+
 /** Strip a folder's path prefix off a contained file Uri -> root-relative path.
  *  Requires a path-segment boundary so root `/a/b` never matches `/a/bc/x`. */
 export function relFromRoot(root: vscode.Uri, file: vscode.Uri): string {
-  const base = root.path.endsWith("/") ? root.path : root.path + "/";
-  return file.path.startsWith(base)
+  const rootPath = indexComparisonPath(root);
+  const base = rootPath.endsWith("/") ? rootPath : rootPath + "/";
+  return indexComparisonPath(file).startsWith(base)
     ? file.path.slice(base.length)
     : file.path.replace(/^\/+/, "");
 }
@@ -513,7 +522,7 @@ export class WorkspaceIndexDriver implements vscode.Disposable {
     if (scannedFiles) {
       this.indexedDirs.set(
         scanKey,
-        directoriesHoldingFiles(scannedFiles.map((f) => f.path), root.path)
+        directoriesHoldingFiles(scannedFiles.map(indexComparisonPath), indexComparisonPath(root))
       );
     }
     state.status = "ready";
@@ -544,6 +553,7 @@ export class WorkspaceIndexDriver implements vscode.Disposable {
   private routeUnavailableUri(uri: vscode.Uri, reason: string): void {
     if (isCommonlyExcluded(uri)) return;
     const route = routeUnavailablePath(uri.path);
+    const comparisonPath = indexComparisonPath(uri);
     if (route === "ignore") return;
     const folder = vscode.workspace.getWorkspaceFolder(uri);
     if (!folder) return;
@@ -559,8 +569,8 @@ export class WorkspaceIndexDriver implements vscode.Disposable {
       }
       // A directory can itself end in .md or .png. Known indexed directories
       // must invalidate every affected index, regardless of the leaf suffix.
-      if (route === kind || dirs?.has(uri.path) ||
-          (route === "all" && deletionAffectsIndex(uri.path, dirs))) {
+      if (route === kind || dirs?.has(comparisonPath) ||
+          (route === "all" && deletionAffectsIndex(comparisonPath, dirs))) {
         this.scheduleForUri(kind, uri, reason);
       }
     }

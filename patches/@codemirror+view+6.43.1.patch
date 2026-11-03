@@ -1,0 +1,442 @@
+diff --git a/node_modules/@codemirror/view/dist/index.cjs b/node_modules/@codemirror/view/dist/index.cjs
+index 732c593..dfbfb1d 100644
+--- a/node_modules/@codemirror/view/dist/index.cjs
++++ b/node_modules/@codemirror/view/dist/index.cjs
+@@ -3414,7 +3414,7 @@ class DocView {
+         var _a;
+         if (target.isSnapshot) {
+             let ref = this.view.viewState.lineBlockAt(target.range.head);
+-            this.view.scrollDOM.scrollTop = ref.top - target.yMargin;
++            this.view.scrollDOM.scrollTop = (ref.top - target.yMargin) / this.view.scaleY;
+             this.view.scrollDOM.scrollLeft = target.xMargin;
+             return;
+         }
+@@ -4516,6 +4516,14 @@ class InputState {
+         // being dragged.
+         this.draggedContent = null;
+         this.handleEvent = this.handleEvent.bind(this);
++        this.scrollIntentTypes = ["wheel", "touchstart", "touchmove", "pointerdown", "pointermove", "keydown", "beforeinput", "drop"];
++        this.clearScrollAnchorOnIntent = event => {
++            if (event.type === "pointermove" && !event.buttons) return;
++            // A new user action takes precedence over pending anchor restoration.
++            this.view.retainedScrollAnchor = undefined;
++            this.view.viewState.scrollTarget = null;
++        };
++        for (const type of this.scrollIntentTypes) this.view.dom.addEventListener(type, this.clearScrollAnchorOnIntent, {capture:true,passive:true});
+         this.notifiedFocused = view.hasFocus;
+         // On Safari adding an input event handler somehow prevents an
+         // issue where the composition vanishes when you press enter.
+@@ -4644,6 +4652,8 @@ class InputState {
+             this.lastKeyCode = this.lastSelectionTime = 0;
+     }
+     destroy() {
++        for (const type of this.scrollIntentTypes) this.view.dom.removeEventListener(type, this.clearScrollAnchorOnIntent, true);
++        this.view.retainedScrollAnchor = undefined;
+         if (this.mouseSelection)
+             this.mouseSelection.destroy();
+     }
+@@ -6601,7 +6611,7 @@ class ViewState {
+     getScrollOffset() {
+         let base = this.scrollParent == this.view.scrollDOM ? this.scrollParent.scrollTop
+             : (this.scrollParent ? this.scrollParent.getBoundingClientRect().top : 0) - this.view.contentDOM.getBoundingClientRect().top;
+-        return base * this.scaleY;
++        return this.scrollParent == this.view.scrollDOM ? base * this.scaleY : base;
+     }
+     scrollAnchorAt(scrollOffset) {
+         let block = this.lineBlockAtHeight(scrollOffset + 8);
+@@ -7948,6 +7958,11 @@ class EditorView {
+         if (state$1.facet(state.EditorState.phrases) != this.state.facet(state.EditorState.phrases))
+             return this.setState(state$1);
+         update = ViewUpdate.create(this, state$1, transactions);
++        if (this.retainedScrollAnchor) {
++            if (update.selectionSet) this.retainedScrollAnchor = undefined;
++            else if (!update.changes.empty && this.retainedScrollAnchor.pos >= 0)
++                this.retainedScrollAnchor.pos = update.changes.mapPos(this.retainedScrollAnchor.pos, -1);
++        }
+         update.flags |= focusFlag;
+         let scrollTarget = this.viewState.scrollTarget;
+         try {
+@@ -8015,6 +8030,7 @@ class EditorView {
+     setState(newState) {
+         if (this.updateState != 0 /* UpdateState.Idle */)
+             throw new Error("Calls to EditorView.setState are not allowed while an update is in progress");
++        this.retainedScrollAnchor = undefined;
+         if (this.destroyed) {
+             this.viewState.state = newState;
+             return;
+@@ -8104,9 +8120,50 @@ class EditorView {
+             this.observer.forceFlush();
+         let updated = null;
+         let scroll = this.viewState.scrollParent, scrollOffset = this.viewState.getScrollOffset();
++        const physical = () => scroll ? scroll.scrollTop : this.win.scrollY;
++        const maximum = () => Math.max(0, scroll ? scroll.scrollHeight-scroll.clientHeight : this.win.document.documentElement.scrollHeight-this.win.innerHeight);
++        let physicalScrollReference = physical();
++        // External scrollers can have a different CSS transform from the editor.
++        const physicalScale = () => scroll === this.scrollDOM ? this.scaleY :
++            scroll ? getScale(scroll, scroll.getBoundingClientRect()).scaleY : 1;
++        let measuredScrollScale = physicalScale();
++        // Retain source identity and fractional position across layout passes.
++        // DOM scrollTop may already have been clamped by a shrinking document.
++        const prior = this.retainedScrollAnchor;
++        const currentMax = maximum();
++        const initialScale = this.scaleY;
++        let measuredActual = physicalScrollReference, measuredMaximum = currentMax;
++        const clampedBeforeMeasure = prior && currentMax < prior.max && Math.abs(physicalScrollReference-currentMax) < 0.01 && prior.actual > currentMax;
++        const reuse = prior && prior.scroll === scroll && prior.scale === this.scaleY && prior.scrollScale === measuredScrollScale && (prior.actual === physicalScrollReference || clampedBeforeMeasure);
+         let { scrollAnchorPos, scrollAnchorHeight } = this.viewState;
+-        if (Math.abs(scrollOffset - this.viewState.scrollOffset) > 1)
+-            scrollAnchorHeight = -1;
++        let anchorMargin;
++        let recoverNeeded = false;
++        if (reuse) {
++            scrollAnchorPos = prior.pos; scrollAnchorHeight = prior.height;
++            anchorMargin = prior.margin; physicalScrollReference = prior.desired;
++            scrollOffset = prior.height - prior.margin;
++            recoverNeeded = !!clampedBeforeMeasure;
++        } else {
++            if (Math.abs(scrollOffset-this.viewState.scrollOffset)>1) scrollAnchorHeight=-1;
++            if (scrollAnchorHeight>=0) anchorMargin=scrollAnchorHeight-scrollOffset;
++        }
++        // Anchor restoration owns layout displacement, not physical movement that
++        // commits while this measure cycle is running. Compare actual positions
++        // (not fractional desired positions) so browser rounding is not drift.
++        const observeScroll = () => {
++            const max = maximum(), actual = physical();
++            const expected = Math.max(0, Math.min(max, measuredActual));
++            const movement = actual - expected;
++            if (movement) {
++                physicalScrollReference += movement;
++                scrollOffset += movement * measuredScrollScale;
++                if (anchorMargin !== undefined) anchorMargin -= movement * measuredScrollScale;
++            }
++            // A shrinking scroll range is browser clamping, not user movement.
++            if (expected !== measuredActual) recoverNeeded = true;
++            measuredActual = actual;
++            measuredMaximum = max;
++        };
+         this.viewState.scrollAnchorHeight = -1;
+         try {
+             for (let i = 0;; i++) {
+@@ -8121,9 +8178,13 @@ class EditorView {
+                         scrollAnchorHeight = block.top;
+                     }
+                 }
++                if (anchorMargin === undefined) anchorMargin = scrollAnchorHeight - scrollOffset;
+                 this.updateState = 1 /* UpdateState.Measuring */;
+                 let changed = this.viewState.measure();
+-                if (!changed && !this.measureRequests.length && this.viewState.scrollTarget == null)
++                measuredScrollScale = physicalScale();
++                observeScroll();
++                const anchorHeightNow = scrollAnchorPos < 0 ? this.viewState.heightMap.height : this.viewState.lineBlockAt(scrollAnchorPos).top;
++                if (!changed && !this.measureRequests.length && this.viewState.scrollTarget == null && anchorHeightNow === scrollAnchorHeight && !recoverNeeded)
+                     break;
+                 if (i > 5) {
+                     console.warn(this.measureRequests.length
+@@ -8172,29 +8233,53 @@ class EditorView {
+                     }
+                 if (redrawn)
+                     this.docView.updateSelection(true);
++                // Writes can change layout or allow a compositor scroll commit too.
++                observeScroll();
+                 if (!update.viewportChanged && this.measureRequests.length == 0) {
+                     if (this.viewState.editorHeight) {
+                         if (this.viewState.scrollTarget) {
+-                            this.docView.scrollIntoView(this.viewState.scrollTarget);
++                            const target = this.viewState.scrollTarget;
++                            this.docView.scrollIntoView(target);
++                            physicalScrollReference = physical();
++                            measuredActual = physicalScrollReference; measuredMaximum = maximum();
++                            scrollOffset = this.viewState.getScrollOffset();
++                            if (target.isSnapshot && scroll === this.scrollDOM) {
++                                scrollAnchorPos = target.range.head;
++                                scrollAnchorHeight = this.viewState.lineBlockAt(scrollAnchorPos).top;
++                                physicalScrollReference = Math.max(0, Math.min(measuredMaximum, (scrollAnchorHeight-target.yMargin)/this.scaleY));
++                                scrollOffset = physicalScrollReference*this.scaleY;
++                                anchorMargin = scrollAnchorHeight-scrollOffset;
++                            } else {scrollAnchorHeight=-1;anchorMargin=undefined;}
+                             this.viewState.scrollTarget = null;
+-                            scrollAnchorHeight = -1;
++                            recoverNeeded = false;
+                             continue;
+                         }
+                         else {
+                             let newAnchorHeight = scrollAnchorPos < 0 ? this.viewState.heightMap.height :
+                                 this.viewState.lineBlockAt(scrollAnchorPos).top;
+-                            let diff = (newAnchorHeight - scrollAnchorHeight) / this.scaleY;
+-                            if ((diff > 1 || diff < -1) &&
++                            if (newAnchorHeight !== scrollAnchorHeight || recoverNeeded || this.scaleY !== initialScale || scroll !== this.scrollDOM) {
++                            // Geometry reads can synchronize a newer compositor scroll.
++                            // Read the physical coordinate after geometry, then account
++                            // for motion before deriving a target without further reads.
++                            const offset = this.viewState.getScrollOffset();
++                            const origin = offset - physical()*measuredScrollScale;
++                            observeScroll();
++                            const desired = (newAnchorHeight-anchorMargin-origin)/measuredScrollScale;
++                            const requested = Math.max(0, Math.min(measuredMaximum, desired));
++                            if ((newAnchorHeight !== scrollAnchorHeight || recoverNeeded || requested !== physicalScrollReference) &&
+                                 (scroll == this.scrollDOM || this.hasFocus ||
+                                     Math.max(this.inputState.lastWheelEvent, this.inputState.lastTouchTime) > Date.now() - 100)) {
+-                                scrollOffset = scrollOffset + diff;
+-                                if (scroll)
+-                                    scroll.scrollTop += diff;
+-                                else
+-                                    this.win.scrollBy(0, diff);
+-                                scrollAnchorHeight = -1;
++                                physicalScrollReference = requested;
++                                scrollOffset = requested*measuredScrollScale+origin;
++                                if (scroll) scroll.scrollTop=requested;
++                                else this.win.scrollTo(this.win.scrollX,requested);
++                                measuredActual = physical();
++                                scrollAnchorHeight = newAnchorHeight;
++                                if (requested !== desired) anchorMargin = newAnchorHeight-scrollOffset;
++                                recoverNeeded = false;
+                                 continue;
+                             }
++                            }
+                         }
+                     }
+                     break;
+@@ -8204,6 +8289,9 @@ class EditorView {
+         finally {
+             this.updateState = 0 /* UpdateState.Idle */;
+             this.measureScheduled = -1;
++            if (anchorMargin !== undefined && scrollAnchorHeight >= 0 && scroll === this.viewState.scrollParent) {
++                this.retainedScrollAnchor = {scroll,scale:this.scaleY,scrollScale:measuredScrollScale,pos:scrollAnchorPos,height:scrollAnchorHeight,margin:anchorMargin,desired:physicalScrollReference,actual:measuredActual,max:measuredMaximum};
++            } else this.retainedScrollAnchor = undefined;
+         }
+         if (updated && !updated.empty)
+             for (let listener of this.state.facet(updateListener))
+@@ -8632,8 +8720,10 @@ class EditorView {
+     */
+     scrollSnapshot() {
+         let { scrollTop, scrollLeft } = this.scrollDOM;
+-        let ref = this.viewState.scrollAnchorAt(scrollTop);
+-        return scrollIntoView.of(new ScrollTarget(state.EditorSelection.cursor(ref.from), "start", "start", ref.top - scrollTop, scrollLeft, true));
++        const saved = this.retainedScrollAnchor;
++        const logical = (saved && saved.scroll === this.scrollDOM && saved.actual === scrollTop && saved.scale === this.scaleY ? saved.desired : scrollTop)*this.scaleY;
++        let ref = this.viewState.scrollAnchorAt(logical);
++        return scrollIntoView.of(new ScrollTarget(state.EditorSelection.cursor(ref.from), "start", "start", ref.top-logical, scrollLeft, true));
+     }
+     /**
+     Enable or disable tab-focus mode, which disables key bindings
+diff --git a/node_modules/@codemirror/view/dist/index.js b/node_modules/@codemirror/view/dist/index.js
+index 0c0b3ee..d94c392 100644
+--- a/node_modules/@codemirror/view/dist/index.js
++++ b/node_modules/@codemirror/view/dist/index.js
+@@ -3410,7 +3410,7 @@ class DocView {
+         var _a;
+         if (target.isSnapshot) {
+             let ref = this.view.viewState.lineBlockAt(target.range.head);
+-            this.view.scrollDOM.scrollTop = ref.top - target.yMargin;
++            this.view.scrollDOM.scrollTop = (ref.top - target.yMargin) / this.view.scaleY;
+             this.view.scrollDOM.scrollLeft = target.xMargin;
+             return;
+         }
+@@ -4512,6 +4512,14 @@ class InputState {
+         // being dragged.
+         this.draggedContent = null;
+         this.handleEvent = this.handleEvent.bind(this);
++        this.scrollIntentTypes = ["wheel", "touchstart", "touchmove", "pointerdown", "pointermove", "keydown", "beforeinput", "drop"];
++        this.clearScrollAnchorOnIntent = event => {
++            if (event.type === "pointermove" && !event.buttons) return;
++            // A new user action takes precedence over pending anchor restoration.
++            this.view.retainedScrollAnchor = undefined;
++            this.view.viewState.scrollTarget = null;
++        };
++        for (const type of this.scrollIntentTypes) this.view.dom.addEventListener(type, this.clearScrollAnchorOnIntent, {capture:true,passive:true});
+         this.notifiedFocused = view.hasFocus;
+         // On Safari adding an input event handler somehow prevents an
+         // issue where the composition vanishes when you press enter.
+@@ -4640,6 +4648,8 @@ class InputState {
+             this.lastKeyCode = this.lastSelectionTime = 0;
+     }
+     destroy() {
++        for (const type of this.scrollIntentTypes) this.view.dom.removeEventListener(type, this.clearScrollAnchorOnIntent, true);
++        this.view.retainedScrollAnchor = undefined;
+         if (this.mouseSelection)
+             this.mouseSelection.destroy();
+     }
+@@ -6596,7 +6606,7 @@ class ViewState {
+     getScrollOffset() {
+         let base = this.scrollParent == this.view.scrollDOM ? this.scrollParent.scrollTop
+             : (this.scrollParent ? this.scrollParent.getBoundingClientRect().top : 0) - this.view.contentDOM.getBoundingClientRect().top;
+-        return base * this.scaleY;
++        return this.scrollParent == this.view.scrollDOM ? base * this.scaleY : base;
+     }
+     scrollAnchorAt(scrollOffset) {
+         let block = this.lineBlockAtHeight(scrollOffset + 8);
+@@ -7943,6 +7953,11 @@ class EditorView {
+         if (state.facet(EditorState.phrases) != this.state.facet(EditorState.phrases))
+             return this.setState(state);
+         update = ViewUpdate.create(this, state, transactions);
++        if (this.retainedScrollAnchor) {
++            if (update.selectionSet) this.retainedScrollAnchor = undefined;
++            else if (!update.changes.empty && this.retainedScrollAnchor.pos >= 0)
++                this.retainedScrollAnchor.pos = update.changes.mapPos(this.retainedScrollAnchor.pos, -1);
++        }
+         update.flags |= focusFlag;
+         let scrollTarget = this.viewState.scrollTarget;
+         try {
+@@ -8010,6 +8025,7 @@ class EditorView {
+     setState(newState) {
+         if (this.updateState != 0 /* UpdateState.Idle */)
+             throw new Error("Calls to EditorView.setState are not allowed while an update is in progress");
++        this.retainedScrollAnchor = undefined;
+         if (this.destroyed) {
+             this.viewState.state = newState;
+             return;
+@@ -8099,9 +8115,50 @@ class EditorView {
+             this.observer.forceFlush();
+         let updated = null;
+         let scroll = this.viewState.scrollParent, scrollOffset = this.viewState.getScrollOffset();
++        const physical = () => scroll ? scroll.scrollTop : this.win.scrollY;
++        const maximum = () => Math.max(0, scroll ? scroll.scrollHeight-scroll.clientHeight : this.win.document.documentElement.scrollHeight-this.win.innerHeight);
++        let physicalScrollReference = physical();
++        // External scrollers can have a different CSS transform from the editor.
++        const physicalScale = () => scroll === this.scrollDOM ? this.scaleY :
++            scroll ? getScale(scroll, scroll.getBoundingClientRect()).scaleY : 1;
++        let measuredScrollScale = physicalScale();
++        // Retain source identity and fractional position across layout passes.
++        // DOM scrollTop may already have been clamped by a shrinking document.
++        const prior = this.retainedScrollAnchor;
++        const currentMax = maximum();
++        const initialScale = this.scaleY;
++        let measuredActual = physicalScrollReference, measuredMaximum = currentMax;
++        const clampedBeforeMeasure = prior && currentMax < prior.max && Math.abs(physicalScrollReference-currentMax) < 0.01 && prior.actual > currentMax;
++        const reuse = prior && prior.scroll === scroll && prior.scale === this.scaleY && prior.scrollScale === measuredScrollScale && (prior.actual === physicalScrollReference || clampedBeforeMeasure);
+         let { scrollAnchorPos, scrollAnchorHeight } = this.viewState;
+-        if (Math.abs(scrollOffset - this.viewState.scrollOffset) > 1)
+-            scrollAnchorHeight = -1;
++        let anchorMargin;
++        let recoverNeeded = false;
++        if (reuse) {
++            scrollAnchorPos = prior.pos; scrollAnchorHeight = prior.height;
++            anchorMargin = prior.margin; physicalScrollReference = prior.desired;
++            scrollOffset = prior.height - prior.margin;
++            recoverNeeded = !!clampedBeforeMeasure;
++        } else {
++            if (Math.abs(scrollOffset-this.viewState.scrollOffset)>1) scrollAnchorHeight=-1;
++            if (scrollAnchorHeight>=0) anchorMargin=scrollAnchorHeight-scrollOffset;
++        }
++        // Anchor restoration owns layout displacement, not physical movement that
++        // commits while this measure cycle is running. Compare actual positions
++        // (not fractional desired positions) so browser rounding is not drift.
++        const observeScroll = () => {
++            const max = maximum(), actual = physical();
++            const expected = Math.max(0, Math.min(max, measuredActual));
++            const movement = actual - expected;
++            if (movement) {
++                physicalScrollReference += movement;
++                scrollOffset += movement * measuredScrollScale;
++                if (anchorMargin !== undefined) anchorMargin -= movement * measuredScrollScale;
++            }
++            // A shrinking scroll range is browser clamping, not user movement.
++            if (expected !== measuredActual) recoverNeeded = true;
++            measuredActual = actual;
++            measuredMaximum = max;
++        };
+         this.viewState.scrollAnchorHeight = -1;
+         try {
+             for (let i = 0;; i++) {
+@@ -8116,9 +8173,13 @@ class EditorView {
+                         scrollAnchorHeight = block.top;
+                     }
+                 }
++                if (anchorMargin === undefined) anchorMargin = scrollAnchorHeight - scrollOffset;
+                 this.updateState = 1 /* UpdateState.Measuring */;
+                 let changed = this.viewState.measure();
+-                if (!changed && !this.measureRequests.length && this.viewState.scrollTarget == null)
++                measuredScrollScale = physicalScale();
++                observeScroll();
++                const anchorHeightNow = scrollAnchorPos < 0 ? this.viewState.heightMap.height : this.viewState.lineBlockAt(scrollAnchorPos).top;
++                if (!changed && !this.measureRequests.length && this.viewState.scrollTarget == null && anchorHeightNow === scrollAnchorHeight && !recoverNeeded)
+                     break;
+                 if (i > 5) {
+                     console.warn(this.measureRequests.length
+@@ -8167,29 +8228,53 @@ class EditorView {
+                     }
+                 if (redrawn)
+                     this.docView.updateSelection(true);
++                // Writes can change layout or allow a compositor scroll commit too.
++                observeScroll();
+                 if (!update.viewportChanged && this.measureRequests.length == 0) {
+                     if (this.viewState.editorHeight) {
+                         if (this.viewState.scrollTarget) {
+-                            this.docView.scrollIntoView(this.viewState.scrollTarget);
++                            const target = this.viewState.scrollTarget;
++                            this.docView.scrollIntoView(target);
++                            physicalScrollReference = physical();
++                            measuredActual = physicalScrollReference; measuredMaximum = maximum();
++                            scrollOffset = this.viewState.getScrollOffset();
++                            if (target.isSnapshot && scroll === this.scrollDOM) {
++                                scrollAnchorPos = target.range.head;
++                                scrollAnchorHeight = this.viewState.lineBlockAt(scrollAnchorPos).top;
++                                physicalScrollReference = Math.max(0, Math.min(measuredMaximum, (scrollAnchorHeight-target.yMargin)/this.scaleY));
++                                scrollOffset = physicalScrollReference*this.scaleY;
++                                anchorMargin = scrollAnchorHeight-scrollOffset;
++                            } else {scrollAnchorHeight=-1;anchorMargin=undefined;}
+                             this.viewState.scrollTarget = null;
+-                            scrollAnchorHeight = -1;
++                            recoverNeeded = false;
+                             continue;
+                         }
+                         else {
+                             let newAnchorHeight = scrollAnchorPos < 0 ? this.viewState.heightMap.height :
+                                 this.viewState.lineBlockAt(scrollAnchorPos).top;
+-                            let diff = (newAnchorHeight - scrollAnchorHeight) / this.scaleY;
+-                            if ((diff > 1 || diff < -1) &&
++                            if (newAnchorHeight !== scrollAnchorHeight || recoverNeeded || this.scaleY !== initialScale || scroll !== this.scrollDOM) {
++                            // Geometry reads can synchronize a newer compositor scroll.
++                            // Read the physical coordinate after geometry, then account
++                            // for motion before deriving a target without further reads.
++                            const offset = this.viewState.getScrollOffset();
++                            const origin = offset - physical()*measuredScrollScale;
++                            observeScroll();
++                            const desired = (newAnchorHeight-anchorMargin-origin)/measuredScrollScale;
++                            const requested = Math.max(0, Math.min(measuredMaximum, desired));
++                            if ((newAnchorHeight !== scrollAnchorHeight || recoverNeeded || requested !== physicalScrollReference) &&
+                                 (scroll == this.scrollDOM || this.hasFocus ||
+                                     Math.max(this.inputState.lastWheelEvent, this.inputState.lastTouchTime) > Date.now() - 100)) {
+-                                scrollOffset = scrollOffset + diff;
+-                                if (scroll)
+-                                    scroll.scrollTop += diff;
+-                                else
+-                                    this.win.scrollBy(0, diff);
+-                                scrollAnchorHeight = -1;
++                                physicalScrollReference = requested;
++                                scrollOffset = requested*measuredScrollScale+origin;
++                                if (scroll) scroll.scrollTop=requested;
++                                else this.win.scrollTo(this.win.scrollX,requested);
++                                measuredActual = physical();
++                                scrollAnchorHeight = newAnchorHeight;
++                                if (requested !== desired) anchorMargin = newAnchorHeight-scrollOffset;
++                                recoverNeeded = false;
+                                 continue;
+                             }
++                            }
+                         }
+                     }
+                     break;
+@@ -8199,6 +8284,9 @@ class EditorView {
+         finally {
+             this.updateState = 0 /* UpdateState.Idle */;
+             this.measureScheduled = -1;
++            if (anchorMargin !== undefined && scrollAnchorHeight >= 0 && scroll === this.viewState.scrollParent) {
++                this.retainedScrollAnchor = {scroll,scale:this.scaleY,scrollScale:measuredScrollScale,pos:scrollAnchorPos,height:scrollAnchorHeight,margin:anchorMargin,desired:physicalScrollReference,actual:measuredActual,max:measuredMaximum};
++            } else this.retainedScrollAnchor = undefined;
+         }
+         if (updated && !updated.empty)
+             for (let listener of this.state.facet(updateListener))
+@@ -8627,8 +8715,10 @@ class EditorView {
+     */
+     scrollSnapshot() {
+         let { scrollTop, scrollLeft } = this.scrollDOM;
+-        let ref = this.viewState.scrollAnchorAt(scrollTop);
+-        return scrollIntoView.of(new ScrollTarget(EditorSelection.cursor(ref.from), "start", "start", ref.top - scrollTop, scrollLeft, true));
++        const saved = this.retainedScrollAnchor;
++        const logical = (saved && saved.scroll === this.scrollDOM && saved.actual === scrollTop && saved.scale === this.scaleY ? saved.desired : scrollTop)*this.scaleY;
++        let ref = this.viewState.scrollAnchorAt(logical);
++        return scrollIntoView.of(new ScrollTarget(EditorSelection.cursor(ref.from), "start", "start", ref.top-logical, scrollLeft, true));
+     }
+     /**
+     Enable or disable tab-focus mode, which disables key bindings

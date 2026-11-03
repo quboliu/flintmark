@@ -1,4 +1,5 @@
 import assert from "node:assert";
+import { markdownLanguage } from "@codemirror/lang-markdown";
 import { parseDocumentStructure } from "../../src/extension/documentStructureParser";
 
 let failed = 0;
@@ -11,6 +12,18 @@ function test(name: string, fn: () => void): void {
     console.error("  ✗ " + name + "\n      " + (error as Error).message);
   }
 }
+
+test("preserves inline source labels and leaves the rendering parser intact", () => {
+  const heading = "**Bold** [link](https://example.com) and \u0060code\u0060";
+  const task = "~~done~~ [label][ref] and <em>markup</em>";
+  const text = "# " + heading + "\r\n\r\n- [/] " + task + "\r\n\r\n[ref]: /target\r\n";
+  const structure = parseDocumentStructure(text);
+  assert.deepEqual(structure.headings, [{ level: 1, text: heading, line: 0 }]);
+  assert.equal(structure.todos.length, 1);
+  assert.equal(structure.todos[0].text, task);
+  assert.equal(text.slice(structure.todos[0].markerFrom, structure.todos[0].markerTo), "[/]");
+  assert.ok(markdownLanguage.parser.parse("# **bold**").toString().includes("StrongEmphasis"));
+});
 
 test("extracts standard and extended task states in source order", () => {
   const structure = parseDocumentStructure(

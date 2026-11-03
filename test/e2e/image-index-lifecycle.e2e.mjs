@@ -1,3 +1,4 @@
+import { isVisibleFrame } from "./visibleFrame.mjs";
 // Regression coverage for workspace index lifecycle edge cases that VS Code
 // file watchers do not report as complete per-file logs: parent directory
 // renames and externally-created nested resource trees.
@@ -7,12 +8,13 @@ import {
   writeFileSync,
   mkdirSync,
   renameSync,
+  readFileSync,
   rmSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import assert from "node:assert";
-import { palette } from "./quickInput.mjs";
+import { palette, reopenLivePreview } from "./quickInput.mjs";
 
 const REPO = resolve(".");
 const VSCODE = process.env.VSCODE_BIN || "/usr/share/codium/codium";
@@ -53,7 +55,7 @@ writeFileSync(
   "# Dynamic image lifecycle\n\n![[dynamic-pixel.png]]\n\nend\n"
 );
 
-async function launchApp() {
+async function launchApp(initialFile = join(work, "rename", "A", "note.md")) {
   return await electron.launch({
     executablePath: VSCODE,
     args: [
@@ -64,6 +66,7 @@ async function launchApp() {
       `--extensions-dir=${join(work, "ext")}`,
       `--extensionDevelopmentPath=${REPO}`,
       work,
+      initialFile,
     ],
   });
 }
@@ -81,13 +84,20 @@ async function closeApp(target = app) {
   if (!closed) target.process()?.kill("SIGTERM");
 }
 
-async function findVisibleCmFrame(win, ms) {
+async function findVisibleCmFrame(win, ms, heading, imageFragment) {
   const deadline = Date.now() + ms;
   while (Date.now() < deadline) {
     for (const f of win.frames()) {
       try {
         const content = f.locator(".cm-content").first();
-        if ((await content.count()) > 0 && (await content.isVisible())) return f;
+        if ((await content.count()) > 0 && (await content.isVisible()) && await isVisibleFrame(f)) {
+          const matches = await f.evaluate(({heading,imageFragment}) => {
+            const view = document.querySelector(".cm-content")?.cmTile?.root?.view;
+            if (!view?.state.doc.toString().startsWith(heading)) return false;
+            return !imageFragment || [...document.querySelectorAll("img.ofm-image")].some(img => decodeURIComponent(img.src).includes(imageFragment));
+          }, {heading,imageFragment});
+          if (matches) return f;
+        }
       } catch {
         /* cross-origin */
       }
@@ -98,26 +108,16 @@ async function findVisibleCmFrame(win, ms) {
 }
 
 async function openLiveNote(win, spec) {
+  const heading = readFileSync(join(work, spec), "utf8").split(/\r?\n/, 1)[0]+"\n";
+  const imageFragment = /^rename\/[AB]\/note\.md$/.test(spec) ? "/"+spec.replace(/note\.md$/, "assets/pixel.png") : null;
   await palette(win, "Control+P", spec);
-  let cm = await findVisibleCmFrame(win, 8000);
+  let cm = await findVisibleCmFrame(win, 8000, heading, imageFragment);
   if (!cm) {
-    await palette(win, "Control+Shift+P", "Reopen Editor With");
-    await win.keyboard.type("Markdown Live Preview");
-    await win.waitForTimeout(900);
-    await win.keyboard.press("Enter");
-    cm = await findVisibleCmFrame(win, 10000);
+    await reopenLivePreview(win);
+    cm = await findVisibleCmFrame(win, 10000, heading, imageFragment);
   }
   assert.ok(cm, `Live Preview should open ${spec}`);
-  for (const f of win.frames()) {
-    try {
-      const content = f.locator(".cm-content").first();
-      if ((await content.count()) > 0 && (await content.isVisible())) {
-        await f.locator(".cm-line").last().click();
-      }
-    } catch {
-      /* cross-origin */
-    }
-  }
+  await cm.locator(".cm-line").last().click();
   return cm;
 }
 
@@ -140,7 +140,7 @@ async function waitForLoadedImage(win, pathFragment) {
   for (let i = 0; i < 40; i++) {
     for (const f of win.frames()) {
       try {
-        if ((await f.locator(".cm-content").count()) === 0) continue;
+        if ((await f.locator(".cm-content").count()) === 0 || !await isVisibleFrame(f)) continue;
         state = await imageState(f);
         if (
           !state.missing &&
@@ -166,7 +166,7 @@ async function waitForFrameText(win, fragment, timeoutMs = 10000) {
     for (const frame of win.frames()) {
       try {
         const content = frame.locator(".cm-content").first();
-        if (!(await content.isVisible())) continue;
+        if (!(await content.isVisible()) || !await isVisibleFrame(frame)) continue;
         const text = await content.innerText();
         if (text.includes(fragment)) return frame;
       } catch {
@@ -285,17 +285,32 @@ try {
   console.log("  ✓ note + image indexes refresh after a mixed parent-directory delete");
 
   await closeApp(app);
-  app = await launchApp();
+  app = await launchApp(join(work, "dynamic.md"));
   const win2 = await app.firstWindow();
   await win2.waitForSelector(".monaco-workbench", { timeout: 30000 });
   await win2.waitForTimeout(4500);
 
+  // Exercise the reopen fallback explicitly; automatic association otherwise
+  // hides stale editor-picker names until a slower CI startup needs it.
+  await palette(win2, "Control+Shift+P", "View: Reopen Editor with Text Editor");
+  await win2.locator(".monaco-editor .view-lines").first().waitFor({ state: "visible", timeout: 10000 });
+  await reopenLivePreview(win2);
   await openLiveNote(win2, "dynamic.md");
   mkdirSync(join(work, "dynamic", "assets"), { recursive: true });
   writeFileSync(join(work, "dynamic", "assets", "dynamic-pixel.png"), PIXEL_PNG);
   await waitForLoadedImage(win2, "/dynamic/assets/dynamic-pixel.png");
   console.log("  ✓ image index refreshes for externally-created nested trees");
   passed = true;
+} catch (error) {
+  const evidence = join(REPO, "out", "metrics");
+  mkdirSync(evidence, { recursive: true });
+  for (const [index, win] of app.windows().entries()) {
+    await win.screenshot({
+      path: join(evidence, `image-index-failure-${process.pid}-${index}.png`),
+      timeout: 5000,
+    }).catch(() => {});
+  }
+  throw error;
 } finally {
   await closeApp();
   if (passed) process.exit(0);

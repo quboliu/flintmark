@@ -2,7 +2,7 @@
   "name": "flintmark",
   "displayName": "Flintmark",
   "description": "Obsidian-compatible Live Preview Markdown editing in VS Code. Not affiliated with Obsidian.",
-  "version": "0.33.0",
+  "version": "0.33.1",
   "publisher": "quboliu",
   "license": "MIT",
   "repository": {
@@ -298,7 +298,7 @@
     "test:report": "node scripts/test-report.mjs",
     "build:test": "node esbuild.test.mjs",
     "test:integration": "npm run compile && npm run build:test && xvfb-run -a node out/test/runTest.js",
-    "test:e2e": "npm run compile && xvfb-run -a node test/e2e/vault-ready-lifecycle.e2e.mjs && xvfb-run -a node test/e2e/livepreview.e2e.mjs && xvfb-run -a node test/e2e/todo-sync.e2e.mjs && xvfb-run -a node test/e2e/external-update.e2e.mjs && xvfb-run -a node test/e2e/theme-mode.e2e.mjs && xvfb-run -a node test/e2e/image-index-lifecycle.e2e.mjs && xvfb-run -a node test/e2e/issue-regressions.e2e.mjs",
+    "test:e2e": "npm run compile && xvfb-run -a node test/e2e/native-scroll-anchor.e2e.mjs && xvfb-run -a node test/e2e/wheel-observer.e2e.mjs && xvfb-run -a node test/e2e/vault-ready-lifecycle.e2e.mjs && xvfb-run -a node test/e2e/livepreview.e2e.mjs && xvfb-run -a node test/e2e/todo-sync.e2e.mjs && xvfb-run -a node test/e2e/external-update.e2e.mjs && xvfb-run -a node test/e2e/theme-mode.e2e.mjs && xvfb-run -a node test/e2e/image-index-lifecycle.e2e.mjs && xvfb-run -a node test/e2e/issue-regressions.e2e.mjs && xvfb-run -a node test/e2e/panel-sync.e2e.mjs",
     "test:visual": "npm run compile && xvfb-run -a node test/e2e/visual.e2e.mjs",
     "test:visual:update": "npm run compile && xvfb-run -a node test/e2e/visual.e2e.mjs --update",
     "shots:features": "npm run compile && xvfb-run -a node scripts/capture-shots.mjs",
@@ -306,7 +306,9 @@
     "shots:navigation": "npm run compile && xvfb-run -a node scripts/capture-navigation-shot.mjs",
     "test": "npm run test:unit && npm run test:perf && npm run test:integration && npm run test:e2e",
     "test:e2e:issues": "npm run compile && xvfb-run -a node test/e2e/issue-regressions.e2e.mjs",
-    "test:stress": "npm run compile && FLINTMARK_STRESS_FILES=20000 FLINTMARK_STRESS_IMAGES=4200 FLINTMARK_STRESS_NOISE=1 xvfb-run -a node test/e2e/vault-ready-lifecycle.e2e.mjs"
+    "test:stress": "npm run compile && FLINTMARK_STRESS_FILES=20000 FLINTMARK_STRESS_IMAGES=4200 FLINTMARK_STRESS_NOISE=1 xvfb-run -a node test/e2e/vault-ready-lifecycle.e2e.mjs",
+    "test:e2e:sync": "npm run compile && xvfb-run -a node test/e2e/panel-sync.e2e.mjs",
+    "postinstall": "patch-package --error-on-fail"
   },
   "devDependencies": {
     "@stryker-mutator/core": "^9.6.1",
@@ -321,6 +323,7 @@
     "eslint": "^9.0.0",
     "glob": "^13.0.6",
     "mocha": "^11.7.6",
+    "patch-package": "8.0.1",
     "pixelmatch": "^6.0.0",
     "playwright": "^1.61.0",
     "pngjs": "^7.0.0",
@@ -329,6 +332,7 @@
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",
+    "@codemirror/collab": "^6.1.1",
     "@codemirror/commands": "^6.5.0",
     "@codemirror/lang-cpp": "^6.0.3",
     "@codemirror/lang-css": "^6.3.1",
@@ -348,7 +352,7 @@
     "@codemirror/legacy-modes": "^6.5.3",
     "@codemirror/search": "^6.7.1",
     "@codemirror/state": "^6.4.0",
-    "@codemirror/view": "^6.26.0",
+    "@codemirror/view": "6.43.1",
     "@lezer/common": "^1.2.0",
     "@lezer/highlight": "^1.2.3",
     "katex": "^0.17.0",

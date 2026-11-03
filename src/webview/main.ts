@@ -1,3 +1,9 @@
+import {
+  getSyncedVersion,
+  receiveUpdates,
+  sendableUpdates,
+} from "@codemirror/collab";
+import { decodeUpdates, encodeUpdates } from "../shared/collaboration";
 // Entry point for the webview bundle.
 // Follows docs/03-solution-design.md: receives init from host, creates CM6,
 // sends minimal-range edits, applies host-originated deltas without echo.
@@ -35,6 +41,30 @@ const messenger = createMessenger();
 let editorHandle: EditorHandle | null = null;
 let view: EditorView | null = null;
 let currentVersion: DocVersion = 0;
+const pendingActions: ("requestSave" | "requestUndo" | "requestRedo")[] = [];
+function flushUpdates(): void {
+  if (!view) return;
+  const updates = sendableUpdates(view.state);
+  if (updates.length) {
+    // Send every local edit promptly, even while earlier edits await an ACK.
+    // The authority deduplicates overlapping batches. Keeping edits only in a
+    // client-side buffer would lose them if the user closed this panel quickly.
+    messenger.post({
+      type: "edit",
+      version: currentVersion,
+      syncVersion: getSyncedVersion(view.state),
+      updates: encodeUpdates(updates),
+    });
+  } else {
+    for (const type of pendingActions.splice(0)) messenger.post({ type });
+  }
+}
+function requestAction(
+  type: "requestSave" | "requestUndo" | "requestRedo",
+): void {
+  pendingActions.push(type);
+  flushUpdates();
+}
 let vaultData: VaultData = { notes: [], tags: [] };
 type ThemeMode = "dark" | "light";
 let currentThemeMode: ThemeMode | null = null;
@@ -86,6 +116,20 @@ function ensureThemeObserver(): void {
 
 messenger.onMessage((msg: HostMsg) => {
   switch (msg.type) {
+    case "syncUpdates": {
+      if (!view) break;
+      const updates = decodeUpdates(msg.updates);
+      const tr = receiveUpdates(view.state, updates);
+      view.dispatch(tr);
+      currentVersion = msg.version;
+      if (!sendableUpdates(view.state).length) {
+        for (const type of pendingActions.splice(0)) messenger.post({ type });
+      }
+      break;
+    }
+    case "syncError":
+      console.error("[ofm] " + msg.message);
+      break;
     case "init":
       handleInit(msg);
       break;
@@ -136,6 +180,7 @@ messenger.onMessage((msg: HostMsg) => {
 
 function handleInit(msg: Extract<HostMsg, { type: "init" }>): void {
   currentVersion = msg.version;
+  pendingActions.length = 0;
   if (msg.vault) vaultData = msg.vault;
 
   if (view) {
@@ -167,41 +212,58 @@ function handleInit(msg: Extract<HostMsg, { type: "init" }>): void {
   applyTheme(msg.theme);
   applySettings(msg.settings);
 
-  editorHandle = createEditor(parent, msg.text, {
-    onUserEdit: (changes: DocChange[]) => {
-      messenger.post({
-        type: "edit",
-        version: currentVersion,
-        changes,
-      });
+  editorHandle = createEditor(
+    parent,
+    msg.text,
+    {
+      onUserEdit: () => {
+        flushUpdates();
+      },
+      onRequestSave: () => requestAction("requestSave"),
+      onRequestUndo: () => requestAction("requestUndo"),
+      onRequestRedo: () => requestAction("requestRedo"),
+      onToggleTask: (range) => {
+        if (!view) return;
+        const marker = view.state.sliceDoc(range.from, range.to);
+        view.dispatch({
+          changes: {
+            from: range.from,
+            to: range.to,
+            insert: /\[[xX]\]/.test(marker) ? "[ ]" : "[x]",
+          },
+        });
+      },
+      onOpenLink: (target) => {
+        messenger.post({ type: "openLink", target });
+      },
+      onRequestAiEdit: (range) => {
+        messenger.post({
+          type: "aiEditSelection",
+          from: range.from,
+          to: range.to,
+          mode: "edit",
+        });
+      },
+      onRequestAddToChat: (range) => {
+        messenger.post({
+          type: "aiEditSelection",
+          from: range.from,
+          to: range.to,
+          mode: "chat",
+        });
+      },
+      getVaultData: () => vaultData,
+      onSaveAttachment: (payload) => {
+        messenger.post({ type: "saveAttachment", ...payload });
+      },
+      onNotify: (message) => {
+        messenger.post({ type: "warn", message });
+      },
     },
-    onRequestUndo: () => {
-      messenger.post({ type: "requestUndo" });
-    },
-    onRequestRedo: () => {
-      messenger.post({ type: "requestRedo" });
-    },
-    onToggleTask: (range) => {
-      messenger.post({ type: "toggleTask", from: range.from, to: range.to });
-    },
-    onOpenLink: (target) => {
-      messenger.post({ type: "openLink", target });
-    },
-    onRequestAiEdit: (range) => {
-      messenger.post({ type: "aiEditSelection", from: range.from, to: range.to, mode: "edit" });
-    },
-    onRequestAddToChat: (range) => {
-      messenger.post({ type: "aiEditSelection", from: range.from, to: range.to, mode: "chat" });
-    },
-    getVaultData: () => vaultData,
-    onSaveAttachment: (payload) => {
-      messenger.post({ type: "saveAttachment", ...payload });
-    },
-    onNotify: (message) => {
-      messenger.post({ type: "warn", message });
-    },
-  }, { dark: initialMode === "dark" });
+    { dark: initialMode === "dark", syncVersion: msg.syncVersion },
+  );
   view = editorHandle.view;
+  view.dom.addEventListener("keydown", handleSearchSelectAll);
   ensureThemeObserver();
   syncThemeMode();
   // The frame may already hold focus by the time init arrives (VS Code focuses
@@ -215,6 +277,23 @@ function handleInit(msg: Extract<HostMsg, { type: "init" }>): void {
 // find, typing) sees nothing until the user clicks into the text. Pass that
 // focus on to the editor, as VS Code's built-in text editor does.
 // ---------------------------------------------------------------------------
+
+// Keep select-all local to the search fields. The host otherwise forwards the
+// same shortcut back asynchronously, selecting characters typed in the meantime.
+function handleSearchSelectAll(event: KeyboardEvent): void {
+  const input = event.target;
+  if (
+    !(input instanceof HTMLInputElement) ||
+    !input.matches(".cm-search input[name='search'], .cm-search input[name='replace']") ||
+    event.key.toLowerCase() !== "a" ||
+    event.altKey || event.shiftKey || event.isComposing
+  ) return;
+  const mac = /Mac|iP(?:ad|hone|od)/.test(navigator.platform);
+  if (!(mac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  input.select();
+}
 
 function focusEditorIfFrameFocused(): void {
   if (!view || view.hasFocus || !document.hasFocus()) return;

@@ -1,4 +1,4 @@
-import { WorkspaceIndexDriver } from "../../../src/extension/vault/workspaceIndexDriver";
+import { relFromRoot, WorkspaceIndexDriver } from "../../../src/extension/vault/workspaceIndexDriver";
 // L2 integration tests: exercise the host/wiring layer that unit tests can't
 // reach (it needs a real VS Code) and that the L3 webview e2e doesn't cover —
 // command registration/activation integrity, the view-switching + set-default
@@ -195,4 +195,103 @@ describe("Workspace index scan scheduling", () => {
       fs.rmSync(folder, { recursive: true, force: true });
     }
   });
+});
+
+
+describe("Workspace image paths", () => {
+  const file = (path: string) => vscode.Uri.from({ scheme: "file", path });
+
+  it("strips the workspace root despite Windows drive-letter casing", () => {
+    for (const rootDrive of ["C", "c"]) {
+      for (const fileDrive of ["C", "c"]) {
+        for (const trailingSlash of ["", "/"]) {
+          assert.strictEqual(
+            relFromRoot(file("/" + rootDrive + ":/Notes" + trailingSlash), file("/" + fileDrive + ":/Notes/assets/Photo.PNG")),
+            "assets/Photo.PNG"
+          );
+        }
+      }
+    }
+  });
+
+  it("preserves spaces, Unicode, and filename case in image references", () => {
+    assert.strictEqual(
+      relFromRoot(file("/C:/My Notes"), file("/c:/My Notes/assets/画像 Photo.SVG")),
+      "assets/画像 Photo.SVG"
+    );
+  });
+
+  it("handles a Windows drive root", () => {
+    assert.strictEqual(relFromRoot(file("/D:/"), file("/d:/Photo.png")), "Photo.png");
+  });
+
+  it("does not confuse a neighboring folder or a different drive with the root", () => {
+    assert.strictEqual(relFromRoot(file("/C:/Notes"), file("/c:/Notes-archive/photo.png")), "c:/Notes-archive/photo.png");
+    assert.strictEqual(relFromRoot(file("/C:/Notes"), file("/d:/Notes/photo.png")), "d:/Notes/photo.png");
+  });
+
+  it("preserves case-sensitive directory boundaries and POSIX roots", () => {
+    assert.strictEqual(relFromRoot(file("/vault"), file("/vault/Photo.PNG")), "Photo.PNG");
+    assert.strictEqual(relFromRoot(file("/vault"), file("/Vault/Photo.PNG")), "Vault/Photo.PNG");
+    assert.strictEqual(relFromRoot(file("/"), file("/vault/Photo.PNG")), "vault/Photo.PNG");
+    assert.strictEqual(relFromRoot(file("/C:/Notes"), file("/c:/notes/Photo.PNG")), "c:/notes/Photo.PNG");
+  });
+
+  it("does not rewrite drive-like paths belonging to non-file providers", () => {
+    const root = vscode.Uri.from({ scheme: "custom", path: "/C:/Notes" });
+    const image = vscode.Uri.from({ scheme: "custom", path: "/c:/Notes/photo.png" });
+    assert.strictEqual(relFromRoot(root, image), "c:/Notes/photo.png");
+  });
+});
+
+// A source tab may coexist with a hidden custom-editor tab. Navigation must
+// reveal the existing preview instead of disposing and racing its replacement.
+describe("Todo navigation to an existing hidden preview", () => {
+  for (const split of [false, true]) {
+    it(`reuses the same preview tab${split ? " across editor groups" : " in one group"}`, async () => {
+      const folder = fs.mkdtempSync(path.join(os.tmpdir(), "ofm-hidden-preview-"));
+      const note = vscode.Uri.file(path.join(folder, "target.md"));
+      const other = vscode.Uri.file(path.join(folder, "other.txt"));
+      const text = "# Navigation\n\n- [ ] target task\n";
+      fs.writeFileSync(note.fsPath, text);
+      fs.writeFileSync(other.fsPath, "Another editor hides the preview.\n");
+      const matchingTabs = () => vscode.window.tabGroups.all.flatMap(group =>
+        group.tabs.filter(tab => tab.input instanceof vscode.TabInputCustom &&
+          tab.input.viewType === VIEW_TYPE && tab.input.uri.toString() === note.toString())
+          .map(tab => ({ group, tab })),
+      );
+      try {
+        await vscode.commands.executeCommand("vscode.openWith", note, VIEW_TYPE, { viewColumn: vscode.ViewColumn.One, preview: false });
+        await delay(1500);
+        assert.strictEqual(matchingTabs().length, 1);
+        const original = matchingTabs()[0];
+        const document = await vscode.workspace.openTextDocument(note);
+        await vscode.window.showTextDocument(other, { viewColumn: original.group.viewColumn, preview: false });
+        await vscode.window.showTextDocument(document, {
+          viewColumn: split ? vscode.ViewColumn.Beside : original.group.viewColumn,
+          preview: false,
+        });
+        assert.strictEqual(original.tab.isActive, false, "preview must actually be hidden before navigating");
+        const markerFrom = text.indexOf("[ ]");
+        await vscode.commands.executeCommand("ofm.gotoTodo", {
+          uri: note, version: document.version, status: " ", text: "target task",
+          line: 2, character: 2, markerFrom, markerTo: markerFrom + 3,
+        });
+        const deadline = Date.now() + 5000;
+        // The tab activation and active-group events can reach the extension
+        // host separately. Wait for both within the original deadline.
+        while ((!original.tab.isActive ||
+          vscode.window.tabGroups.activeTabGroup.viewColumn !== original.group.viewColumn) &&
+          Date.now() < deadline) await delay(25);
+        const after = matchingTabs();
+        assert.strictEqual(after.length, 1, "navigation must not duplicate the preview");
+        assert.strictEqual(after[0].tab, original.tab, "navigation must preserve the existing tab");
+        assert.strictEqual(after[0].group.viewColumn, original.group.viewColumn, "preview must stay in its original group");
+        assert.strictEqual(original.tab.isActive, true, "navigation must reveal the hidden preview");
+        assert.strictEqual(vscode.window.tabGroups.activeTabGroup.viewColumn, original.group.viewColumn, "focus must follow the revealed preview");
+      } finally {
+        await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+      }
+    });
+  }
 });

@@ -9,7 +9,7 @@
 import { build } from "esbuild";
 import { spawnSync } from "node:child_process";
 import { readdirSync, statSync, mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 function walk(dir, acc = []) {
   for (const entry of readdirSync(dir)) {
@@ -63,6 +63,9 @@ for (const f of files) {
     platform: "node",
     format: "cjs",
     outfile,
+    // Opt in only this host-boundary test; other tests must not silently mock VS Code.
+    alias: resolve(f) === resolve("test/vault/workspaceIndexDriver.test.ts")
+      ? { vscode: resolve("test/fixtures/workspaceIndexVscode.ts") } : undefined,
     sourcemap: "inline",
     logLevel: "warning",
   });

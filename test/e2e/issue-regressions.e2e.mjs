@@ -1,3 +1,4 @@
+import { isVisibleFrame } from "./visibleFrame.mjs";
 // Real-editor regressions for issues #5, #10, #14 and PR #6.
 import { _electron as electron } from "playwright";
 import { mkdtempSync, writeFileSync, mkdirSync, readFileSync } from "node:fs";
@@ -32,13 +33,15 @@ writeFileSync(join(work, "notes/regressions.md"), [
   "| plain | [[common/target.md]] |", "", "plain tail", "",
 ].join("\n"));
 writeFileSync(join(work, "windows.md"), "# Windows title\r\n\r\n## Second title\r\n");
+const crlfNote = join(work, "crlf-edit.md");
+writeFileSync(crlfNote, "# CRLF edit\r\n\r\n- aaa\r\n- bbb\r\n- ccc\r\n");
 writeFileSync(join(work, "pixel.png"), Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64"));
 writeFileSync(join(work, "image-only.md"), "![pixel](pixel.png)");
 const app = await electron.launch({
   executablePath: process.env.VSCODE_BIN || "/usr/share/codium/codium",
   args: ["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage",
     "--user-data-dir=" + userData, "--extensions-dir=" + join(work, "ext"),
-    "--extensionDevelopmentPath=" + repo, work],
+    "--extensionDevelopmentPath=" + repo, work, join(work, "windows.md")],
 });
 try {
   const win = await app.firstWindow();
@@ -48,7 +51,7 @@ try {
     for (let i = 0; i < 50; i++) {
       for (const frame of win.frames()) {
         try {
-          if (await frame.locator(".cm-content").count() &&
+          if (await frame.locator(".cm-content").count() && await isVisibleFrame(frame) &&
               (await frame.locator(".cm-content").innerText()).includes(marker)) return frame;
         } catch {}
       }
@@ -96,6 +99,21 @@ try {
   await win.getByText("Second title", { exact: true }).first().click();
   console.log("  ✓ Windows CRLF headings appear by name in the Outline sidebar");
 
+  cm = await open("crlf-edit.md", "CRLF edit");
+  await cm.locator(".cm-line", { hasText: "bbb" }).click();
+  await win.keyboard.press("End");
+  await win.keyboard.type("XYZ");
+  await cm.locator(".cm-line", { hasText: "ccc" }).click();
+  await win.keyboard.press("End");
+  await win.keyboard.press("Backspace");
+  await win.keyboard.press("Enter");
+  await win.keyboard.type("ddd");
+  await win.keyboard.press("Control+s");
+  const expected = "# CRLF edit\r\n\r\n- aaa\r\n- bbbXYZ\r\n- cc\r\n- ddd\r\n";
+  for (let i = 0; i < 50 && readFileSync(crlfNote, "utf8") !== expected; i++) await win.waitForTimeout(200);
+  assert.equal(JSON.stringify(readFileSync(crlfNote, "utf8")), JSON.stringify(expected));
+  console.log("  ✓ typing, Backspace and Enter in a CRLF note edit the right place on disk");
+
   await palette(win, "Control+p", "image-only.md");
   let image = null;
   for (let i = 0; i < 50 && !image; i++) {
@@ -106,6 +124,22 @@ try {
     if (!image) await win.waitForTimeout(200);
   }
   assert.ok(image, "a single-line image with no trailing newline must render on open");
+  const loaded = await image.evaluate((img) => new Promise((resolve) => {
+    const snapshot = () => ({ complete: img.complete, width: img.naturalWidth, height: img.naturalHeight, src: img.src });
+    if (img.complete) { resolve(snapshot()); return; }
+    const timer = setTimeout(() => resolve(snapshot()), 30000);
+    const done = () => { clearTimeout(timer); resolve(snapshot()); };
+    img.addEventListener("load", done, { once: true });
+    img.addEventListener("error", done, { once: true });
+  }));
+  assert.ok(loaded.complete && loaded.width > 0 && loaded.height > 0,
+    `the image must load successfully before interaction: ${JSON.stringify(loaded)}`);
+  const expectedPath = (process.platform === "win32" ? "/" : "") + join(work, "pixel.png").replace(/\\/g, "/");
+  const pathKey = (value) => process.platform === "win32"
+    ? value.replace(/^\/[A-Z]:(?=\/)/, (drive) => drive.toLowerCase()) : value;
+  assert.equal(pathKey(decodeURIComponent(new URL(loaded.src).pathname)), pathKey(expectedPath),
+    "the loaded image URL must resolve to the exact fixture, without a duplicated root");
+  console.log("IMAGE_ONLY_LOADED", JSON.stringify(loaded));
   console.log("  ✓ an image-only note renders before the first interaction");
 } finally {
   await app.close();

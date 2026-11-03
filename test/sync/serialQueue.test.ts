@@ -76,6 +76,17 @@ test("different keys are independent — a slow doc does not block another", asy
   assert.equal(slowDone, true);
 });
 
+test("idle snapshots change only when new work is queued", async () => {
+  const q = new SerialQueue();
+  const empty = q.idle("unused");
+  await empty;
+  assert.strictEqual(q.idle("unused"), empty, "empty cleanup must not see phantom work");
+  const task = q.run("unused", async () => 1);
+  assert.notStrictEqual(q.idle("unused"), empty);
+  await task;
+  assert.strictEqual(q.idle("unused"), task, "settled snapshots remain stable");
+});
+
 test("idle() awaits the current tail for a key", async () => {
   const q = new SerialQueue();
   let done = false;

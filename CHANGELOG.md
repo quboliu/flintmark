@@ -5,6 +5,40 @@ the editor stabilizes for the Marketplace.
 
 ## Unreleased
 
+## 0.33.1
+
+- **Typing synchronization.** Consecutive queued input batches from the same pane are combined before native submission, reducing backlog on slower hosts while preserving command order, concurrent-pane edits, and recovery after a rejected edit.
+
+- **Heading-fold performance.** Layout refreshes scan only the requested section and reuse fold ranges while the document is unchanged, avoiding repeated whole-document copies for every heading.
+
+- **Search input.** Select All in Find and Replace completes locally, preventing a delayed host shortcut from selecting and overwriting newly typed query characters.
+
+- **Stable reading position.** Font and width changes preserve the visible source block when long notes grow or shrink. Repeated layout changes retain fractional positioning, and new scrolling or navigation takes precedence over pending layout restoration. Scrolling that arrives during a layout measurement is preserved as well, including when the document shrinks at the bottom.
+
+- **Large-document structure.** Outline and Todo skip unused inline syntax trees while extracting headings and tasks, reducing synchronous parsing work without changing source positions or rendered Markdown.
+
+- **Checkbox focus.** Clicking a task checkbox focuses Live Preview without moving the selection, so immediate Save and Undo use the pending-edit queue. Keyboard activation keeps its existing focus behavior.
+
+- **Find focus.** Opening Find inside Live Preview no longer runs the shortcut twice, so immediate typing and Escape keep working without a focus jump.
+
+- **Windows images.** Local images render when VS Code reports different drive-letter casing for the workspace and scanned files, including image-only notes without a trailing newline.
+
+- **Multiple Live Preview panes.** Concurrent edits to the same note are rebased and acknowledged per pane, preserving changes made before another pane catches up. Identical concurrent insertions remain separate edits, and LF/CRLF conversion no longer moves pending input.
+- **Synchronization recovery.** Transient edit conflicts retry automatically. Persistent conflicts offer Retry or an unsaved recovery copy; edits retained during the session can be recovered even after closing their preview.
+- **Todo navigation.** Source-view navigation reuses an existing hidden preview in its original editor group, avoiding stale or duplicate tabs.
+- **Save and undo after typing.** Keyboard save, undo, and redo wait for the pane's pending edits to synchronize. Switching between LF and CRLF preserves live-pane positions.
+- **Editing CRLF notes.** Typing, Backspace, task toggles and AI selections in Live Preview now land at the cursor in Windows-style (CRLF) notes instead of shifting by the number of preceding line breaks.
+
+### Validation scope
+
+Linux and macOS completed release acceptance in VS Code, VSCodium, and Cursor, including large-file editing and the 20,000-note / 4,200-image workspace stress test. Files above the Live Preview size limit use the intentional source-text fallback.
+
+Windows: full release testing was not completed because of test-device availability constraints. Antigravity was excluded from GUI acceptance because account login was out of scope.
+
+### Contributors
+
+Thanks to [@Fujita0113](https://github.com/Fujita0113) for the CRLF editing fix in [#18](https://github.com/quboliu/flintmark/pull/18) and for reporting the Windows image and multiple-pane synchronization issues. The original contribution is retained in the commit history.
+
 ## 0.33.0
 
 - **Windows outlines.** CRLF headings retain their titles and hierarchy, with source offsets preserved.
