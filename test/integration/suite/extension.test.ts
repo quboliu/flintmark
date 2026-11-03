@@ -172,7 +172,7 @@ describe("Workspace index scan scheduling", () => {
         const current = calls;
         try {
           if (current === 1) { entered(); await gate; }
-          return context.isCurrent() ? files.map((file) => file.path) : ["stale"];
+          return context.isCurrent() ? files.map((file) => file.toString()) : ["stale"];
         } finally { active--; }
       },
     });
@@ -188,7 +188,7 @@ describe("Workspace index scan scheduling", () => {
       await done;
       assert.strictEqual(maximum, 1);
       assert.strictEqual(calls, 2);
-      assert.deepStrictEqual(handle.snapshot(root), [vscode.Uri.file(path.join(folder, "note.md")).path]);
+      assert.deepStrictEqual(handle.snapshot(root), [vscode.Uri.file(path.join(folder, "note.md")).toString()]);
     } finally {
       release();
       driver.dispose();

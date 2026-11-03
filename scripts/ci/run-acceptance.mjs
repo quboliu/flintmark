@@ -15,6 +15,8 @@ const root=path.resolve('out/acceptance',editor);fs.mkdirSync(root,{recursive:tr
 const summaryFile=path.join(root,'summary.json');assert(!fs.existsSync(summaryFile),'Preserve earlier evidence');
 const corpus=path.resolve('out/acceptance-corpus');
 const common={...process.env,FLINTMARK_REPO:repo,FLINTMARK_DEPS:repo,FLINTMARK_READY_GATE:'1',FLINTMARK_READY_HELPERS:harness,FLINTMARK_VSIX:vsix,FLINTMARK_CANDIDATE_MANIFEST:candidateFile,FLINTMARK_CORPUS:corpus,FLINTMARK_STRESS_FILES:'20000',FLINTMARK_STRESS_IMAGES:'4200',FLINTMARK_STRESS_NOISE:'1'};
+// PowerShell 7's module path is incompatible with nested Windows PowerShell 5.
+if(process.platform==='win32')for(const key of Object.keys(common))if(key.toLowerCase()==='psmodulepath')delete common[key];
 execFileSync(process.execPath,[path.join(harness,'generate-corpus.mjs')],{env:common,stdio:'inherit'});
 const stages=[
  ['integration','out/test/runTest.js',false,600000],
@@ -24,7 +26,14 @@ const stages=[
  ['corpus','test/acceptance/corpus-session.mjs',true,3600000],
  ['workspace','test/acceptance/workspace-registered.mjs',true,1800000],
 ];
-const report={sourceCommit:candidate.sourceCommit,vsixSha256:candidate.vsixSha256,version:candidate.version,platform:process.platform,arch:process.arch,editor,stages:[],passed:false};
+let desktop;
+if(process.platform==='win32'){
+ const script="Add-Type -AssemblyName System.Windows.Forms;[pscustomobject]@{sessionId=(Get-Process -Id $PID).SessionId;interactive=[Environment]::UserInteractive;width=[System.Windows.Forms.SystemInformation]::VirtualScreen.Width;height=[System.Windows.Forms.SystemInformation]::VirtualScreen.Height}|ConvertTo-Json -Compress";
+ desktop=JSON.parse(execFileSync('powershell.exe',['-NoProfile','-NonInteractive','-EncodedCommand',Buffer.from(script,'utf16le').toString('base64')],{env:common,encoding:'utf8',timeout:30000}).trim());
+ fs.writeFileSync(path.join(root,'desktop.json'),JSON.stringify(desktop,null,2)+'\n');
+ assert(desktop.sessionId>0&&desktop.interactive&&desktop.width>0&&desktop.height>0,'Windows GUI acceptance requires an interactive desktop, not service session zero');
+}
+const report={desktop,sourceCommit:candidate.sourceCommit,vsixSha256:candidate.vsixSha256,version:candidate.version,platform:process.platform,arch:process.arch,editor,stages:[],passed:false};
 const save=()=>fs.writeFileSync(summaryFile,JSON.stringify(report,null,2)+'\n');save();
 try{
  for(const [name,script,installed,timeout]of stages){

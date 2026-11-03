@@ -26,9 +26,10 @@ if(editor==='vscode'){
 const archive=path.join(root,'download.'+ext), app=path.join(root,'app');fs.mkdirSync(app,{recursive:true});
 execFileSync(platform==='win32'?'curl.exe':'curl',['--fail','--location','--retry','3','--silent','--show-error',url,'--output',archive],{stdio:'inherit',timeout:600000});
 const sha256=createHash('sha256').update(fs.readFileSync(archive)).digest('hex');
-const ps=code=>execFileSync('powershell.exe',['-NoProfile','-NonInteractive','-EncodedCommand',Buffer.from("$ErrorActionPreference='Stop';"+code,'utf16le').toString('base64')],{stdio:'inherit',timeout:300000});
+const psEnv={...process.env};for(const key of Object.keys(psEnv))if(key.toLowerCase()==='psmodulepath')delete psEnv[key];
+const ps=code=>execFileSync('powershell.exe',['-NoProfile','-NonInteractive','-EncodedCommand',Buffer.from("$ErrorActionPreference='Stop';"+code,'utf16le').toString('base64')],{stdio:'inherit',timeout:300000,env:psEnv});
 const quote=value=>"'"+value.replaceAll("'","''")+"'";
-if(ext==='tar.gz')execFileSync('tar',['-xzf',archive,'-C',app],{stdio:'inherit'});
+if(ext==='tar.gz')execFileSync('tar',['-xzf',archive,'-C',app,...(editor==='vscode'?['--strip-components=1']:[])],{stdio:'inherit'});
 else if(ext==='deb')execFileSync('dpkg-deb',['-x',archive,app],{stdio:'inherit'});
 else if(ext==='zip'&&platform==='win32')ps(`Expand-Archive -LiteralPath ${quote(archive)} -DestinationPath ${quote(app)}`);
 else if(ext==='zip')execFileSync('ditto',['-xk',archive,app],{stdio:'inherit'});
