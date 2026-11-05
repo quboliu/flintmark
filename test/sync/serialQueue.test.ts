@@ -100,6 +100,23 @@ test("idle() awaits the current tail for a key", async () => {
   await q.idle("never-used");
 });
 
+test("drain() awaits tasks enqueued while an earlier tail is still in flight", async () => {
+  const q = new SerialQueue();
+  const steps: string[] = [];
+  void q.run("a", async () => {
+    await sleep(15);
+    steps.push("first");
+  });
+  await sleep(5);
+  const drained = q.drain("a");
+  void q.run("a", async () => {
+    await sleep(15);
+    steps.push("second");
+  });
+  await drained;
+  assert.deepEqual(steps, ["first", "second"], "drain must wait until newly queued tasks settle");
+});
+
 (async () => {
   for (const c of cases) {
     try {

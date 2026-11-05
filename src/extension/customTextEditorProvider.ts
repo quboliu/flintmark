@@ -201,7 +201,18 @@ export class OfmCustomTextEditorProvider
     this.context.subscriptions.push(
       vscode.workspace.onDidChangeTextDocument((e) =>
         this.onDocumentChanged(e)
-      )
+      ),
+      vscode.workspace.onWillSaveTextDocument((e) => {
+        const uri = e.document.uri.toString();
+        if (
+          this.panels.has(uri) ||
+          this.authorities.has(uri) ||
+          this.queuedEdits.has(uri) ||
+          this.pendingUpdates.has(uri)
+        ) {
+          e.waitUntil(this.editQueue.drain(uri).then(() => []));
+        }
+      })
     );
 
     // When the image index (re)builds — initial scan finishing, or an attachment
@@ -405,7 +416,7 @@ export class OfmCustomTextEditorProvider
   ): Promise<void> {
     switch (msg.type) {
       case "ready":
-        await this.editQueue.idle(document.uri.toString()).catch(() => undefined);
+        await this.editQueue.drain(document.uri.toString());
         return this.handleReady(document, panel);
 
       case "edit":
@@ -414,7 +425,7 @@ export class OfmCustomTextEditorProvider
         return;
 
       case "requestSave":
-        await this.editQueue.idle(document.uri.toString()).catch(() => undefined);
+        await this.editQueue.drain(document.uri.toString());
         if (this.conflicts.has(document.uri.toString())) {
           this.notifyConflict(document);
           return;

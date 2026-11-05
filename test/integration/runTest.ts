@@ -54,7 +54,7 @@ async function main(): Promise<void> {
     if (files.length !== 1) throw new Error(`Expected one test host, found ${files.length}`);
     for (const name of files) {
       const report = JSON.parse(fs.readFileSync(path.join(reports, name), "utf8"));
-      if (!report.completed || report.failures !== 0 || report.stats?.passes !== 27 || report.stats?.pending !== 0)
+      if (!report.completed || report.failures !== 0 || report.stats?.passes !== 28 || report.stats?.pending !== 0)
         throw new Error(`Incomplete or failed integration report: ${JSON.stringify(report)}`);
     }
   } catch (err) {

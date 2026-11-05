@@ -177,4 +177,148 @@ describe("Cumulative input batches behind a slow native edit", () => {
       } finally { release(); for (const subscription of subscriptions) subscription.dispose(); }
     });
   }
+
+  it("persists all queued answers on requestSave and native save while an earlier edit is in flight", async () => {
+    const initial = "# Review\n\n*Answer:* \n\n*Answer:* \n\n*Answer:* \n\n*Answer:* \n";
+    const folder = fs.mkdtempSync(path.join(os.tmpdir(), "flintmark-save-bug-"));
+    const file = path.join(folder, "note.md");
+    fs.writeFileSync(file, initial);
+    const document = await vscode.workspace.openTextDocument(vscode.Uri.file(file));
+    const subscriptions: vscode.Disposable[] = [];
+    const context = {
+      subscriptions,
+      extensionUri: vscode.Uri.file(path.resolve(__dirname, "../../..")),
+    } as unknown as vscode.ExtensionContext;
+    const provider = new OfmCustomTextEditorProvider(context, new DocumentSyncManager()) as any;
+    const key = document.uri.toString();
+    let client = EditorState.create({
+      doc: initial,
+      extensions: [collab({ clientID: "panel-save" })],
+    });
+    const panel = {
+      active: true,
+      webview: {
+        asWebviewUri: (uri: vscode.Uri) => uri,
+        postMessage: (message: any) => {
+          if (message.type === "syncUpdates") {
+            client = client.update(receiveUpdates(client, decodeUpdates(message.updates))).state;
+          }
+          return Promise.resolve(true);
+        },
+      },
+    };
+    provider.panels.set(key, new Map([[panel, { document, panel }]]));
+    provider.readyPanels.add(panel);
+
+    const answerOffset = (index: number) => {
+      const marker = "*Answer:* ";
+      let pos = -1;
+      for (let i = 0; i <= index; i++) {
+        pos = client.doc.toString().indexOf(marker, pos + 1);
+      }
+      return pos + marker.length;
+    };
+
+    const sendAt = (from: number, insert: string) => {
+      client = client.update({ changes: { from, to: from, insert } }).state;
+      provider.enqueueEdit(document, panel, {
+        type: "edit",
+        version: document.version,
+        syncVersion: getSyncedVersion(client),
+        updates: encodeUpdates(sendableUpdates(client)),
+      });
+    };
+
+    let releaseFirst!: () => void;
+    let enteredFirst!: () => void;
+    let releaseSecond!: () => void;
+    let enteredSecond!: () => void;
+    const firstGate = new Promise<void>((r) => { releaseFirst = r; });
+    const firstStarted = new Promise<void>((r) => { enteredFirst = r; });
+    const secondGate = new Promise<void>((r) => { releaseSecond = r; });
+    const secondStarted = new Promise<void>((r) => { enteredSecond = r; });
+    const apply = provider.applyWebviewEdit.bind(provider);
+    let callCount = 0;
+    provider.applyWebviewEdit = async (doc: vscode.TextDocument, changes: unknown) => {
+      callCount++;
+      if (callCount === 1) {
+        enteredFirst();
+        await firstGate;
+      } else if (callCount === 2) {
+        enteredSecond();
+        await secondGate;
+      }
+      return apply(doc, changes);
+    };
+
+    try {
+      // 1. User types "agree, " under Answer 1; its applyEdit is in flight.
+      sendAt(answerOffset(0), "agree, ");
+      await firstStarted;
+
+      // 2. While "agree, " is in flight, requestSave arrives AND user finishes Answer 1.
+      const requestSaveDone = provider.onWebviewMessage(document, panel, { type: "requestSave" });
+      sendAt(answerOffset(0) + "agree, ".length, "full first answer.");
+
+      // 3. First edit ("agree, ") finishes and ACKs (advancing syncVersion to 1),
+      //    second edit starts running, and user types Answers 2, 3, and 4.
+      releaseFirst();
+      await secondStarted;
+      sendAt(answerOffset(1), "second answer.");
+      sendAt(answerOffset(2), "third answer.");
+      sendAt(answerOffset(3), "fourth answer.");
+
+      setTimeout(releaseSecond, 30);
+      await requestSaveDone;
+
+      const expected = [
+        "# Review",
+        "",
+        "*Answer:* agree, full first answer.",
+        "",
+        "*Answer:* second answer.",
+        "",
+        "*Answer:* third answer.",
+        "",
+        "*Answer:* fourth answer.",
+        "",
+      ].join("\n");
+
+      assert.equal(
+        fs.readFileSync(file, "utf8"),
+        expected,
+        "requestSave from Live Preview must write all four answers to disk, not the stale 'agree, ' prefix",
+      );
+
+      // 4. Verify native document.save() (File > Save / workbench.action.files.save)
+      //    when the document is already dirty from a prefix edit and the rest of the
+      //    edits are still in flight in editQueue.
+      sendAt(client.doc.length, "\nFooter: ");
+      await provider.editQueue.drain(key);
+      assert.equal(document.isDirty, true);
+
+      let releaseThird!: () => void;
+      let enteredThird!: () => void;
+      const thirdGate = new Promise<void>((r) => { releaseThird = r; });
+      const thirdStarted = new Promise<void>((r) => { enteredThird = r; });
+      provider.applyWebviewEdit = async (doc: vscode.TextDocument, changes: unknown) => {
+        enteredThird();
+        await thirdGate;
+        return apply(doc, changes);
+      };
+      sendAt(client.doc.length, "complete paragraph.\n");
+      await thirdStarted;
+      setTimeout(releaseThird, 30);
+      await document.save();
+      assert.equal(
+        fs.readFileSync(file, "utf8"),
+        expected + "\nFooter: complete paragraph.\n",
+        "native document.save() must wait for pending webview edits before writing to disk",
+      );
+    } finally {
+      releaseFirst();
+      releaseSecond();
+      for (const subscription of subscriptions) subscription.dispose();
+    }
+  });
 });

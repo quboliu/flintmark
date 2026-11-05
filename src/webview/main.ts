@@ -11,6 +11,7 @@ import { decodeUpdates, encodeUpdates } from "../shared/collaboration";
 import "katex/dist/katex.min.css";
 import "./theme/obsidian-variables.css";
 import "./theme/obsidian-base.css";
+import { Transaction } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { openSearchPanel } from "@codemirror/search";
 import type {
@@ -41,29 +42,40 @@ const messenger = createMessenger();
 let editorHandle: EditorHandle | null = null;
 let view: EditorView | null = null;
 let currentVersion: DocVersion = 0;
-const pendingActions: ("requestSave" | "requestUndo" | "requestRedo")[] = [];
+let lastSentSyncVersion = -1;
+let lastSentUpdateCount = 0;
 function flushUpdates(): void {
   if (!view) return;
   const updates = sendableUpdates(view.state);
-  if (updates.length) {
-    // Send every local edit promptly, even while earlier edits await an ACK.
-    // The authority deduplicates overlapping batches. Keeping edits only in a
-    // client-side buffer would lose them if the user closed this panel quickly.
-    messenger.post({
-      type: "edit",
-      version: currentVersion,
-      syncVersion: getSyncedVersion(view.state),
-      updates: encodeUpdates(updates),
-    });
-  } else {
-    for (const type of pendingActions.splice(0)) messenger.post({ type });
+  if (!updates.length) {
+    lastSentSyncVersion = -1;
+    lastSentUpdateCount = 0;
+    return;
   }
+  const syncVersion = getSyncedVersion(view.state);
+  if (
+    syncVersion === lastSentSyncVersion &&
+    updates.length === lastSentUpdateCount
+  ) {
+    return;
+  }
+  lastSentSyncVersion = syncVersion;
+  lastSentUpdateCount = updates.length;
+  // Send every local edit promptly, even while earlier edits await an ACK.
+  // The authority deduplicates overlapping batches. Keeping edits only in a
+  // client-side buffer would lose them if the user closed this panel quickly.
+  messenger.post({
+    type: "edit",
+    version: currentVersion,
+    syncVersion,
+    updates: encodeUpdates(updates),
+  });
 }
 function requestAction(
   type: "requestSave" | "requestUndo" | "requestRedo",
 ): void {
-  pendingActions.push(type);
   flushUpdates();
+  messenger.post({ type });
 }
 let vaultData: VaultData = { notes: [], tags: [] };
 type ThemeMode = "dark" | "light";
@@ -122,9 +134,9 @@ messenger.onMessage((msg: HostMsg) => {
       const tr = receiveUpdates(view.state, updates);
       view.dispatch(tr);
       currentVersion = msg.version;
-      if (!sendableUpdates(view.state).length) {
-        for (const type of pendingActions.splice(0)) messenger.post({ type });
-      }
+      const remaining = sendableUpdates(view.state);
+      lastSentSyncVersion = remaining.length ? getSyncedVersion(view.state) : -1;
+      lastSentUpdateCount = remaining.length;
       break;
     }
     case "syncError":
@@ -180,7 +192,8 @@ messenger.onMessage((msg: HostMsg) => {
 
 function handleInit(msg: Extract<HostMsg, { type: "init" }>): void {
   currentVersion = msg.version;
-  pendingActions.length = 0;
+  lastSentSyncVersion = -1;
+  lastSentUpdateCount = 0;
   if (msg.vault) vaultData = msg.vault;
 
   if (view) {
@@ -344,6 +357,21 @@ window.addEventListener("focus", (event) => {
   focusEditorIfFrameFocused();
 });
 
+window.addEventListener("keydown", (event: KeyboardEvent) => {
+  if (
+    event.defaultPrevented ||
+    event.key.toLowerCase() !== "s" ||
+    event.altKey ||
+    event.shiftKey ||
+    event.isComposing
+  ) return;
+  const mac = /Mac|iP(?:ad|hone|od)/.test(navigator.platform);
+  if (!(mac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  requestAction("requestSave");
+});
+
 // ---------------------------------------------------------------------------
 // applyEdit: reconcile external deltas into CM6 without re-sending
 // ---------------------------------------------------------------------------
@@ -359,7 +387,7 @@ function handleApplyEdit(version: DocVersion, changes: DocChange[]): void {
       to: ch.to,
       insert: ch.insert,
     })),
-    annotations: hostOrigin.of(true),
+    annotations: [hostOrigin.of(true), Transaction.remote.of(true)],
   });
 }
 
@@ -374,7 +402,7 @@ function handleReplaceAll(version: DocVersion, text: string): void {
 
   view.dispatch({
     changes: { from: 0, to: view.state.doc.length, insert: text },
-    annotations: hostOrigin.of(true),
+    annotations: [hostOrigin.of(true), Transaction.remote.of(true)],
   });
   editorHandle?.remeasureTables("replace-all", true);
 }

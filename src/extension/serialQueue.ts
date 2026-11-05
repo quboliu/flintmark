@@ -33,6 +33,15 @@ export class SerialQueue {
     return this.chains.get(key) ?? this.empty;
   }
 
+  /** Resolves once `key`'s chain settles with no newer work queued behind it. */
+  async drain(key: string): Promise<void> {
+    for (;;) {
+      const tail = this.idle(key);
+      await tail.catch(() => undefined);
+      if (this.idle(key) === tail) return;
+    }
+  }
+
   /** Drop all chains (e.g. on dispose). In-flight tasks still settle. */
   clear(): void {
     this.chains.clear();
