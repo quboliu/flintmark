@@ -42,25 +42,15 @@ const messenger = createMessenger();
 let editorHandle: EditorHandle | null = null;
 let view: EditorView | null = null;
 let currentVersion: DocVersion = 0;
-let lastSentSyncVersion = -1;
-let lastSentUpdateCount = 0;
+const pendingHistory: ("requestUndo" | "requestRedo")[] = [];
 function flushUpdates(): void {
   if (!view) return;
   const updates = sendableUpdates(view.state);
   if (!updates.length) {
-    lastSentSyncVersion = -1;
-    lastSentUpdateCount = 0;
+    for (const type of pendingHistory.splice(0)) messenger.post({ type });
     return;
   }
   const syncVersion = getSyncedVersion(view.state);
-  if (
-    syncVersion === lastSentSyncVersion &&
-    updates.length === lastSentUpdateCount
-  ) {
-    return;
-  }
-  lastSentSyncVersion = syncVersion;
-  lastSentUpdateCount = updates.length;
   // Send every local edit promptly, even while earlier edits await an ACK.
   // The authority deduplicates overlapping batches. Keeping edits only in a
   // client-side buffer would lose them if the user closed this panel quickly.
@@ -74,8 +64,11 @@ function flushUpdates(): void {
 function requestAction(
   type: "requestSave" | "requestUndo" | "requestRedo",
 ): void {
+  // History actions need their originating edits acknowledged before the
+  // native undo stack is consulted. Saving instead uses the host flush barrier.
+  if (type !== "requestSave") pendingHistory.push(type);
   flushUpdates();
-  messenger.post({ type });
+  if (type === "requestSave") messenger.post({ type });
 }
 let vaultData: VaultData = { notes: [], tags: [] };
 type ThemeMode = "dark" | "light";
@@ -128,15 +121,20 @@ function ensureThemeObserver(): void {
 
 messenger.onMessage((msg: HostMsg) => {
   switch (msg.type) {
+    case "flush":
+      // The ordered channel places this receipt behind every optimistic edit.
+      flushUpdates();
+      messenger.post({ type: "flushed", requestId: msg.requestId });
+      break;
     case "syncUpdates": {
       if (!view) break;
       const updates = decodeUpdates(msg.updates);
       const tr = receiveUpdates(view.state, updates);
       view.dispatch(tr);
       currentVersion = msg.version;
-      const remaining = sendableUpdates(view.state);
-      lastSentSyncVersion = remaining.length ? getSyncedVersion(view.state) : -1;
-      lastSentUpdateCount = remaining.length;
+      if (!sendableUpdates(view.state).length) {
+        for (const type of pendingHistory.splice(0)) messenger.post({ type });
+      }
       break;
     }
     case "syncError":
@@ -192,8 +190,7 @@ messenger.onMessage((msg: HostMsg) => {
 
 function handleInit(msg: Extract<HostMsg, { type: "init" }>): void {
   currentVersion = msg.version;
-  lastSentSyncVersion = -1;
-  lastSentUpdateCount = 0;
+  pendingHistory.length = 0;
   if (msg.vault) vaultData = msg.vault;
 
   if (view) {

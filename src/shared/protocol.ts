@@ -15,6 +15,7 @@ export type DocVersion = number;
 
 export type WebviewMsg =
   | { type: "ready" }
+  | { type: "flushed"; requestId: number }
   | {
       type: "edit";
       version: DocVersion;
@@ -52,6 +53,7 @@ export type WebviewMsg =
 // ---------------------------------------------------------------------------
 
 export type HostMsg =
+  | { type: "flush"; requestId: number }
   | { type: "syncUpdates"; version: DocVersion; updates: WireUpdate[] }
   | { type: "syncError"; message: string }
   | {

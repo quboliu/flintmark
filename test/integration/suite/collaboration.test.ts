@@ -40,6 +40,7 @@ describe("Collaboration acknowledgments in the real extension host", () => {
         webview: {
           asWebviewUri: (uri: vscode.Uri) => uri,
           postMessage: (message: any) => {
+            if (message.type === "flush") queueMicrotask(() => { void provider.onWebviewMessage(document, panel, { type: "flushed", requestId: message.requestId }); });
             messages.push(message);
             if (message.type === "syncUpdates") {
               client = client.update(receiveUpdates(client, decodeUpdates(message.updates))).state;
@@ -123,11 +124,13 @@ describe("Cumulative input batches behind a slow native edit", () => {
       const clients = new Map<string, EditorState>();
       function makePanel(id: string) {
         clients.set(id, EditorState.create({ doc: initial, extensions: [collab({ clientID: id })] }));
-        return { active: true, webview: { asWebviewUri: (uri: vscode.Uri) => uri, postMessage: (message: any) => {
+        const panel = { active: true, webview: { asWebviewUri: (uri: vscode.Uri) => uri, postMessage: (message: any) => {
+            if (message.type === "flush") queueMicrotask(() => { void provider.onWebviewMessage(document, panel, { type: "flushed", requestId: message.requestId }); });
           messages.push(message);
           if (message.type === "syncUpdates") clients.set(id, clients.get(id)!.update(receiveUpdates(clients.get(id)!, decodeUpdates(message.updates))).state);
           return Promise.resolve(true);
         } } };
+        return panel;
       }
       const a = makePanel("a"), b = makePanel("b");
       provider.panels.set(key, new Map([[a, { document, panel: a }], [b, { document, panel: b }]]));
@@ -200,6 +203,7 @@ describe("Cumulative input batches behind a slow native edit", () => {
       webview: {
         asWebviewUri: (uri: vscode.Uri) => uri,
         postMessage: (message: any) => {
+            if (message.type === "flush") queueMicrotask(() => { void provider.onWebviewMessage(document, panel, { type: "flushed", requestId: message.requestId }); });
           if (message.type === "syncUpdates") {
             client = client.update(receiveUpdates(client, decodeUpdates(message.updates))).state;
           }

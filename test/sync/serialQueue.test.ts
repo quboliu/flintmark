@@ -117,6 +117,27 @@ test("drain() awaits tasks enqueued while an earlier tail is still in flight", a
   assert.deepEqual(steps, ["first", "second"], "drain must wait until newly queued tasks settle");
 });
 
+test("drain survives rejection, follows appended work, and isolates keys", async () => {
+  const q = new SerialQueue();
+  let release!: () => void;
+  const blocked = new Promise<void>(resolve => { release = resolve; });
+  void q.run("other", () => blocked);
+  const seen: number[] = [];
+  void q.run("a", async () => {
+    seen.push(1);
+    void q.run("a", async () => {
+      seen.push(2);
+      void q.run("a", async () => { seen.push(3); });
+    });
+    throw new Error("expected");
+  }).catch(() => undefined);
+  try {
+    await q.drain("a");
+    await q.drain("unused");
+    assert.deepEqual(seen,[1,2,3]);
+  } finally { release(); }
+});
+
 (async () => {
   for (const c of cases) {
     try {
