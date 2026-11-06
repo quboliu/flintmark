@@ -22,7 +22,7 @@ const app=await electron.launch({executablePath:process.env.VSCODE_BIN || '/usr/
  '--user-data-dir='+profile,'--extensions-dir='+path.join(work,'extensions'),
  '--extensionDevelopmentPath='+process.cwd(),work,
 ]});
-const records=[],errors=[];let win;
+const records=[],errors=[];let win;let activeCase='startup';
 const mod=process.platform==='darwin'?'Meta':'Control';
 async function until(fn,label){for(let i=0;i<150;i++){if(await fn())return;await win.waitForTimeout(100);}throw Error(label);}
 async function nativeSave(all) {
@@ -42,9 +42,10 @@ async function nativeSave(all) {
 async function content(frame){return frame.evaluate(()=>document.querySelector('.cm-content').cmTile.root.view.state.doc.toString());}
 try {
  win=await adaptWindow(await app.firstWindow(),app);
- win.on('pageerror',error=>errors.push(String(error)));
+ win.on('pageerror',error=>{const detail=String(error.stack||error);errors.push(detail);console.log('SAVE_PAGE_ERROR',JSON.stringify({activeCase,detail}));});
  await win.waitForSelector('.monaco-workbench');
  for(const eol of ['LF','CRLF']) for(const entry of ['content','search','native','save-all','undo-redo']){
+  activeCase=eol+'/'+entry;
   const marker=eol+' '+entry, file=path.join(work,eol+'-'+entry+'.md');
   const initial='# '+marker+'\n\n'+('Background paragraph. '.repeat(35)+'\n').repeat(8);
   fs.writeFileSync(file,eol==='CRLF'?initial.replace(/\n/g,'\r\n'):initial);
@@ -56,19 +57,15 @@ try {
    await frame.locator('.cm-search input').first().waitFor({state:'visible'});
   }
   const addition=Array.from({length:4},(_,i)=>'\n*Answer:* '+i+' '+('Complete answer paragraph. '.repeat(20))+'\n\nSecond paragraph.\n').join('');
-  // A burst plus a save in one browser task exercises request ordering before
-  // the extension host can acknowledge the first chunk.
-  await frame.evaluate(({addition,entry,mac})=>{
+  // Burst optimistic input, then press the real editor shortcut immediately.
+  // The integration suite deterministically gates transport and host applies.
+  await frame.evaluate(({addition,entry})=>{
    const view=document.querySelector('.cm-content').cmTile.root.view;
    for(const chunk of addition.match(/.{1,31}|\n/g)) view.dispatch({changes:{from:view.state.doc.length,insert:chunk}});
    const target=entry==='search'?document.querySelector('.cm-search input'):view.contentDOM;
    target.focus();
-   if(entry==='content'||entry==='search'){
-    const event=new KeyboardEvent('keydown',{key:'s',code:'KeyS',ctrlKey:!mac,metaKey:mac,bubbles:true,cancelable:true});
-    target.dispatchEvent(event);
-    if(!event.defaultPrevented)throw Error('Save shortcut was not handled');
-   }
-  },{addition,entry,mac:process.platform==='darwin'});
+  },{addition,entry});
+  if(entry==='content'||entry==='search') await win.keyboard.press(mod+'+s');
   let expected=initial+addition;
   if(entry==='native') await nativeSave(false);
   if(entry==='save-all') await nativeSave(true);
