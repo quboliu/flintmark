@@ -143,3 +143,40 @@ describe("Save barrier failures", () => {
     });
   }
 });
+
+describe("Slow native disk writes", () => {
+  it("finishes synchronization that completes during the initial disk write", async () => {
+    let bytes=Buffer.from("# Slow disk\n");
+    let writes=0;
+    const subscriptions:vscode.Disposable[]=[];
+    const changed=new vscode.EventEmitter<vscode.FileChangeEvent[]>();
+    const scheme="flintmark-slow-save";
+    subscriptions.push(changed,vscode.workspace.registerFileSystemProvider(scheme,{
+      onDidChangeFile:changed.event,watch:()=>new vscode.Disposable(()=>{}),
+      stat:()=>({type:vscode.FileType.File,ctime:0,mtime:0,size:bytes.length}),
+      readDirectory:()=>[],createDirectory:()=>{},delete:()=>{},rename:()=>{},
+      readFile:()=>bytes,
+      writeFile:async (_uri,data)=>{const snapshot=Buffer.from(data);writes++;if(writes===1)await sleep(1800);bytes=snapshot;},
+    },{isCaseSensitive:true}));
+    const document=await vscode.workspace.openTextDocument(vscode.Uri.parse(scheme+":/note.md"));
+    await vscode.window.showTextDocument(document);
+    const provider=new OfmCustomTextEditorProvider({subscriptions} as any,new DocumentSyncManager()) as any;
+    const uri=document.uri.toString();let sent=false;
+    const panel:any={webview:{postMessage:(message:any)=>{
+      if(message.type==="flush"){
+        if(!sent){sent=true;let client=EditorState.create({doc:document.getText(),extensions:[collab({clientID:"slow-peer"})]});client=client.update({changes:{from:client.doc.length,insert:"Complete pending answer.\n"}}).state;provider.enqueueEdit(document,panel,{type:"edit",version:document.version,syncVersion:getSyncedVersion(client),updates:encodeUpdates(sendableUpdates(client))});}
+        queueMicrotask(()=>{void provider.onWebviewMessage(document,panel,{type:"flushed",requestId:message.requestId});});
+      }
+      return Promise.resolve(true);
+    }}};
+    provider.panels.set(uri,new Map([[panel,{document,panel}]]));provider.readyPanels.add(panel);provider.authority(document);
+    const apply=provider.applyWebviewEdit.bind(provider);provider.applyWebviewEdit=async (...args:any[])=>{await sleep(1500);return apply(...args);};
+    try {
+      await vscode.commands.executeCommand("workbench.action.files.save",document.uri);
+      for(let i=0;i<100;i++){if(!document.isDirty&&bytes.toString().includes("Complete pending answer."))break;await sleep(50);}
+      assert.equal(writes >= 2,true,"a stale completed write requires a forced follow-up even when the host is clean");
+      assert.equal(bytes.toString(),"# Slow disk\nComplete pending answer.\n");
+      assert.equal(document.isDirty,false);
+    } finally {for(const subscription of subscriptions)subscription.dispose();}
+  });
+ });

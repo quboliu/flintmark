@@ -264,15 +264,21 @@ export class OfmCustomTextEditorProvider
         const uri = e.document.uri.toString();
         if (this.saving.has(uri) || !this.panels.has(uri)) return;
         const record = { pending: Promise.resolve(), synchronized: false };
-        const pending = this.synchronizeForSave(e.document).then(() => { record.synchronized = true; });
+        const pending = this.synchronizeForSave(e.document);
         record.pending = pending;
         this.nativeSaves.set(uri, record);
         // VS Code gives save participants a shared 1.5 second budget. Return
         // before it expires and finish a slow remote flush after the native
         // write, instead of having VS Code permanently disable this listener.
         e.waitUntil(new Promise<vscode.TextEdit[]>(resolve => {
-          const timer = setTimeout(() => resolve([]), 1000);
-          void pending.then(() => { clearTimeout(timer); resolve([]); }, error => {
+          let yielded = false;
+          const timer = setTimeout(() => { yielded = true; resolve([]); }, 1000);
+          void pending.then(() => {
+            // Completion during an already-started disk write cannot prove
+            // that write captured the synchronized document.
+            if (!yielded) record.synchronized = true;
+            clearTimeout(timer); resolve([]);
+          }, error => {
             clearTimeout(timer); this.reportSaveError(error); resolve([]);
           });
         }));
@@ -288,11 +294,16 @@ export class OfmCustomTextEditorProvider
         void record.pending.then(async () => {
           // A remote edit may finish after VS Code's save-participant budget.
           // Complete that save intent after its synchronized edits arrive.
-          if (!document.isClosed && document.isDirty) {
+          if (!document.isClosed) {
             await this.saveQueue.run(uri, () => this.editQueue.run(uri, async () => {
               if (this.conflicts.has(uri)) throw new Error("Live Preview has unsynchronized edits.");
               this.saving.add(uri);
-              try { if (!await document.save()) throw new Error("The document was not saved."); }
+              try {
+                // Some providers clear dirty state when an older slow write
+                // finishes. Force the follow-up even if save() would no-op.
+                await vscode.commands.executeCommand("workbench.action.files.save", document.uri);
+                if (document.isDirty) throw new Error("The document was not saved.");
+              }
               finally { this.saving.delete(uri); }
             }));
           }
