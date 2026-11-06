@@ -17,6 +17,7 @@ fs.writeFileSync(path.join(profile,'User/settings.json'),JSON.stringify({
  'telemetry.telemetryLevel':'off','update.mode':'none','files.autoSave':'off',
 }));
 const app=await electron.launch({executablePath:process.env.VSCODE_BIN || '/usr/share/codium/codium',args:[
+ ...(/cursor/i.test(process.env.VSCODE_BIN || '') ? ['--skip-onboarding'] : []),
  '--no-sandbox','--disable-gpu','--disable-dev-shm-usage','--skip-welcome','--skip-release-notes',
  '--user-data-dir='+profile,'--extensions-dir='+path.join(work,'extensions'),
  '--extensionDevelopmentPath='+process.cwd(),work,
@@ -28,9 +29,12 @@ async function nativeSave(all) {
  await win.keyboard.press('F1');
  const widget=win.locator('.quick-input-widget');
  await widget.locator('input:not([type=checkbox])').first().fill('>File: Save');
- const command=all?'workbench.action.files.saveFiles':'workbench.action.files.save';
- const row=widget.locator('[data-quick-input-id="'+command+'"]');
+ // Older VS Code-family hosts do not expose data-quick-input-id. Match the
+ // complete command label, excluding Save As / Save All in Group.
+ const label=all?/^File: Save All(?: Files)?$/:/^File: Save$/;
+ const row=widget.locator('.monaco-list-row').filter({has:win.locator('.label-name').filter({hasText:label})});
  await row.waitFor({state:'visible'});
+ assert.equal(await row.count(),1,'Native save command must be unambiguous');
  await win.mouse.move(5,5); // Keep hover documentation away from the target row.
  await row.click({position:{x:12,y:10}});
  await widget.waitFor({state:'hidden'});
@@ -87,6 +91,10 @@ try {
   await palette(win,mod+'+Shift+p','View: Close All Editors');
  }
  assert.deepEqual(errors,[]);assert.equal(records.length,10);
+} catch(error) {
+ fs.writeFileSync(path.join(output,'failure.json'),JSON.stringify({error:String(error.stack||error),records},null,2));
+ if(win) await win.screenshot({path:path.join(output,'failure.png')}).catch(()=>{});
+ throw error;
 } finally {
  fs.writeFileSync(path.join(output,'save-barrier.json'),JSON.stringify({records,errors,passed:records.length===10&&errors.length===0},null,2));
  await app.close();
