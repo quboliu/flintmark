@@ -122,6 +122,59 @@ export class OfmCustomTextEditorProvider
 
   /** Serializes webview edits per URI — the concurrent-edit corruption guard. */
   private editQueue = new SerialQueue();
+  private readonly saveQueue = new SerialQueue();
+  private nextFlushId = 0;
+  private readonly flushWaiters = new Map<number, {
+    panel: vscode.WebviewPanel;
+    resolve: () => void;
+    reject: (error: Error) => void;
+  }>();
+  private readonly saving = new Set<string>();
+  private readonly nativeSaves = new Map<string, { pending: Promise<void>; synchronized: boolean }>();
+
+  /** Flush every live peer before inspecting the host queue. An empty queue
+   * alone says nothing about messages still in transit from a webview. */
+  private async synchronizeForSave(document: vscode.TextDocument): Promise<void> {
+    const uri = document.uri.toString();
+    await Promise.all([...this.panels.get(uri)?.keys() ?? []].filter(panel =>
+      this.readyPanels.has(panel)).map(panel => new Promise<void>((resolve, reject) => {
+      const requestId = ++this.nextFlushId;
+      const timer = setTimeout(() => finish(new Error("A Live Preview did not respond to the save request. Your edits remain unsaved.")), 5000);
+      const finish = (error?: Error) => {
+        clearTimeout(timer);
+        this.flushWaiters.delete(requestId);
+        if (error) reject(error); else resolve();
+      };
+      this.flushWaiters.set(requestId, { panel, resolve: () => finish(), reject: finish });
+      try {
+        Promise.resolve(panel.webview.postMessage({ type: "flush", requestId } satisfies HostMsg))
+          .then(sent => { if (!sent) finish(new Error("Live Preview closed before confirming its pending edits.")); }, error => finish(error));
+      } catch (error) { finish(error instanceof Error ? error : new Error(String(error))); }
+    })));
+    await this.editQueue.drain(uri);
+    if (this.conflicts.has(uri)) throw new Error("Live Preview has unsynchronized edits. Retry synchronization or save a recovery copy.");
+  }
+
+  /** Extension-owned saves must enter here, never call TextDocument.save()
+   * before synchronization: that API skips clean host documents entirely. */
+  async saveDocument(document: vscode.TextDocument): Promise<boolean> {
+    const uri = document.uri.toString();
+    return this.saveQueue.run(uri, async () => {
+      await this.synchronizeForSave(document);
+      // Keep later edits behind the disk write. Otherwise applyEdit can race
+      // document.save() and turn a successful save into an unsaved document.
+      return this.editQueue.run(uri, async () => {
+        if (this.conflicts.has(uri)) throw new Error("Live Preview has unsynchronized edits.");
+        this.saving.add(uri);
+        try { return await document.save(); }
+        finally { this.saving.delete(uri); }
+      });
+    });
+  }
+
+  private reportSaveError(error: unknown): void {
+    void vscode.window.showErrorMessage("Flintmark could not finish saving: " + String(error));
+  }
   private readonly queuedEdits = new Map<string, {
     panel: vscode.WebviewPanel;
     message: Extract<WebviewMsg, { type: "edit" }>;
@@ -199,9 +252,63 @@ export class OfmCustomTextEditorProvider
   ) {
     // Global listener: reconcile external document changes into webviews.
     this.context.subscriptions.push(
+      { dispose: () => {
+        for (const waiter of this.flushWaiters.values()) waiter.reject(new Error("The editor was disposed during save."));
+        this.nativeSaves.clear();
+        this.saveQueue.clear();
+      } },
       vscode.workspace.onDidChangeTextDocument((e) =>
         this.onDocumentChanged(e)
-      )
+      ),
+      vscode.workspace.onWillSaveTextDocument((e) => {
+        const uri = e.document.uri.toString();
+        if (this.saving.has(uri) || !this.panels.has(uri)) return;
+        const record = { pending: Promise.resolve(), synchronized: false };
+        const pending = this.synchronizeForSave(e.document);
+        record.pending = pending;
+        this.nativeSaves.set(uri, record);
+        // VS Code gives save participants a shared 1.5 second budget. Return
+        // before it expires and finish a slow remote flush after the native
+        // write, instead of having VS Code permanently disable this listener.
+        e.waitUntil(new Promise<vscode.TextEdit[]>(resolve => {
+          let yielded = false;
+          const timer = setTimeout(() => { yielded = true; resolve([]); }, 1000);
+          void pending.then(() => {
+            // Completion during an already-started disk write cannot prove
+            // that write captured the synchronized document.
+            if (!yielded) record.synchronized = true;
+            clearTimeout(timer); resolve([]);
+          }, error => {
+            clearTimeout(timer); this.reportSaveError(error); resolve([]);
+          });
+        }));
+      }),
+      vscode.workspace.onDidSaveTextDocument(document => {
+        const uri = document.uri.toString();
+        const record = this.nativeSaves.get(uri);
+        if (!record) return;
+        this.nativeSaves.delete(uri);
+        // A completed barrier needs no follow-up. Do not auto-save input that
+        // arrives after an otherwise complete native save.
+        if (record.synchronized) return;
+        void record.pending.then(async () => {
+          // A remote edit may finish after VS Code's save-participant budget.
+          // Complete that save intent after its synchronized edits arrive.
+          if (!document.isClosed) {
+            await this.saveQueue.run(uri, () => this.editQueue.run(uri, async () => {
+              if (this.conflicts.has(uri)) throw new Error("Live Preview has unsynchronized edits.");
+              this.saving.add(uri);
+              try {
+                // Some providers clear dirty state when an older slow write
+                // finishes. Force the follow-up even if save() would no-op.
+                await vscode.commands.executeCommand("workbench.action.files.save", document.uri);
+                if (document.isDirty) throw new Error("The document was not saved.");
+              }
+              finally { this.saving.delete(uri); }
+            }));
+          }
+        }).catch(error => this.reportSaveError(error));
+      })
     );
 
     // When the image index (re)builds — initial scan finishing, or an attachment
@@ -304,6 +411,9 @@ export class OfmCustomTextEditorProvider
     }
     panelsForUri.set(webviewPanel, { document, panel: webviewPanel });
     webviewPanel.onDidDispose(() => {
+      for (const waiter of this.flushWaiters.values()) {
+        if (waiter.panel === webviewPanel) waiter.reject(new Error("Live Preview closed during save synchronization."));
+      }
       const records = this.panels.get(uri);
       records?.delete(webviewPanel);
       if (records?.size === 0) {
@@ -404,8 +514,13 @@ export class OfmCustomTextEditorProvider
     msg: WebviewMsg
   ): Promise<void> {
     switch (msg.type) {
+      case "flushed": {
+        const waiter = this.flushWaiters.get(msg.requestId);
+        if (waiter?.panel === panel) waiter.resolve();
+        return;
+      }
       case "ready":
-        await this.editQueue.idle(document.uri.toString()).catch(() => undefined);
+        await this.editQueue.drain(document.uri.toString());
         return this.handleReady(document, panel);
 
       case "edit":
@@ -414,12 +529,9 @@ export class OfmCustomTextEditorProvider
         return;
 
       case "requestSave":
-        await this.editQueue.idle(document.uri.toString()).catch(() => undefined);
-        if (this.conflicts.has(document.uri.toString())) {
-          this.notifyConflict(document);
-          return;
-        }
-        await document.save();
+        try {
+          if (!await this.saveDocument(document)) throw new Error("The document was not saved.");
+        } catch (error) { this.reportSaveError(error); }
         return;
 
       case "requestUndo":

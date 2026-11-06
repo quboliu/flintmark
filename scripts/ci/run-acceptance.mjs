@@ -20,6 +20,7 @@ if(process.platform==='win32')for(const key of Object.keys(common))if(key.toLowe
 execFileSync(process.execPath,[path.join(harness,'generate-corpus.mjs')],{env:common,stdio:'inherit'});
 const stages=[
  ['integration','out/test/runTest.js',false,600000],
+ ['save-barrier','test/e2e/save-barrier.e2e.mjs',true,600000],
  ['native-scroll','test/e2e/native-scroll-anchor.e2e.mjs',false,600000],
  ['observer-controls','test/e2e/wheel-observer.e2e.mjs',false,300000],
  ...['livepreview-viewport-clock','todo-strict','external-update-command-map','theme-mode','image-index-lifecycle','issue-regressions','panel-sync-preserve-focus','crlf-boundaries'].map(n=>[n,`test/acceptance/${n}.e2e.mjs`,true,900000]),
@@ -54,6 +55,7 @@ try{
   }
   assert.equal(result.status,0,`${editor}/${name} failed; inspect the full runner.log`);
   if(installed)assert.equal(read(path.join(out,'installed-candidate.json')).vsixSha256,candidate.vsixSha256);
+  if(name==='save-barrier'){const r=read(path.join(out,'save-barrier.json'));assert(r.passed);assert.deepEqual(r.records.map(x=>x.eol+'/'+x.entry),['LF','CRLF'].flatMap(eol=>['content','search','native','save-all','undo-redo'].map(entry=>eol+'/'+entry)));assert(r.records.every(x=>x.passed));assert.deepEqual(r.errors,[]);report.saveBarrier={cases:r.records.length,hostDiagnostics:r.hostDiagnostics??[]};if(r.hostDiagnostics?.length)console.warn("Known Cursor CRLF diff-worker diagnostics (also reproduced without Flintmark):",r.hostDiagnostics.length);}
   if(name==='native-scroll'||name==='observer-controls'){
    const r=read(path.join(out,'results/results.json'));assert.equal(r.results.length,name==='native-scroll'?93:6);assert(r.results.every(x=>x.pass));assert.deepEqual(r.pageErrors,[]);
   }
@@ -71,5 +73,5 @@ try{
   }
   save();
  }
- assert.equal(report.stages.length,13);report.passed=true;save();console.log(JSON.stringify(report,null,2));
+ assert.equal(report.stages.length,14);report.passed=true;save();console.log(JSON.stringify(report,null,2));
 }catch(error){report.error=String(error.stack||error);save();throw error;}
