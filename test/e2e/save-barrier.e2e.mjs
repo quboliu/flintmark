@@ -22,7 +22,7 @@ const app=await electron.launch({executablePath:process.env.VSCODE_BIN || '/usr/
  '--user-data-dir='+profile,'--extensions-dir='+path.join(work,'extensions'),
  '--extensionDevelopmentPath='+process.cwd(),work,
 ]});
-const records=[],errors=[];let win;let activeCase='startup';
+const records=[],errors=[],hostDiagnostics=[];let win;let activeCase='startup';
 const mod=process.platform==='darwin'?'Meta':'Control';
 async function until(fn,label){for(let i=0;i<150;i++){if(await fn())return;await win.waitForTimeout(100);}throw Error(label);}
 async function nativeSave(all) {
@@ -42,7 +42,17 @@ async function nativeSave(all) {
 async function content(frame){return frame.evaluate(()=>document.querySelector('.cm-content').cmTile.root.view.state.doc.toString());}
 try {
  win=await adaptWindow(await app.firstWindow(),app);
- win.on('pageerror',error=>{const detail=String(error.stack||error);errors.push(detail);console.log('SAVE_PAGE_ERROR',JSON.stringify({activeCase,detail}));});
+ win.on('pageerror',error=>{
+  const detail=String(error.stack||error);
+  // Reproduced in a fresh Cursor profile with no Flintmark extension: its
+  // advanced diff worker asserts on CRLF edits. Keep the complete evidence,
+  // but distinguish this exact host defect from extension/runtime failures.
+  const knownHostDiff=/cursor/i.test(process.env.VSCODE_BIN||'') && activeCase.startsWith('CRLF/') &&
+   detail.startsWith('Error: Assertion Failed') && detail.includes('editorWebWorkerMain.js#TextEditorWorker') &&
+   detail.includes('lineRangeMappingFromRangeMappings') && detail.includes('DefaultLinesDiffComputer.computeDiff');
+  if(knownHostDiff)hostDiagnostics.push({activeCase,detail});else errors.push(detail);
+  console.log(knownHostDiff?'SAVE_HOST_DIAGNOSTIC':'SAVE_PAGE_ERROR',JSON.stringify({activeCase,detail}));
+ });
  await win.waitForSelector('.monaco-workbench');
  for(const eol of ['LF','CRLF']) for(const entry of ['content','search','native','save-all','undo-redo']){
   activeCase=eol+'/'+entry;
@@ -93,6 +103,6 @@ try {
  if(win) await win.screenshot({path:path.join(output,'failure.png')}).catch(()=>{});
  throw error;
 } finally {
- fs.writeFileSync(path.join(output,'save-barrier.json'),JSON.stringify({records,errors,passed:records.length===10&&errors.length===0},null,2));
+ fs.writeFileSync(path.join(output,'save-barrier.json'),JSON.stringify({records,errors,hostDiagnostics,passed:records.length===10&&errors.length===0},null,2));
  await app.close();
 }

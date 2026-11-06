@@ -55,7 +55,7 @@ try{
   }
   assert.equal(result.status,0,`${editor}/${name} failed; inspect the full runner.log`);
   if(installed)assert.equal(read(path.join(out,'installed-candidate.json')).vsixSha256,candidate.vsixSha256);
-  if(name==='save-barrier'){const r=read(path.join(out,'save-barrier.json'));assert(r.passed);assert.deepEqual(r.records.map(x=>x.eol+'/'+x.entry),['LF','CRLF'].flatMap(eol=>['content','search','native','save-all','undo-redo'].map(entry=>eol+'/'+entry)));assert(r.records.every(x=>x.passed));assert.deepEqual(r.errors,[]);report.saveBarrier={cases:r.records.length};}
+  if(name==='save-barrier'){const r=read(path.join(out,'save-barrier.json'));assert(r.passed);assert.deepEqual(r.records.map(x=>x.eol+'/'+x.entry),['LF','CRLF'].flatMap(eol=>['content','search','native','save-all','undo-redo'].map(entry=>eol+'/'+entry)));assert(r.records.every(x=>x.passed));assert.deepEqual(r.errors,[]);report.saveBarrier={cases:r.records.length,hostDiagnostics:r.hostDiagnostics??[]};if(r.hostDiagnostics?.length)console.warn("Known Cursor CRLF diff-worker diagnostics (also reproduced without Flintmark):",r.hostDiagnostics.length);}
   if(name==='native-scroll'||name==='observer-controls'){
    const r=read(path.join(out,'results/results.json'));assert.equal(r.results.length,name==='native-scroll'?93:6);assert(r.results.every(x=>x.pass));assert.deepEqual(r.pageErrors,[]);
   }
