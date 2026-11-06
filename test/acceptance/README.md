@@ -9,9 +9,10 @@ The matrix uses Ubuntu x64, Windows x64, Windows ARM64, and macOS ARM64. Every
 platform runs VS Code, VSCodium, and Cursor independently. Antigravity is excluded
 because account login is outside the agreed scope.
 
-Each editor runs 13 stages:
+Each editor runs 14 stages:
 
-- Real extension-host integration tests.
+- Real extension-host integration tests, including delayed peer input and slow disk writes.
+- Ten exact-content save scenarios across LF/CRLF, preview and Find shortcuts, native Save, Save All, and undo/redo.
 - 93 native scroll-anchor scenarios and six wheel-observer controls.
 - Eight functional groups: Live Preview, Todo, external updates, themes, image
   index lifecycle, issue regressions, pane synchronization, and CRLF boundaries.
