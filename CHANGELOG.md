@@ -5,6 +5,18 @@ the editor stabilizes for the Marketplace.
 
 ## Unreleased
 
+## 0.33.3
+
+- **Reliable Live Preview saves.** Saving now flushes pending input from every preview pane before draining the host edit queue and writing the document. This prevents incomplete saves when edits are queued or still in transit, including saving while Find has focus.
+
+- **Slow native saves.** Native saves that exceed the editor’s synchronization budget finish with a synchronized follow-up. A slow disk write can no longer suppress that follow-up by clearing the document’s dirty flag while newer input is still being saved. Failed synchronization and retained conflicts produce explicit errors.
+
+- **Save regression coverage.** Tests cover LF/CRLF, concurrent panes, delayed input, repeated saves, typing during a write, native and preview shortcuts, auto-save, Save All for dirty documents, undo/redo, timeouts, and conflicts. The release gate now requires 14 stages per editor, including ten exact-content save scenarios.
+
+### Contributors
+
+Thanks to [Jacob Stephens (@JacobStephens2)](https://github.com/JacobStephens2) for reporting the save race in [#21](https://github.com/quboliu/flintmark/issues/21) and contributing the initial pending-edit drain fix in [#22](https://github.com/quboliu/flintmark/pull/22). His original commit and authorship are preserved; [#23](https://github.com/quboliu/flintmark/pull/23) builds on that work with peer flushing, slow-save handling, and broader tests.
+
 ## 0.33.2
 
 - **Large-workspace indexing.** Local note reads now run directly in the extension host instead of making a file-service IPC request for every file. This removes the Windows indexing bottleneck observed in the 20,000-note stress test. Remote and custom file systems continue to use their registered providers. The same routing applies to incremental updates.
