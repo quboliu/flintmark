@@ -38,7 +38,7 @@ SOFTWARE.
 ## Things theme
 
 Flintmark bundles the **Things** theme as its built-in default theme, vendored
-verbatim and unmodified. Full credit to its authors.
+with heading sizes adapted to scale with prose and a body-size minimum for H6. Full credit to its authors.
 
 - Author: Stephan Ango (@kepano); Obsidian port created & maintained by Colin Eckert (@colineckert)
 - Source: https://github.com/colineckert/obsidian-things
