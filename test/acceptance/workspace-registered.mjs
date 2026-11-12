@@ -7,7 +7,7 @@ import {isVisibleFrame} from "./visibleFrame.mjs";
 import {createRequire} from 'node:module';
 const require=createRequire(process.env.FLINTMARK_DEPS+'/package.json');
 const{_electron:electron}=require('playwright');
-import {mkdtempSync,mkdirSync,unlinkSync,writeFileSync,readdirSync,existsSync,lstatSync} from "node:fs";
+import {mkdtempSync,mkdirSync,unlinkSync,writeFileSync,readdirSync,existsSync,lstatSync,realpathSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join,resolve} from "node:path";
 import {fileURLToPath} from "node:url";
@@ -46,7 +46,8 @@ const WRITER_EXIT_TIMEOUT_MS = 5000;
 const DIAGNOSTIC_TIMEOUT_MS = 5000;
 
 // Historical local investigation scheduling is not part of this portable test.
-const work = mkdtempSync(join(tmpdir(), "ofm-vault-ready-"));
+const temporaryWork = mkdtempSync(join(tmpdir(), "ofm-vault-ready-"));
+const work = process.env.FLINTMARK_DIAGNOSTIC_MODE === "canonical-root" ? realpathSync(temporaryWork) : temporaryWork;
 const userData = mkdtempSync(join(tmpdir(), "fm-p-"));
 const buildGate = join(work, "vault-build.gate");
 writeFileSync(buildGate, "held");

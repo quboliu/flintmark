@@ -28,7 +28,7 @@ jobs:
           export FLINTMARK_CANDIDATE_MANIFEST="$PWD/candidate/manifest.json"
           export FLINTMARK_STRESS_FILES=20000 FLINTMARK_STRESS_IMAGES=4200 FLINTMARK_STRESS_NOISE=1
           for trial in 1 2 3; do
-            for mode in baseline no-tree-watcher; do
+            for mode in baseline canonical-root; do
             export FLINTMARK_DIAGNOSTIC_MODE="$mode"
             export FLINTMARK_OUT="$PWD/out/workspace-diagnostic/$mode/trial-$trial"
             mkdir -p "$FLINTMARK_OUT"
@@ -42,7 +42,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: workspace-directory-observation
+          name: workspace-path-canonicalization
           path: out/workspace-diagnostic/
           retention-days: 14
           if-no-files-found: error
