@@ -40,6 +40,8 @@ export class DocumentStructureStore {
   }
 
   get(document: StructureDocumentInput): DocumentStructureSnapshot {
+    const cached = this.cache.peek(document.uri);
+    if (cached?.version === document.version) return cached;
     return this.cache.get(document.uri, document.version, document.text);
   }
 

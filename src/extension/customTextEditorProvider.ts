@@ -195,7 +195,7 @@ export class OfmCustomTextEditorProvider
     let authority = this.authorities.get(uri);
     if (authority && this.authorityDocuments.get(authority) !== document &&
         this.conflicts.has(uri) && !this.pendingUpdates.has(uri) &&
-        authority.doc.toString() !== document.getText().replace(/\r\n?|\n/g, "\n")) {
+        authority.doc.toString() !== document.getText().replace(/\r\n?/g, "\n")) {
       // A closed document can change without emitting events to this provider.
       // Preserve its pending version separately instead of rebasing old offsets
       // into unrelated text when the document is reopened.
@@ -1395,9 +1395,9 @@ export class OfmCustomTextEditorProvider
 
   private sendImageMap(
     document: vscode.TextDocument,
-    panel: vscode.WebviewPanel
+    panel: vscode.WebviewPanel,
+    text = document.getText()
   ): void {
-    const text = document.getText();
     const dir = vscode.Uri.joinPath(document.uri, "..");
     const map: Record<string, string> = {};
 
@@ -1455,10 +1455,11 @@ export class OfmCustomTextEditorProvider
     const uri = e.document.uri.toString();
     const records = [...(this.panels.get(uri)?.values() ?? [])];
 
-    // Refresh image resolution on every change (images can be typed/edited);
-    // sendImageMap only posts when the set of image srcs actually changed.
-    for (const { panel } of records) {
-      this.sendImageMap(e.document, panel);
+    // Dirty/save notifications contain no source edits. For real edits, share
+    // one full-source read across panels and collaboration reconciliation.
+    const source = records.length && e.contentChanges.length ? e.document.getText() : undefined;
+    if (source !== undefined) {
+      for (const { panel } of records) this.sendImageMap(e.document, panel, source);
     }
 
     const authority = this.authorities.get(uri);
@@ -1468,7 +1469,7 @@ export class OfmCustomTextEditorProvider
       const event: BufferedDocumentChange = {
         contentChanges: e.contentChanges,
         version: e.document.version,
-        text: e.document.getText().replace(/\r\n?|\n/g, "\n"),
+        text: (source ?? e.document.getText()).replace(/\r\n?/g, "\n"),
         crlf,
       };
       const pending = this.pendingUpdates.get(uri);
@@ -1490,7 +1491,7 @@ export class OfmCustomTextEditorProvider
     // If the document was completely replaced (e.g. external reload),
     // use replaceAll to avoid cascading incremental changes.
     if (changes.length === 1 && changes[0].from === 0) {
-      const text = e.document.getText();
+      const text = source ?? e.document.getText();
       // Heuristic: if the replace covers most of the document, treat as replaceAll.
       // (`to` is in CodeMirror offsets, `text` in document offsets: compare in the latter.)
       const hostTo = e.contentChanges[0].rangeOffset + e.contentChanges[0].rangeLength;

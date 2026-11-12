@@ -17,6 +17,25 @@ const wait = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
 async function run(): Promise<void> {
+  await test("cached structure consumers do not materialize the full source again", async () => {
+    let reads = 0;
+    const store = new DocumentStructureStore({ onDidChange: () => {} });
+    const document = { uri: "file:///large.md", version: 1,
+      get text() { reads++; return "# Heading\n- [ ] task\n"; }
+    };
+    const first = store.get(document);
+    assert.strictEqual(store.get(document), first);
+    store.setActive(document.uri, document);
+    store.setActive(document.uri, document);
+    assert.equal(reads, 1, "same-version consumers must not rebuild the entire source string");
+    document.version++;
+    assert.notStrictEqual(store.get(document), first);
+    assert.equal(reads, 2, "a new version must read the latest source exactly once");
+    store.close(document.uri);
+    store.get(document);
+    assert.equal(reads, 3, "reopening must invalidate the cached version");
+    store.dispose();
+  });
   await test("Outline and Todo plus an edit burst produce one scan per version", async () => {
     let scans = 0;
     const published: Array<string | undefined> = [];
