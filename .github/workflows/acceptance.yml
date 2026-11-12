@@ -6,13 +6,7 @@ permissions:
 jobs:
   diagnose:
     runs-on: macos-15
-    timeout-minutes: 25
-    strategy:
-      fail-fast: false
-      matrix:
-        mode: [baseline, external-extensions, skip-create-stat]
-    env:
-      FLINTMARK_DIAGNOSTIC_MODE: ${{ matrix.mode }}
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -34,18 +28,21 @@ jobs:
           export FLINTMARK_CANDIDATE_MANIFEST="$PWD/candidate/manifest.json"
           export FLINTMARK_STRESS_FILES=20000 FLINTMARK_STRESS_IMAGES=4200 FLINTMARK_STRESS_NOISE=1
           for trial in 1 2 3; do
-            export FLINTMARK_OUT="$PWD/out/workspace-diagnostic/trial-$trial"
+            for mode in baseline no-tree-watcher no-kind-watchers; do
+            export FLINTMARK_DIAGNOSTIC_MODE="$mode"
+            export FLINTMARK_OUT="$PWD/out/workspace-diagnostic/$mode/trial-$trial"
             mkdir -p "$FLINTMARK_OUT"
             set +e
             node --require ./test/acceptance/readiness.cjs --require ./test/acceptance/installed-candidate.cjs test/acceptance/workspace-registered.mjs > "$FLINTMARK_OUT/runner.log" 2>&1
             code=$?
             set -e
             echo "$code" > "$FLINTMARK_OUT/exit-code.txt"
+            done
           done
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: workspace-isolation-${{ matrix.mode }}
+          name: workspace-watcher-isolation
           path: out/workspace-diagnostic/
           retention-days: 14
           if-no-files-found: error

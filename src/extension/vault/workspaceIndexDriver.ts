@@ -204,6 +204,7 @@ export class WorkspaceIndexDriver implements vscode.Disposable {
   private registerEventSources(): void {
     // Broad create/delete watcher: catches directory-level operations that do
     // not match leaf globs such as `**/*.png` or `**/*.md`.
+    if (process.env.FLINTMARK_DIAGNOSTIC_MODE !== "no-tree-watcher") {
     const treeWatcher = vscode.workspace.createFileSystemWatcher(
       "**/*",
       false,
@@ -213,8 +214,10 @@ export class WorkspaceIndexDriver implements vscode.Disposable {
     treeWatcher.onDidCreate((uri) => void this.routeCreatedUri(uri, "tree-create"));
     treeWatcher.onDidDelete((uri) => this.routeUnavailableUri(uri, "tree-delete"));
     this.disposables.push(treeWatcher);
+    }
 
     for (const spec of this.specs.values()) {
+      if (process.env.FLINTMARK_DIAGNOSTIC_MODE === "no-kind-watchers") continue;
       const watcher = vscode.workspace.createFileSystemWatcher(
         spec.include,
         false,
@@ -536,8 +539,6 @@ export class WorkspaceIndexDriver implements vscode.Disposable {
   /** Route a path whose current type can be inspected. Known leaf files only
    * invalidate their own index; directories and stat failures are tree events. */
   private async routeCreatedUri(uri: vscode.Uri, reason: string): Promise<void> {
-    // Diagnostic isolation only; this branch must not be released.
-    if (process.env.FLINTMARK_DIAGNOSTIC_MODE === "skip-create-stat" && reason === "tree-create") return;
     if (isCommonlyExcluded(uri)) return;
     try {
       const stat = await vscode.workspace.fs.stat(uri);
