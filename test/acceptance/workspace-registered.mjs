@@ -615,3 +615,12 @@ try {
 }
 
 process.exit(process.exitCode || 0);
+
+// Diagnostic-only duration-matched native controls, never release acceptance.
+for (const mode of ['source','webview']) {
+  const controlOut=join(OUT,'extended-native-control',mode);
+  mkdirSync(controlOut,{recursive:true});
+  const result=spawnSync(process.execPath,[fileURLToPath(new URL('./native-workspace-control.mjs',import.meta.url))],{env:{...process.env,FLINTMARK_OUT:controlOut,FLINTMARK_NATIVE_CONTROL_WORK:work,FLINTMARK_NATIVE_CONTROL_MODE:mode},encoding:'utf8',maxBuffer:8*1024*1024,timeout:240000});
+  writeFileSync(join(controlOut,'runner.log'),(result.stdout||'')+'\n'+(result.stderr||''));
+  writeFileSync(join(controlOut,'controller-result.json'),JSON.stringify({status:result.status,signal:result.signal,error:result.error?.message}));
+}

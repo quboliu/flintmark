@@ -31,6 +31,7 @@ try{
  let lines=win.locator('.monaco-editor .view-lines').first();
  if(webviewControl){const deadline=Date.now()+60000;let found=false;while(Date.now()<deadline&&!found){for(const frame of win.frames()){const candidate=frame.locator('#control');if(await candidate.count()){lines=candidate;found=true;break;}}if(!found)await win.waitForTimeout(100);}if(!found)throw Error('Minimal custom webview did not load');}
  await lines.waitFor({state:'visible',timeout:60000});
+ result.waitBeforeInputMs=60000;await win.waitForTimeout(result.waitBeforeInputMs);
  await lines.click({timeout:30000});await win.keyboard.press(process.platform==='darwin'?'Meta+ArrowDown':'Control+End');await win.keyboard.insertText('NATIVE_CONTROL');
  await win.waitForTimeout(1000);result.text=await lines.innerText({timeout:10000});
  if(!result.text.includes('NATIVE_CONTROL'))throw Error('Native editor did not receive input');
