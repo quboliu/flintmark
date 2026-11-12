@@ -361,7 +361,9 @@ try {
     let expected = "";
     const copyDeadline = performance.now() + 5000;
     do {
-      expected = await app.evaluate(({ clipboard }) => clipboard.readText());
+      // The fixture is LF; Windows clipboard export uses CRLF.
+      // Normalize the clipboard representation, never the bytes read from disk.
+      expected = (await app.evaluate(({ clipboard }) => clipboard.readText())).replace(/\r\n/g, "\n");
       if (expected.startsWith("# Alpha") && expected.includes("- [>] source-added")) break;
       await win.waitForTimeout(50);
     } while (performance.now() < copyDeadline);
