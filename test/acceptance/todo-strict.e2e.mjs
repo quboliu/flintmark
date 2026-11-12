@@ -355,9 +355,16 @@ try {
     // Copy the native editor's complete buffer to establish the exact save
     // target before the next test writes externally. A fixed delay can race
     // an in-flight native save and turn the external write into a conflict.
+    await app.evaluate(({ clipboard }) => clipboard.clear());
     await win.keyboard.press("Control+a");
     await win.keyboard.press("Control+c");
-    const expected = await app.evaluate(({ clipboard }) => clipboard.readText());
+    let expected = "";
+    const copyDeadline = performance.now() + 5000;
+    do {
+      expected = await app.evaluate(({ clipboard }) => clipboard.readText());
+      if (expected.startsWith("# Alpha") && expected.includes("- [>] source-added")) break;
+      await win.waitForTimeout(50);
+    } while (performance.now() < copyDeadline);
     assert.ok(expected.startsWith("# Alpha") && expected.includes("- [>] source-added"),
       "native source copy must contain the edited document");
     await win.keyboard.press("ArrowRight");
