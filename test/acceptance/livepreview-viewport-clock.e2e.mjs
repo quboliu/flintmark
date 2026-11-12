@@ -358,10 +358,26 @@ try {
     await win.keyboard.press("End");
     await win.keyboard.press("Enter");
     await win.keyboard.type("cherry");
-    await win.waitForTimeout(1000);
+    const expected = await cm.evaluate(() =>
+      document.querySelector(".cm-content").cmTile.root.view.state.doc.toString());
+    assert.ok(/-\s+cherry/.test(expected) && expected.includes("- banana"),
+      "Enter must continue the list in the editor before saving");
+    const saveStarted = performance.now();
+    const deadline = saveStarted + 10000;
     await win.keyboard.press("Control+S");
     await win.waitForTimeout(1200);
-    const onDisk = readFileSync(notePath, "utf8");
+    let onDisk = readFileSync(notePath, "utf8");
+    const checkpoint = { elapsedMs: performance.now() - saveStarted, exact: onDisk === expected };
+    // Save is asynchronous; observe one save to completion, with the same
+    // deadline as the preceding round-trip test. Never resend the shortcut.
+    while (onDisk !== expected && performance.now() < deadline) {
+      await win.waitForTimeout(100);
+      onDisk = readFileSync(notePath, "utf8");
+    }
+    const completedMs = performance.now() - saveStarted;
+    console.log("LIST_SINGLE_SAVE_COMPLETION", JSON.stringify({ checkpoint, completedMs, exact: onDisk === expected }));
+    assert.ok(onDisk === expected && completedMs <= 10000,
+      "one save must persist the entire list-edit source within 10 seconds");
     // The key behaviour: the new line got an auto-inserted "- " marker (a plain
     // newline would have produced bare "cherry").
     assert.ok(
@@ -841,18 +857,14 @@ try {
     await (await sourceLine(cm, "pasteword")).click();
     await win.keyboard.press("Home");
     await win.keyboard.press("Shift+End");
-    // Dispatch a real paste event carrying a URL (Chromium supports clipboardData
-    // in the ClipboardEvent constructor); the CM6 paste handler transforms it.
-    await cm.evaluate(() => {
-      const dt = new DataTransfer();
-      dt.setData("text/plain", "https://example.com");
-      const ev = new ClipboardEvent("paste", {
-        clipboardData: dt,
-        bubbles: true,
-        cancelable: true,
-      });
-      document.querySelector(".cm-content").dispatchEvent(ev);
+    // Confirm the native selection before exercising the real clipboard route.
+    await cm.waitForFunction(() => {
+      const view = document.querySelector(".cm-content").cmTile.root.view;
+      const { from, to } = view.state.selection.main;
+      return view.hasFocus && view.state.sliceDoc(from, to) === "pasteword";
     });
+    await app.evaluate(({ clipboard }) => clipboard.writeText("https://example.com"));
+    await win.keyboard.press("Control+v");
     await win.waitForTimeout(800);
     await win.keyboard.press("Control+S");
     await win.waitForTimeout(1200);

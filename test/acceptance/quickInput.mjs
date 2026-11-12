@@ -6,14 +6,19 @@ export async function palette(win, combo, text, options = {}) {
   if (commandMode && !text.startsWith('>')) text = '>' + text;
   const widget = win.locator('.quick-input-widget');
   const input = widget.locator('input:not([type=checkbox])').first();
-  const openers = /^(Control|Meta)\+Shift\+P$/.test(combo) ? [combo, 'F1'] : [combo];
+  // Both native command-palette shortcuts are valid. Hosts can intercept F1,
+  // so callers starting with F1 need the same fallback as shortcut callers.
+  const alternate = combo === 'F1'
+    ? (process.platform === 'darwin' ? 'Meta+Shift+P' : 'Control+Shift+P')
+    : 'F1';
+  const openers = commandMode ? [combo, alternate] : [combo];
   const normalized = text.replace(/\\/g, '/');
   const basename = normalized.split('/').at(-1);
   const directory = normalized.includes('/') ? normalized.slice(0, normalized.lastIndexOf('/')).replace(/^\.\//, '') : '';
   let lastError;
   for (let attempt = 0; attempt < 6; attempt++) {
     await win.bringToFront().catch(() => {});
-    await win.locator('.tab.active').first().click({position:{x:14,y:12},timeout:1000}).catch(() => {});
+    if (!options.preserveEditorFocus) await win.locator('.tab.active').first().click({position:{x:14,y:12},timeout:1000}).catch(() => {});
     await win.keyboard.press('Escape').catch(() => {});
     await win.waitForTimeout(150);
     await win.keyboard.press(openers[attempt % openers.length]);

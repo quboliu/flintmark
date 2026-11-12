@@ -100,6 +100,36 @@ writeFileSync(
 );
 writeFileSync(join(work, "plain.txt"), "not markdown\n");
 
+// Observe native document lifecycle without invoking save or altering content.
+const probeStatePath = join(work, "native-document-state.json");
+const probeDir = join(work, "ext", "local-test.todo-save-observer-1.0.0");
+mkdirSync(probeDir, { recursive: true });
+writeFileSync(join(probeDir, "package.json"), JSON.stringify({
+  name: "todo-save-observer", publisher: "local-test", version: "1.0.0",
+  engines: { vscode: "^1.89.0" }, activationEvents: ["*"], main: "index.js",
+}));
+writeFileSync(join(probeDir, "index.js"), `
+const vscode = require("vscode"), fs = require("fs");
+const target = vscode.Uri.file(${JSON.stringify(alphaPath)}).toString();
+const output = ${JSON.stringify(probeStatePath)};
+exports.activate = context => {
+  let saves = 0;
+  const record = (doc, event) => {
+    if (doc.uri.toString() !== target) return;
+    if (event === "saved") saves++;
+    fs.writeFileSync(output + ".tmp", JSON.stringify({
+      event, saves, dirty: doc.isDirty, version: doc.version, text: doc.getText()
+    }));
+    fs.renameSync(output + ".tmp", output);
+  };
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeTextDocument(e => record(e.document, "changed")),
+    vscode.workspace.onDidSaveTextDocument(doc => record(doc, "saved"))
+  );
+};
+`);
+const nativeDocumentState = () => JSON.parse(readFileSync(probeStatePath, "utf8"));
+
 const app = await electron.launch({
   executablePath: VSCODE,
   args: [...(/cursor/i.test(process.env.VSCODE_BIN||'')?['--skip-onboarding']:[]),
@@ -352,8 +382,24 @@ try {
       (rows) => hasRow(rows, "source-added"),
       "source redo should restore the Todo row"
     );
+    const beforeSave = nativeDocumentState();
+    assert.ok(beforeSave.text.startsWith("# Alpha") && beforeSave.text.includes("- [>] source-added"),
+      "native document observer must contain the edited source");
+    const saveStarted = performance.now();
     await win.keyboard.press("Control+s");
-    await win.waitForTimeout(600);
+    let saved;
+    do {
+      saved = nativeDocumentState();
+      if (saved.saves > beforeSave.saves && !saved.dirty &&
+          saved.text === beforeSave.text && readFileSync(alphaPath, "utf8") === beforeSave.text) break;
+      await win.waitForTimeout(100);
+    } while (performance.now() - saveStarted < 10000);
+    assert.ok(saved.saves > beforeSave.saves && !saved.dirty &&
+      saved.text === beforeSave.text && readFileSync(alphaPath, "utf8") === beforeSave.text,
+      "native save event, clean document, and exact disk contents must precede external writes");
+    console.log("TODO_SOURCE_SAVE_COMPLETE", JSON.stringify({
+      elapsedMs: performance.now() - saveStarted, saves: saved.saves, dirty: saved.dirty
+    }));
   });
 
   await test("external full-file updates add and remove Todo rows", async () => {

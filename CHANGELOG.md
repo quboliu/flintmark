@@ -5,6 +5,13 @@ the editor stabilizes for the Marketplace.
 
 ## Unreleased
 
+## 0.33.4
+
+- **Things heading scaling.** All six heading levels now scale with the configured prose font size. H6 is at least as large as body text. Thanks to [@sfaroy](https://github.com/sfaroy) for reporting and suggesting the relative-size correction in [#25](https://github.com/quboliu/flintmark/issues/25).
+- **Todo and Outline navigation focus.** Navigation explicitly focuses the editor group so typing works when the preview was already active and focus remained in the sidebar.
+- **Regression coverage.** Installed-editor tests change prose size from 16 to 32 and back to 16 pixels and verify every heading. URL paste coverage now uses the system clipboard and the native paste shortcut after verifying the selection.
+
+
 ## 0.33.3
 
 - **Reliable Live Preview saves.** Saving now flushes pending input from every preview pane before draining the host edit queue and writing the document. This prevents incomplete saves when edits are queued or still in transit, including saving while Find has focus.

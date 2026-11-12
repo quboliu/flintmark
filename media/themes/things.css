@@ -2,7 +2,7 @@
  * Things theme — bundled built-in default theme.
  * (c) 2020-2021 Stephan Ango (@kepano), maintained by Colin Eckert (@colineckert).
  * Source: https://github.com/colineckert/obsidian-things  License: MIT (see THIRD-PARTY-NOTICES.md).
- * Vendored verbatim; not modified.
+ * Adapted for Flintmark: heading sizes scale with prose; H6 is at least body size.
  */
 /*───────────────────────────────────────────────────────
 THINGS
@@ -83,12 +83,12 @@ body {
     var(--font-editor-override), var(--font-text-override),
     var(--font-editor-theme);
 
-  --h1-size: 1.7rem;
-  --h2-size: 1.5rem;
-  --h3-size: 1.2rem;
-  --h4-size: 1.1rem;
-  --h5-size: 1rem;
-  --h6-size: 0.9rem;
+  --h1-size: 1.7em;
+  --h2-size: 1.5em;
+  --h3-size: 1.2em;
+  --h4-size: 1.1em;
+  --h5-size: 1em;
+  --h6-size: 1em;
 
   /* Misc */
   --checkbox-radius: 30%;

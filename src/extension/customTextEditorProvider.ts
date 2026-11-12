@@ -1269,6 +1269,9 @@ export class OfmCustomTextEditorProvider
 
     if (record) {
       record.panel.reveal(record.panel.viewColumn, false);
+      // An active panel can still leave keyboard focus in the Todo/Outline tree.
+      // Reveal alone does not transfer focus on every host.
+      await vscode.commands.executeCommand("workbench.action.focusActiveEditorGroup");
       if (this.readyPanels.has(record.panel)) {
         this.postReveal(record.panel, line, character);
       } else {
