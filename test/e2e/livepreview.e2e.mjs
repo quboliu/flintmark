@@ -795,18 +795,14 @@ try {
     await (await sourceLine(cm, "pasteword")).click();
     await win.keyboard.press("Home");
     await win.keyboard.press("Shift+End");
-    // Dispatch a real paste event carrying a URL (Chromium supports clipboardData
-    // in the ClipboardEvent constructor); the CM6 paste handler transforms it.
-    await cm.evaluate(() => {
-      const dt = new DataTransfer();
-      dt.setData("text/plain", "https://example.com");
-      const ev = new ClipboardEvent("paste", {
-        clipboardData: dt,
-        bubbles: true,
-        cancelable: true,
-      });
-      document.querySelector(".cm-content").dispatchEvent(ev);
+    // Confirm the native selection before exercising the real clipboard route.
+    await cm.waitForFunction(() => {
+      const view = document.querySelector(".cm-content").cmTile.root.view;
+      const { from, to } = view.state.selection.main;
+      return view.hasFocus && view.state.sliceDoc(from, to) === "pasteword";
     });
+    await app.evaluate(({ clipboard }) => clipboard.writeText("https://example.com"));
+    await win.keyboard.press("Control+v");
     await win.waitForTimeout(800);
     await win.keyboard.press("Control+S");
     await win.waitForTimeout(1200);
