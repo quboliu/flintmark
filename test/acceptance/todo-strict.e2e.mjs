@@ -352,8 +352,23 @@ try {
       (rows) => hasRow(rows, "source-added"),
       "source redo should restore the Todo row"
     );
+    // Copy the native editor's complete buffer to establish the exact save
+    // target before the next test writes externally. A fixed delay can race
+    // an in-flight native save and turn the external write into a conflict.
+    await win.keyboard.press("Control+a");
+    await win.keyboard.press("Control+c");
+    const expected = await app.evaluate(({ clipboard }) => clipboard.readText());
+    assert.ok(expected.startsWith("# Alpha") && expected.includes("- [>] source-added"),
+      "native source copy must contain the edited document");
+    await win.keyboard.press("ArrowRight");
+    const saveStarted = performance.now();
     await win.keyboard.press("Control+s");
-    await win.waitForTimeout(600);
+    while (readFileSync(alphaPath, "utf8") !== expected && performance.now() - saveStarted < 10000) {
+      await win.waitForTimeout(100);
+    }
+    assert.equal(readFileSync(alphaPath, "utf8"), expected,
+      "source save must finish before the following external-file update");
+    console.log("TODO_SOURCE_SAVE_COMPLETE", JSON.stringify({ elapsedMs: performance.now() - saveStarted }));
   });
 
   await test("external full-file updates add and remove Todo rows", async () => {
