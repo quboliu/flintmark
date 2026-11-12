@@ -5,7 +5,9 @@ the editor stabilizes for the Marketplace.
 
 ## Unreleased
 
-## 0.33.4
+## 0.33.5
+
+Version 0.33.4 was not published because final release acceptance failed. This release includes its heading and navigation fixes plus corrections to acceptance setup for split-editor targeting and editor-process shutdown.
 
 - **Things heading scaling.** All six heading levels now scale with the configured prose font size. H6 is at least as large as body text. Thanks to [@sfaroy](https://github.com/sfaroy) for reporting and suggesting the relative-size correction in [#25](https://github.com/quboliu/flintmark/issues/25).
 - **Todo and Outline navigation focus.** Navigation explicitly focuses the editor group so typing works when the preview was already active and focus remained in the sidebar.
