@@ -341,6 +341,22 @@ try {
   }));
 
   app = await launchApp();
+  // Diagnostic only: count native directory reads without CPU profiling.
+  await app.evaluate(() => {
+    const fs = process.getBuiltinModule('node:fs');
+    const binding = process.binding('fs');
+    const original = binding.readdir;
+    const reads = new Map(); let overflow = 0;
+    binding.readdir = function(...args) {
+      const path = String(args[0]);
+      const row = reads.get(path);
+      if (row) row.count++;
+      else if (reads.size < 256) reads.set(path, {path,count:1,stack:new Error('directory-read').stack});
+      else overflow++;
+      return Reflect.apply(original,this,args);
+    };
+    setInterval(() => fs.writeFileSync(process.env.FLINTMARK_OUT+'/main-directory-reads.json',JSON.stringify({reads:[...reads.values()],overflow})),5000).unref();
+  });
   const win = await app.firstWindow();await win.waitForSelector('.monaco-workbench',{timeout:120000});const welcome=win.locator('.antigravity-ide-welcome-button');if(await welcome.isVisible()){await welcome.click();await win.waitForTimeout(1500);}
   await win.waitForSelector(".monaco-workbench", { timeout: 30000 });
   // Readiness has already verified activation and the normal editor association.
