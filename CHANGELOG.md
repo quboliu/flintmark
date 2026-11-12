@@ -5,10 +5,13 @@ the editor stabilizes for the Marketplace.
 
 ## Unreleased
 
-## 0.33.4
+## 0.33.5
+
+Version 0.33.4 was not published because final release acceptance failed. This release includes its heading and navigation fixes plus corrections to acceptance setup for split-editor targeting and editor-process shutdown.
 
 - **Things heading scaling.** All six heading levels now scale with the configured prose font size. H6 is at least as large as body text. Thanks to [@sfaroy](https://github.com/sfaroy) for reporting and suggesting the relative-size correction in [#25](https://github.com/quboliu/flintmark/issues/25).
 - **Todo and Outline navigation focus.** Navigation explicitly focuses the editor group so typing works when the preview was already active and focus remained in the sidebar.
+- **Large-document allocation.** Reuse a single source read across preview change handlers, skip image rescans for dirty-state-only events, and avoid rebuilding source strings when Outline and Todo reuse a cached document version.
 - **Regression coverage.** Installed-editor tests change prose size from 16 to 32 and back to 16 pixels and verify every heading. URL paste coverage now uses the system clipboard and the native paste shortcut after verifying the selection.
 
 
