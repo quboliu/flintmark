@@ -536,6 +536,8 @@ export class WorkspaceIndexDriver implements vscode.Disposable {
   /** Route a path whose current type can be inspected. Known leaf files only
    * invalidate their own index; directories and stat failures are tree events. */
   private async routeCreatedUri(uri: vscode.Uri, reason: string): Promise<void> {
+    // Diagnostic isolation only; this branch must not be released.
+    if (process.env.FLINTMARK_DIAGNOSTIC_MODE === "skip-create-stat" && reason === "tree-create") return;
     if (isCommonlyExcluded(uri)) return;
     try {
       const stat = await vscode.workspace.fs.stat(uri);

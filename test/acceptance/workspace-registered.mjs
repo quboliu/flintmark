@@ -253,7 +253,7 @@ function cleanupNoisePrefix() {
 
 let app = null;
 async function launchApp() {
-  const application = await electron.launch({
+  return await electron.launch({
     executablePath: VSCODE,
     env: { ...process.env, FLINTMARK_TEST_VAULT_BUILD_GATE: buildGate },
     args: [...(/cursor/i.test(process.env.VSCODE_BIN||'')?['--skip-onboarding']:[]),
@@ -261,26 +261,12 @@ async function launchApp() {
       "--disable-gpu",
       "--disable-dev-shm-usage",
       `--user-data-dir=${userData}`,
-      `--extensions-dir=${join(work, "ext")}`,
+      `--extensions-dir=${join(process.env.FLINTMARK_DIAGNOSTIC_MODE === "external-extensions" ? userData : work, "ext")}`,
       `--extensionDevelopmentPath=${REPO}`,
       work,
       openPath,
     ],
   });
-  await application.evaluate(async () => {
-    const fs = process.getBuiltinModule('node:fs');
-    const {Session} = process.getBuiltinModule('node:inspector');
-    const session = new Session(); session.connect();
-    const post = (method) => new Promise((resolve,reject) => session.post(method,(error,result) => error ? reject(error) : resolve(result)));
-    await post('Profiler.enable'); await post('Profiler.start');
-    let index=0, busy=false;
-    setInterval(async()=>{if(busy)return;busy=true;try{
-      const result=await post('Profiler.stop');
-      fs.writeFileSync(process.env.FLINTMARK_OUT+'/main-cpu-'+(++index)+'.json',JSON.stringify(result.profile));
-      await post('Profiler.start');
-    }catch(error){fs.appendFileSync(process.env.FLINTMARK_OUT+'/profile-errors.log',String(error)+'\n');}finally{busy=false;}},5000).unref();
-  });
-  return application;
 }
 
 async function findCmFrame(win, timeoutMs) {
@@ -615,12 +601,3 @@ try {
 }
 
 process.exit(process.exitCode || 0);
-
-// Diagnostic-only duration-matched native controls, never release acceptance.
-for (const mode of ['source','webview']) {
-  const controlOut=join(OUT,'extended-native-control',mode);
-  mkdirSync(controlOut,{recursive:true});
-  const result=spawnSync(process.execPath,[fileURLToPath(new URL('./native-workspace-control.mjs',import.meta.url))],{env:{...process.env,FLINTMARK_OUT:controlOut,FLINTMARK_NATIVE_CONTROL_WORK:work,FLINTMARK_NATIVE_CONTROL_MODE:mode},encoding:'utf8',maxBuffer:8*1024*1024,timeout:240000});
-  writeFileSync(join(controlOut,'runner.log'),(result.stdout||'')+'\n'+(result.stderr||''));
-  writeFileSync(join(controlOut,'controller-result.json'),JSON.stringify({status:result.status,signal:result.signal,error:result.error?.message}));
-}

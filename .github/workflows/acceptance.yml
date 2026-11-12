@@ -1,4 +1,4 @@
-name: Workspace main-process diagnosis
+name: Workspace isolation diagnosis
 on:
   workflow_dispatch:
 permissions:
@@ -6,7 +6,13 @@ permissions:
 jobs:
   diagnose:
     runs-on: macos-15
-    timeout-minutes: 35
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [baseline, external-extensions, skip-create-stat]
+    env:
+      FLINTMARK_DIAGNOSTIC_MODE: ${{ matrix.mode }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -19,7 +25,7 @@ jobs:
           npx @vscode/vsce package --out candidate/
           node scripts/ci/candidate-manifest.mjs
       - run: node scripts/ci/download-editor.mjs cursor
-      - name: Three fresh diagnostic workspace sessions
+      - name: Three unprofiled isolation trials
         shell: bash
         run: |
           export FLINTMARK_REPO="$PWD" FLINTMARK_DEPS="$PWD" FLINTMARK_READY_GATE=1
@@ -35,22 +41,11 @@ jobs:
             code=$?
             set -e
             echo "$code" > "$FLINTMARK_OUT/exit-code.txt"
-            trial_out="$FLINTMARK_OUT"
-            work=$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1])).work)' "$trial_out/workspace-stress.json")
-            for mode in source webview; do
-              export FLINTMARK_OUT="$trial_out/native-control/$mode"
-              mkdir -p "$FLINTMARK_OUT"
-              set +e
-              FLINTMARK_NATIVE_CONTROL_WORK="$work" FLINTMARK_NATIVE_CONTROL_MODE="$mode" node test/acceptance/native-workspace-control.mjs > "$FLINTMARK_OUT/runner.log" 2>&1
-              control_code=$?
-              set -e
-              echo "$control_code" > "$FLINTMARK_OUT/exit-code.txt"
-            done
           done
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: workspace-main-process-diagnostic
+          name: workspace-isolation-${{ matrix.mode }}
           path: out/workspace-diagnostic/
           retention-days: 14
           if-no-files-found: error
