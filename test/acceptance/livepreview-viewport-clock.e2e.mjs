@@ -1797,6 +1797,23 @@ try {
     await win.keyboard.type("explorer-find");
     await win.waitForTimeout(200);
     assert.equal(await panel.locator("input[name='search']").first().inputValue(), "explorer-find");
+    const restore = await frame.evaluate(() => {
+      const input=document.querySelector('.cm-search input[name="search"]');
+      input.setSelectionRange(2,7);
+      input.blur();
+      if(document.activeElement!==document.body)throw Error('Focus-loss setup did not clear the active element');
+      window.dispatchEvent(new Event('focus'));
+      return {focused:document.activeElement===input,value:input.value,start:input.selectionStart,end:input.selectionEnd};
+    });
+    assert.deepEqual(restore,{focused:true,value:'explorer-find',start:2,end:7},'Frame refocus must restore the search field without selecting its query again');
+    const contentRestored = await frame.evaluate(() => {
+      const content = document.querySelector('.cm-content');
+      content.focus();
+      content.blur();
+      window.dispatchEvent(new Event('focus'));
+      return document.activeElement === content;
+    });
+    assert.ok(contentRestored, 'An explicit return to the document must not restore the old search focus');
     await win.keyboard.press("Escape");
   });
 } finally {
