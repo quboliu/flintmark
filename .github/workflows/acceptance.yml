@@ -35,6 +35,17 @@ jobs:
             code=$?
             set -e
             echo "$code" > "$FLINTMARK_OUT/exit-code.txt"
+            trial_out="$FLINTMARK_OUT"
+            work=$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1])).work)' "$trial_out/workspace-stress.json")
+            for mode in source webview; do
+              export FLINTMARK_OUT="$trial_out/native-control/$mode"
+              mkdir -p "$FLINTMARK_OUT"
+              set +e
+              FLINTMARK_NATIVE_CONTROL_WORK="$work" FLINTMARK_NATIVE_CONTROL_MODE="$mode" node test/acceptance/native-workspace-control.mjs > "$FLINTMARK_OUT/runner.log" 2>&1
+              control_code=$?
+              set -e
+              echo "$control_code" > "$FLINTMARK_OUT/exit-code.txt"
+            done
           done
       - uses: actions/upload-artifact@v4
         if: always()
