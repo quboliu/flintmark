@@ -32,6 +32,11 @@ writeFileSync(
   notePath,
   [
     "# Theme mode",
+    "## Heading two",
+    "### Heading three",
+    "#### Heading four",
+    "##### Heading five",
+    "###### Heading six",
     "",
     "**Bold** and *italic* with `inline code` and [a link](https://example.com).",
     "",
@@ -218,6 +223,26 @@ try {
     await win.waitForTimeout(2500);
   }
   assert.ok(cm, "Live Preview CodeMirror editor should open");
+
+  // Issue #25: exercise the real settings -> extension -> webview path.
+  for (const size of [16, 32, 16]) {
+    writeSettings({ ...baseSettings, "ofm.theme": "things", "ofm.fontSize": size });
+    const expected = [1.7, 1.5, 1.2, 1.1, 1, 1].map(r => r * size);
+    let actual;
+    const deadline = Date.now() + 15000;
+    do {
+      actual = await cm.evaluate(() => Array.from({ length: 6 }, (_, i) => {
+        const el = document.querySelector(".cm-line.ofm-heading-" + (i + 1));
+        return el ? parseFloat(getComputedStyle(el).fontSize) : null;
+      }));
+      if (actual.every((n, i) => n !== null && Math.abs(n - expected[i]) < 0.05)) break;
+      await win.waitForTimeout(200);
+    } while (Date.now() < deadline);
+    assert.ok(actual.every((n, i) => n !== null && Math.abs(n - expected[i]) < 0.05),
+      "Things heading sizes after ofm.fontSize=" + size + ": " + JSON.stringify(actual));
+    console.log("HEADING_SIZE_SETTINGS", JSON.stringify({ size, actual }));
+  }
+  writeSettings(baseSettings);
 
   await cm.locator(".cm-scroller").first().evaluate((el) => {
     el.scrollTop = 900;
