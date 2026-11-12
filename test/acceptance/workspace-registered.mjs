@@ -253,7 +253,7 @@ function cleanupNoisePrefix() {
 
 let app = null;
 async function launchApp() {
-  return await electron.launch({
+  const application = await electron.launch({
     executablePath: VSCODE,
     env: { ...process.env, FLINTMARK_TEST_VAULT_BUILD_GATE: buildGate },
     args: [...(/cursor/i.test(process.env.VSCODE_BIN||'')?['--skip-onboarding']:[]),
@@ -267,6 +267,20 @@ async function launchApp() {
       openPath,
     ],
   });
+  await application.evaluate(async () => {
+    const fs = process.getBuiltinModule('node:fs');
+    const {Session} = process.getBuiltinModule('node:inspector');
+    const session = new Session(); session.connect();
+    const post = (method) => new Promise((resolve,reject) => session.post(method,(error,result) => error ? reject(error) : resolve(result)));
+    await post('Profiler.enable'); await post('Profiler.start');
+    let index=0, busy=false;
+    setInterval(async()=>{if(busy)return;busy=true;try{
+      const result=await post('Profiler.stop');
+      fs.writeFileSync(process.env.FLINTMARK_OUT+'/main-cpu-'+(++index)+'.json',JSON.stringify(result.profile));
+      await post('Profiler.start');
+    }catch(error){fs.appendFileSync(process.env.FLINTMARK_OUT+'/profile-errors.log',String(error)+'\n');}finally{busy=false;}},5000).unref();
+  });
+  return application;
 }
 
 async function findCmFrame(win, timeoutMs) {
