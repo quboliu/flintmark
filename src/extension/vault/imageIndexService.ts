@@ -19,11 +19,10 @@ import {
   WorkspaceIndexDriver,
   type WorkspaceIndexHandle,
 } from "./workspaceIndexDriver";
+import { DEFAULT_MAX_FILES } from "./workspaceIndexPolicy";
 
 const IMAGE_GLOB = "**/*.{png,jpg,jpeg,gif,svg,webp,bmp,avif}";
-const EXCLUDE_GLOB = "**/{.git,node_modules,.obsidian,.trash}/**";
 const RESCAN_DEBOUNCE_MS = 150;
-const DEFAULT_MAX_FILES = 100_000;
 
 export class ImageIndexService implements vscode.Disposable {
   private readonly driver: WorkspaceIndexDriver;
@@ -41,22 +40,24 @@ export class ImageIndexService implements vscode.Disposable {
     this.handle = this.driver.registerSpec<ImageSnapshot>({
       kind: "image",
       include: IMAGE_GLOB,
-      exclude: EXCLUDE_GLOB,
       debounceMs: RESCAN_DEBOUNCE_MS,
       // Content changes do not alter the path index, but a refresh event lets
       // open webviews re-request image URIs if the host reports a replacement.
       watchContent: true,
       maxFiles: () => this.maxFiles(),
       notReady: () => buildSnapshot([], "notReady"),
-      overCap: (root, cap) => {
-        console.warn(
-          `[ofm] image index: ${root.fsPath} has > ${cap} images — vault-wide image resolution disabled for this root (configurable via ofm.imageIndex.maxFiles).`
-        );
-        return buildSnapshot([], "overCap");
-      },
       disabled: () => buildSnapshot([], "disabled"),
       build: async (root, files) =>
         buildSnapshot(files.map((u) => relFromRoot(root, u))),
+      patchSnapshot: async (root, snapshot, patch) => {
+        if (patch.mode === "content") return snapshot;
+        // byRelKey collapses normalized collisions. Basename buckets retain
+        // every original candidate needed for exact-case and path ranking.
+        const paths = new Set([...snapshot.byBaseKey.values()].flat().map((entry) => entry.relPath));
+        for (const uri of patch.deletedUris) paths.delete(relFromRoot(root, uri));
+        for (const uri of patch.changedUris) paths.add(relFromRoot(root, uri));
+        return buildSnapshot([...paths]);
+      },
     });
     this.refreshSub = this.driver.onDidRefresh((event) => {
       if (event.kind === "image") this.emitter.fire();
