@@ -32,7 +32,7 @@ export class Uri {
   get fsPath() { return this.path; }
   toString() { return `${this.scheme}://${this.path}`; }
 }
-export const FileType = { File: 1, Directory: 2 };
+export const FileType = { Unknown: 0, File: 1, Directory: 2 };
 const deleted = new EventEmitter<Uri>();
 const created = new EventEmitter<Uri>();
 const leafCreated = new Map<string, EventEmitter<Uri>>();
@@ -136,6 +136,19 @@ export const workspace = {
   onDidDeleteFiles: noopEvent,
   onDidChangeWorkspaceFolders: noopEvent,
   fs: {
+    async readDirectory(uri: Uri): Promise<[string, number][]> {
+      const children = new Map<string, number>();
+      const prefix = uri.path.replace(/\/$/, '') + '/';
+      for (const file of [...files.note, ...files.image]) {
+        if (!file.path.startsWith(prefix)) continue;
+        const suffix = file.path.slice(prefix.length);
+        children.set(suffix.split('/')[0], suffix.includes('/') ? FileType.Directory : FileType.File);
+      }
+      for (const directory of directories) {
+        if (directory.startsWith(prefix)) children.set(directory.slice(prefix.length).split('/')[0], FileType.Directory);
+      }
+      return [...children];
+    },
     async readFile(uri: Uri) { return new TextEncoder().encode(noteTexts.get(uri.path) ?? '# Note\n'); },
     async stat(uri: Uri) {
     if (directories.has(uri.path)) return { type: FileType.Directory };

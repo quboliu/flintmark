@@ -12,6 +12,7 @@ const work = mkdtempSync(join(tmpdir(), "ofm-index-busy-"));
 const root = join(work, "workspace");
 const probe = join(work, "probe");
 const result = join(work, "result.json");
+const watcherReady = join(work, "watcher-ready");
 const gate = join(work, "build.gate");
 const notes = Number(process.env.FLINTMARK_STRESS_FILES) || 2000;
 const images = Number(process.env.FLINTMARK_STRESS_IMAGES) || 400;
@@ -51,16 +52,36 @@ import { WorkspaceIndexDriver } from ${JSON.stringify(resolve("src/extension/vau
 import { VaultIndexService } from ${JSON.stringify(resolve("src/extension/vault/vaultIndexService.ts"))};
 import { ImageIndexService } from ${JSON.stringify(resolve("src/extension/vault/imageIndexService.ts"))};
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-async function until(check) {
+async function until(check, diagnostics) {
   const deadline = Date.now() + 30000;
   while (!check() && Date.now() < deadline) await sleep(50);
-  assert.ok(check(), 'live path change must reach the production index');
+  assert.ok(check(), 'live path change must reach the production index: ' + diagnostics());
 }
 export function activate() { void run(); }
 async function run() {
+  // Warm the workspace's real recursive watcher before starting the traffic.
+  const warmup = vscode.workspace.createFileSystemWatcher('**/watch-ready-*.json');
+  let delivered = false;
+  warmup.onDidCreate(() => { delivered = true; });
+  for (let attempt = 0; !delivered && attempt < 300; attempt++) {
+    await vscode.workspace.fs.writeFile(vscode.Uri.file(${JSON.stringify(root)} + '/watch-ready-' + attempt + '.json'), Buffer.from('{}'));
+    await sleep(100);
+  }
+  warmup.dispose();
+  if (!delivered) {
+    writeFileSync(${JSON.stringify(result)}, JSON.stringify({ ok: false, error: 'VS Code workspace watcher did not initialize' }));
+    return;
+  }
+  writeFileSync(${JSON.stringify(watcherReady)}, 'ready');
   const driver = new WorkspaceIndexDriver();
   const vault = new VaultIndexService(driver);
   const image = new ImageIndexService(driver);
+  const publications = { note: 0, image: 0 };
+  const liveSeen = { note: false, image: false };
+  driver.onDidRefresh(event => {
+    publications[event.kind]++;
+    if (event.changedUris.some(uri => /Live Target.md$|live.png$/.test(uri.path))) liveSeen[event.kind] = true;
+  });
   try {
     await Promise.all([vault.initialize(), image.initialize()]);
     assert.ok(vault.resolveLink('Note-0'), 'first note graph is usable during noise');
@@ -68,12 +89,15 @@ async function run() {
     assert.ok(image.resolveImage(document, 'image-0.png', true), 'first image snapshot is usable');
     const note = vscode.Uri.file(${JSON.stringify(join(root, "Live Target.md"))});
     const picture = vscode.Uri.file(${JSON.stringify(join(root, "live.png"))});
+    const diagnostics = () => JSON.stringify({ ...counts, publications, liveSeen,
+      note: !!vault.resolveLink('Live Target'), image: !!image.resolveImage(document, 'live.png', true),
+      notes: vault.getAllNotes().length });
     await vscode.workspace.fs.writeFile(note, Buffer.from('# Live Target'));
     await vscode.workspace.fs.writeFile(picture, Buffer.from('image path fixture'));
-    await until(() => vault.resolveLink('Live Target') && image.resolveImage(document, 'live.png', true));
+    await until(() => vault.resolveLink('Live Target') && image.resolveImage(document, 'live.png', true), diagnostics);
     await vscode.workspace.fs.delete(note);
     await vscode.workspace.fs.delete(picture);
-    await until(() => !vault.resolveLink('Live Target') && !image.resolveImage(document, 'live.png', true));
+    await until(() => !vault.resolveLink('Live Target') && !image.resolveImage(document, 'live.png', true), diagnostics);
     await sleep(5000);
     assert.equal(counts.rootSearches, 2, 'only the first search for each indexed kind covers the root');
     assert.equal(counts.cancellations, 0, 'no event cancels a full search');
@@ -95,12 +119,20 @@ await build({
 let noiseEvents = 0;
 const transientDirs = [];
 const noise = setInterval(() => {
+  if (!existsSync(watcherReady)) return;
   const dir = join(root, `transient-${noiseEvents++}`);
   mkdirSync(dir);
   writeFileSync(join(dir, "noise.md"), "# Transient");
   writeFileSync(join(dir, "noise.png"), "image path fixture");
   transientDirs.push(dir);
-  if (transientDirs.length > 40) rmSync(transientDirs.shift(), { recursive: true, force: true });
+  // Keep directories until shutdown: deleting a freshly created directory
+  // can abort Parcel's inotify setup, independently of Flintmark. Churn both
+  // indexed leaf kinds while continuing to create directories instead.
+  if (transientDirs.length > 40) {
+    const old = transientDirs.shift();
+    rmSync(join(old, "noise.md"), { force: true });
+    rmSync(join(old, "noise.png"), { force: true });
+  }
 }, 25);
 let app;
 let passed = false;
@@ -113,6 +145,10 @@ try {
       `--extensionDevelopmentPath=${probe}`, root],
   });
   await app.firstWindow();
+  const watcherDeadline = Date.now() + 60000;
+  while (!existsSync(watcherReady) && !existsSync(result) && Date.now() < watcherDeadline) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
   await new Promise((resolve) => setTimeout(resolve, 2000));
   unlinkSync(gate);
   const deadline = Date.now() + 120000;

@@ -99,11 +99,7 @@ async function main() {
       assert.equal(host.calls.noteScan + host.calls.imageScan, scans, 'leaf create patches without findFiles');
       const published = events.length;
       host.createDirectory(uri('/work/empty'));
-      const directoryScans = host.calls.noteScan + host.calls.imageScan;
-      const directoryDeadline = performance.now() + 2000;
-      while (host.calls.noteScan + host.calls.imageScan < directoryScans + 2 && performance.now() < directoryDeadline) await sleep(10);
-      assert.equal(host.calls.noteScan + host.calls.imageScan, directoryScans + 2, 'both empty subtrees are inspected');
-      await sleep(30);
+      await sleep(50);
       assert.equal(events.length, published, 'empty-directory no-op keeps existing snapshots');
       assert.equal(host.scanBases.filter((base) => (base as host.Uri).path === '/work').length, 2,
         'only the two initial searches cover the root');

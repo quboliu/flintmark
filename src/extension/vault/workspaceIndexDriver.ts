@@ -8,6 +8,8 @@ import { WorkspaceIndexScanQueue } from "./workspaceIndexScanQueue";
 
 import * as vscode from "vscode";
 import { homedir } from "node:os";
+import { stat as statLocalPath, readdir as readLocalDirectory } from "node:fs/promises";
+import { mapInCooperativeBatches } from "./cooperativeBatches";
 import { DEFAULT_INDEX_EXCLUDES, WorkspaceIndexExclusions } from "./workspaceIndexExclusions";
 import {
   decideEnsureFresh,
@@ -492,7 +494,39 @@ export class WorkspaceIndexDriver implements vscode.Disposable {
         const updated = new Map<string, vscode.Uri>();
         const removed = new Map<string, vscode.Uri>();
         const cap = spec.maxFiles?.() ?? DEFAULT_MAX_FILES;
-        for (const uri of batchUris?.values() ?? []) {
+        const changes = await mapInCooperativeBatches(
+          [...(batchUris?.values() ?? [])],
+          32,
+          async (uri): Promise<{ uri: vscode.Uri; found?: vscode.Uri[] }> => {
+            try {
+              const directory = uri.scheme === "file"
+                ? (await statLocalPath(uri.fsPath)).isDirectory()
+                : ((await vscode.workspace.fs.stat(uri)).type & vscode.FileType.Directory) !== 0;
+              if (!directory) {
+                return { uri, found: kindForLeafPath(uri.path) === kind ? [uri] : [] };
+              }
+              const children: [string, vscode.FileType][] = uri.scheme === "file"
+                ? (await readLocalDirectory(uri.fsPath, { withFileTypes: true })).map((entry) => [entry.name,
+                  entry.isFile() ? vscode.FileType.File : entry.isDirectory() ? vscode.FileType.Directory : vscode.FileType.Unknown])
+                : await vscode.workspace.fs.readDirectory(uri);
+              // Empty/direct-file directories need no ripgrep process. Inspect
+              // hints concurrently so provider IPC cannot starve later leaves.
+              return children.every(([, type]) => (type & vscode.FileType.File) !== 0)
+                ? { uri, found: children.filter(([name]) => kindForLeafPath(name) === kind)
+                  .map(([name]) => vscode.Uri.joinPath(uri, name)) }
+                : { uri };
+            } catch (error) {
+              if ((error as { code?: string }).code === "FileNotFound" ||
+                  (error as { code?: string }).code === "ENOENT") return { uri, found: [] };
+              throw error;
+            }
+          },
+          {
+            assertCurrent: () => { if (!isCurrent()) throw new WorkspaceIndexBuildCancelled(); },
+            yieldNow: yieldImmediate,
+          }
+        );
+        for (const { uri, found: directFiles } of changes) {
           const path = indexComparisonPath(uri);
           // Remove both the leaf and its old descendants, even if a directory
           // was replaced by a file (or vice versa) between notifications.
@@ -511,17 +545,9 @@ export class WorkspaceIndexDriver implements vscode.Disposable {
               mutableFiles().delete(key);
             }
           }
-          let stat: vscode.FileStat;
-          try {
-            stat = await vscode.workspace.fs.stat(uri);
-          } catch (error) {
-            if ((error as { code?: string }).code === "FileNotFound" ||
-                (error as { code?: string }).code === "ENOENT") continue;
-            throw error;
-          }
-          const found = (stat.type & vscode.FileType.Directory) !== 0
-            ? await vscode.workspace.findFiles(new vscode.RelativePattern(uri, spec.include), this.exclusionPolicy(kind, root).glob, cap + 1)
-            : kindForLeafPath(uri.path) === kind ? [uri] : [];
+          // Nested/unknown entries retain the recursive subtree search.
+          const found = directFiles ?? await vscode.workspace.findFiles(
+            new vscode.RelativePattern(uri, spec.include), this.exclusionPolicy(kind, root).glob, cap + 1);
           for (const file of found) {
             if (this.exclusionPolicy(kind, root).excludes(relFromRoot(root, file))) continue;
             const key = indexComparisonPath(file);
