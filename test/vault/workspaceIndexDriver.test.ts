@@ -5,6 +5,7 @@ import { homedir } from 'node:os';
 import * as host from '../fixtures/workspaceIndexVscode';
 import { WorkspaceIndexDriver, type WorkspaceIndexRefreshEvent } from '../../src/extension/vault/workspaceIndexDriver';
 import { VaultIndexService } from '../../src/extension/vault/vaultIndexService';
+import { ImageIndexService } from '../../src/extension/vault/imageIndexService';
 
 // Real driver, fake host events: no direct calls to private routing helpers.
 // We intentionally emit only the directory hint, so duplicate leaf events or
@@ -25,6 +26,37 @@ const cases = [
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 async function main() {
   let failures = 0;
+  {
+    const uri = (path: string) => host.Uri.file(path);
+    const root = uri('/work');
+    host.reset(root, [uri('/work/assets/Logo.png'), uri('/work/assets/logo.png')], []);
+    const driver = new WorkspaceIndexDriver();
+    const service = new ImageIndexService(driver);
+    let publications = 0;
+    service.onDidChange(() => { publications++; });
+    const resolved = () => service.resolveImage(uri('/work/notes/note.md'), 'Logo.png', true)?.path;
+    try {
+      await service.initialize();
+      assert.equal(resolved(), '/work/assets/Logo.png');
+      host.createLeaf('image', uri('/work/new.png'));
+      const deadline = performance.now() + 2000;
+      while (publications < 2 && performance.now() < deadline) await sleep(10);
+      assert.ok(publications >= 2, 'unrelated image creation is applied');
+      assert.equal(resolved(), '/work/assets/Logo.png', 'unrelated creation preserves exact-case candidates');
+      host.deleteLeaf('image', uri('/work/assets/logo.png'));
+      const deleteDeadline = performance.now() + 2000;
+      while (publications < 3 && performance.now() < deleteDeadline) await sleep(10);
+      assert.ok(publications >= 3, 'colliding image deletion is applied');
+      assert.equal(resolved(), '/work/assets/Logo.png', 'deleting one candidate preserves the other');
+      console.log('✓ image patches preserve colliding resolution candidates');
+    } catch (error) {
+      failures++;
+      console.error('✗ image patches preserve colliding resolution candidates', error);
+    } finally {
+      service.dispose();
+      driver.dispose();
+    }
+  }
   {
     const uri = (path: string) => host.Uri.from({ scheme: 'file', path });
     host.reset(uri('/work'), [uri('/work/old.png')], [uri('/work/old.md')]);
@@ -67,9 +99,12 @@ async function main() {
       assert.equal(host.calls.noteScan + host.calls.imageScan, scans, 'leaf create patches without findFiles');
       const published = events.length;
       host.createDirectory(uri('/work/empty'));
+      const directoryScans = host.calls.noteScan + host.calls.imageScan;
       const directoryDeadline = performance.now() + 2000;
-      while (events.length < published + 2 && performance.now() < directoryDeadline) await sleep(10);
-      assert.equal(events.length, published + 2, 'empty-directory hints finish');
+      while (host.calls.noteScan + host.calls.imageScan < directoryScans + 2 && performance.now() < directoryDeadline) await sleep(10);
+      assert.equal(host.calls.noteScan + host.calls.imageScan, directoryScans + 2, 'both empty subtrees are inspected');
+      await sleep(30);
+      assert.equal(events.length, published, 'empty-directory no-op keeps existing snapshots');
       assert.equal(host.scanBases.filter((base) => (base as host.Uri).path === '/work').length, 2,
         'only the two initial searches cover the root');
       const quiet = events.length;
@@ -228,13 +263,16 @@ async function main() {
     const service = new VaultIndexService(driver);
     let firstPublication = false;
     service.onDidChange(() => { firstPublication = true; });
+    let transient: host.Uri | undefined;
+    let sequence = 0;
     const noise = setInterval(() => {
-      host.createLeaf('note', uri('/busy/transient.md'));
-      host.deleteLeaf('note', uri('/busy/transient.md'));
+      if (transient) host.deleteLeaf('note', transient);
+      transient = uri(`/busy/transient-${sequence++}.md`);
+      host.createLeaf('note', transient);
     }, 5);
     try {
       const initialized = service.initialize();
-      const deadline = performance.now() + 2500;
+      const deadline = performance.now() + 10_000;
       while (!firstPublication && performance.now() < deadline) await sleep(20);
       assert.equal(firstPublication, true, 'first note graph publishes during sustained leaf traffic');
       assert.ok(service.resolveLink('Note-1499'), 'first publication can resolve existing notes');

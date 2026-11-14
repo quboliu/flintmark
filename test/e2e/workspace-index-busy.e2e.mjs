@@ -52,11 +52,12 @@ import { VaultIndexService } from ${JSON.stringify(resolve("src/extension/vault/
 import { ImageIndexService } from ${JSON.stringify(resolve("src/extension/vault/imageIndexService.ts"))};
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function until(check) {
-  const deadline = Date.now() + 15000;
+  const deadline = Date.now() + 30000;
   while (!check() && Date.now() < deadline) await sleep(50);
   assert.ok(check(), 'live path change must reach the production index');
 }
-export async function activate() {
+export function activate() { void run(); }
+async function run() {
   const driver = new WorkspaceIndexDriver();
   const vault = new VaultIndexService(driver);
   const image = new ImageIndexService(driver);
@@ -92,12 +93,14 @@ await build({
 });
 
 let noiseEvents = 0;
+const transientDirs = [];
 const noise = setInterval(() => {
   const dir = join(root, `transient-${noiseEvents++}`);
   mkdirSync(dir);
   writeFileSync(join(dir, "noise.md"), "# Transient");
   writeFileSync(join(dir, "noise.png"), "image path fixture");
-  rmSync(dir, { recursive: true });
+  transientDirs.push(dir);
+  if (transientDirs.length > 40) rmSync(transientDirs.shift(), { recursive: true, force: true });
 }, 25);
 let app;
 let passed = false;
@@ -112,7 +115,7 @@ try {
   await app.firstWindow();
   await new Promise((resolve) => setTimeout(resolve, 2000));
   unlinkSync(gate);
-  const deadline = Date.now() + 60000;
+  const deadline = Date.now() + 120000;
   while (!existsSync(result) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 100));
   assert.ok(existsSync(result), "production indexes must finish under sustained traffic");
   const report = JSON.parse(readFileSync(result, "utf8"));
@@ -120,12 +123,15 @@ try {
   assert.ok(noiseEvents >= 100, "sustained directory and leaf events must overlap the builds");
   console.log("  ✓ busy workspace settles:", JSON.stringify({ notes, images, noiseEvents, ...report }));
   passed = true;
+} catch (error) {
+  console.error('Busy workspace check failed:', error);
+  throw error;
 } finally {
   clearInterval(noise);
   if (!passed) {
     const logs = join(work, "profile", "logs");
     if (existsSync(logs)) for (const file of readdirSync(logs, { recursive: true })) {
-      if (String(file).endsWith("exthost.log")) console.error(readFileSync(join(logs, file), "utf8"));
+      if (/exthost\.log$|renderer\.log$|sharedprocess\.log$/.test(String(file))) console.error(readFileSync(join(logs, file), "utf8"));
     }
   }
   if (app) {

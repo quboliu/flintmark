@@ -24,6 +24,7 @@ import {
   type IndexSnapshotStatus,
   type RefreshInvalidationBatch,
   type WorkspaceIndexRefreshMode,
+  type WorkspaceIndexPatch,
 } from "./workspaceIndexPolicy";
 
 export type WorkspaceIndexKind = "image" | "note";
@@ -67,9 +68,8 @@ export interface WorkspaceIndexSpec<TSnapshot> {
   patchSnapshot?: (
     root: vscode.Uri,
     snapshot: TSnapshot,
-    changedUris: readonly vscode.Uri[],
-    context: WorkspaceIndexBuildContext,
-    deletedUris?: readonly vscode.Uri[]
+    patch: WorkspaceIndexPatch<vscode.Uri>,
+    context: WorkspaceIndexBuildContext
   ) => Promise<TSnapshot | undefined>;
 }
 
@@ -483,7 +483,12 @@ export class WorkspaceIndexDriver implements vscode.Disposable {
         yieldNow: yieldImmediate,
       };
       if (batch.mode === "paths" && this.indexedFiles.has(scanKey)) {
-        const files = new Map(this.indexedFiles.get(scanKey));
+        const originalFiles = this.indexedFiles.get(scanKey)!;
+        let files = originalFiles;
+        const mutableFiles = (): Map<string, vscode.Uri> => {
+          if (files === originalFiles) files = new Map(originalFiles);
+          return files;
+        };
         const updated = new Map<string, vscode.Uri>();
         const removed = new Map<string, vscode.Uri>();
         const cap = spec.maxFiles?.() ?? DEFAULT_MAX_FILES;
@@ -491,11 +496,19 @@ export class WorkspaceIndexDriver implements vscode.Disposable {
           const path = indexComparisonPath(uri);
           // Remove both the leaf and its old descendants, even if a directory
           // was replaced by a file (or vice versa) between notifications.
-          for (const [key, old] of files) {
-            if (key === path || key.startsWith(path + "/")) {
+          const old = files.get(path);
+          if (old) {
+            removed.set(path, old);
+            updated.delete(path);
+            mutableFiles().delete(path);
+          }
+          if (this.indexedDirs.get(scanKey)?.has(path) ||
+              [...updated.keys()].some((key) => key.startsWith(path + "/"))) {
+            for (const [key, old] of files) {
+              if (!key.startsWith(path + "/")) continue;
               removed.set(key, old);
               updated.delete(key);
-              files.delete(key);
+              mutableFiles().delete(key);
             }
           }
           let stat: vscode.FileStat;
@@ -517,15 +530,26 @@ export class WorkspaceIndexDriver implements vscode.Disposable {
               this.notifyLargeRoot(root, `The workspace index reached its ${cap}-file limit; the partial index remains available.`);
               continue;
             }
-            files.set(key, file);
+            mutableFiles().set(key, file);
             updated.set(key, file);
             removed.delete(key);
           }
         }
+        if (updated.size === 0 && removed.size === 0) {
+          // Empty/new or unrelated deleted directories cannot change either
+          // snapshot. Avoid copying it or rebuilding the entire note graph.
+          state.status = "ready";
+          state.completedEpoch = startedEpoch;
+          state.inFlight = false;
+          state.inFlightGeneration = undefined;
+          return;
+        }
         changedUris = [...updated.values()];
         const current = this.snapshots.get(kind)?.get(rootKey);
         if (spec.patchSnapshot && current !== undefined) {
-          snapshot = await spec.patchSnapshot(root, current, changedUris, context, [...removed.values()]);
+          snapshot = await spec.patchSnapshot(root, current, {
+            mode: "paths", changedUris, deletedUris: [...removed.values()],
+          }, context);
         }
         if (snapshot === undefined) snapshot = await spec.build(root, [...files.values()], context);
         scannedFiles = [...files.values()];
@@ -536,7 +560,7 @@ export class WorkspaceIndexDriver implements vscode.Disposable {
         });
         const current = this.snapshots.get(kind)?.get(rootKey);
         if (current !== undefined && changedUris.length === batch.paths.size) {
-          snapshot = await spec.patchSnapshot(root, current, changedUris, context);
+          snapshot = await spec.patchSnapshot(root, current, { mode: "content", changedUris }, context);
         }
         if (snapshot === undefined) completedMode = "full";
       } else {

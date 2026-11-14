@@ -22,10 +22,10 @@ await test("structural patch adds and deletes notes without reading unchanged no
     uris: new Map([["keep.md", "keep.md"], ["gone.md", "gone.md"]]),
   };
   const reads: string[] = [];
-  const patched = await patchNoteSnapshot(snapshot, ["new.md"], (uri) => uri, async (uri) => {
+  const patched = await patchNoteSnapshot(snapshot, { mode: "paths", changedUris: ["new.md"], deletedUris: ["gone.md"] }, (uri) => uri, async (uri) => {
     reads.push(uri);
     return "new";
-  }, () => {}, ["gone.md"]);
+  }, () => {});
   assert.deepEqual(reads, ["new.md"]);
   assert.deepEqual([...patched!.inputs.keys()].sort(), ["keep.md", "new.md"]);
   assert.equal(patched!.inputs.get("keep.md")!.text, "kept");
@@ -45,7 +45,7 @@ await test("one content save reads exactly one file and retains other snapshot e
   let reads = 0;
   const patched = await patchNoteSnapshot(
     snapshot,
-    ["A.md"],
+    { mode: "content", changedUris: ["A.md"] },
     (uri) => uri,
     async () => {
       reads++;
@@ -66,7 +66,7 @@ await test("missing or unreadable content path requests a full fallback", async 
   };
   let reads = 0;
   assert.equal(
-    await patchNoteSnapshot(snapshot, ["Missing.md"], (uri) => uri, async () => {
+    await patchNoteSnapshot(snapshot, { mode: "content", changedUris: ["Missing.md"] }, (uri) => uri, async () => {
       reads++;
       return "unused";
     }, () => {}),
@@ -74,7 +74,7 @@ await test("missing or unreadable content path requests a full fallback", async 
   );
   assert.equal(reads, 0);
   assert.equal(
-    await patchNoteSnapshot(snapshot, ["A.md"], (uri) => uri, async () => {
+    await patchNoteSnapshot(snapshot, { mode: "content", changedUris: ["A.md"] }, (uri) => uri, async () => {
       reads++;
       throw new Error("deleted during save");
     }, () => {}),

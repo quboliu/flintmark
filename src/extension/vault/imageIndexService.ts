@@ -49,11 +49,13 @@ export class ImageIndexService implements vscode.Disposable {
       disabled: () => buildSnapshot([], "disabled"),
       build: async (root, files) =>
         buildSnapshot(files.map((u) => relFromRoot(root, u))),
-      patchSnapshot: async (root, snapshot, changedUris, _context, deletedUris) => {
-        if (deletedUris === undefined) return snapshot;
-        const paths = new Set([...snapshot.byRelKey.values()].map((entry) => entry.relPath));
-        for (const uri of deletedUris) paths.delete(relFromRoot(root, uri));
-        for (const uri of changedUris) paths.add(relFromRoot(root, uri));
+      patchSnapshot: async (root, snapshot, patch) => {
+        if (patch.mode === "content") return snapshot;
+        // byRelKey collapses normalized collisions. Basename buckets retain
+        // every original candidate needed for exact-case and path ranking.
+        const paths = new Set([...snapshot.byBaseKey.values()].flat().map((entry) => entry.relPath));
+        for (const uri of patch.deletedUris) paths.delete(relFromRoot(root, uri));
+        for (const uri of patch.changedUris) paths.add(relFromRoot(root, uri));
         return buildSnapshot([...paths]);
       },
     });

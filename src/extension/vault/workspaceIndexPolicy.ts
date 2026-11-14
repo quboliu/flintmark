@@ -29,6 +29,9 @@ export function isForcedRefreshReason(reason: string): boolean {
 export type TreeEventRoute = "note" | "image" | "all" | "ignore";
 
 export type WorkspaceIndexRefreshMode = "content" | "paths" | "full";
+export type WorkspaceIndexPatch<TUri> =
+  | { mode: "content"; changedUris: readonly TUri[] }
+  | { mode: "paths"; changedUris: readonly TUri[]; deletedUris: readonly TUri[] };
 export type WorkspaceFileEventKind = "change" | "create" | "delete" | "rename" | "tree";
 
 export function refreshModeForFileEvent(

@@ -27,6 +27,7 @@ import { copyVaultData } from "../../shared/vaultData";
 import { waitForVaultBuildGate } from "./vaultBuildGate";
 import { mapInCooperativeBatches } from "./cooperativeBatches";
 import { patchNoteSnapshot, type NoteSnapshot } from "./vaultSnapshot";
+import type { WorkspaceIndexPatch } from "./workspaceIndexPolicy";
 import {
   WorkspaceIndexDriver,
   WorkspaceIndexBuildCancelled,
@@ -76,8 +77,8 @@ export class VaultIndexService implements vscode.Disposable {
       notReady: emptyRootSnapshot,
       disabled: emptyRootSnapshot,
       build: (root, files, context) => this.buildSnapshot(root, files, context),
-      patchSnapshot: (_root, snapshot, changedUris, context, deletedUris) =>
-        this.patchSnapshot(snapshot, changedUris, context, deletedUris),
+      patchSnapshot: (_root, snapshot, patch, context) =>
+        this.patchSnapshot(snapshot, patch, context),
     });
     this.refreshSub = this.driver.onDidRefresh((event) => {
       if (event.kind !== "note") return;
@@ -170,19 +171,17 @@ export class VaultIndexService implements vscode.Disposable {
 
   private async patchSnapshot(
     snapshot: VaultRootSnapshot,
-    changedUris: readonly vscode.Uri[],
-    context: WorkspaceIndexBuildContext,
-    deletedUris?: readonly vscode.Uri[]
+    patch: WorkspaceIndexPatch<vscode.Uri>,
+    context: WorkspaceIndexBuildContext
   ): Promise<VaultRootSnapshot | undefined> {
     return patchNoteSnapshot(
       snapshot,
-      changedUris,
+      patch,
       (uri) => uri.toString(),
       async (uri) => this.decoder.decode(await readIndexFile(uri, (target) => vscode.workspace.fs.readFile(target))),
       () => {
         if (!context.isCurrent()) throw new WorkspaceIndexBuildCancelled();
-      },
-      deletedUris
+      }
     );
   }
 

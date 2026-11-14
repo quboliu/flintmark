@@ -22,11 +22,13 @@ export class RelativePattern {
   constructor(readonly base: unknown, readonly pattern: string) {}
 }
 export class Uri {
-  private constructor(readonly scheme: string, readonly path: string) {}
+  private constructor(readonly scheme: string, readonly path: string, readonly query = '') {}
   static from(value: { scheme: string; path: string }) {
     return new Uri(value.scheme, value.path);
   }
   static file(path: string) { return Uri.from({ scheme: 'file', path }); }
+  static joinPath(base: Uri, ...parts: string[]) { return Uri.from({ scheme: base.scheme, path: base.path.replace(/\/$/, '') + '/' + parts.join('/') }); }
+  with(change: { query: string }) { return new Uri(this.scheme, this.path, change.query); }
   get fsPath() { return this.path; }
   toString() { return `${this.scheme}://${this.path}`; }
 }
