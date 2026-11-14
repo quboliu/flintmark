@@ -35,7 +35,6 @@ import {
 } from "./workspaceIndexDriver";
 
 const MD_GLOB = "**/*.{md,markdown}";
-const EXCLUDE_GLOB = "**/{node_modules,.git}/**";
 const REBUILD_DEBOUNCE_MS = 50;
 const READ_CONCURRENCY = 32;
 const BUILD_SLICE_MS = 8;
@@ -57,6 +56,7 @@ export class VaultIndexService implements vscode.Disposable {
   private readonly decoder = new TextDecoder();
   private rebuildGeneration = 0;
   private fullRebuildInFlight: number | undefined;
+  private rebuildPending = false;
   private rebuildPromise: Promise<void> = Promise.resolve();
   private disposed = false;
 
@@ -71,14 +71,13 @@ export class VaultIndexService implements vscode.Disposable {
     this.handle = this.driver.registerSpec<VaultRootSnapshot>({
       kind: "note",
       include: MD_GLOB,
-      exclude: EXCLUDE_GLOB,
       debounceMs: REBUILD_DEBOUNCE_MS,
       watchContent: true,
       notReady: emptyRootSnapshot,
       disabled: emptyRootSnapshot,
       build: (root, files, context) => this.buildSnapshot(root, files, context),
-      patchSnapshot: (_root, snapshot, changedUris, context) =>
-        this.patchSnapshot(snapshot, changedUris, context),
+      patchSnapshot: (_root, snapshot, changedUris, context, deletedUris) =>
+        this.patchSnapshot(snapshot, changedUris, context, deletedUris),
     });
     this.refreshSub = this.driver.onDidRefresh((event) => {
       if (event.kind !== "note") return;
@@ -143,7 +142,6 @@ export class VaultIndexService implements vscode.Disposable {
       files,
       READ_CONCURRENCY,
       async (uri): Promise<{ input: NoteInput; uri: vscode.Uri } | undefined> => {
-        if (isExcluded(uri)) return;
         try {
           const bytes = await readIndexFile(uri, (target) => vscode.workspace.fs.readFile(target));
           const key = uri.toString();
@@ -173,7 +171,8 @@ export class VaultIndexService implements vscode.Disposable {
   private async patchSnapshot(
     snapshot: VaultRootSnapshot,
     changedUris: readonly vscode.Uri[],
-    context: WorkspaceIndexBuildContext
+    context: WorkspaceIndexBuildContext,
+    deletedUris?: readonly vscode.Uri[]
   ): Promise<VaultRootSnapshot | undefined> {
     return patchNoteSnapshot(
       snapshot,
@@ -182,11 +181,16 @@ export class VaultIndexService implements vscode.Disposable {
       async (uri) => this.decoder.decode(await readIndexFile(uri, (target) => vscode.workspace.fs.readFile(target))),
       () => {
         if (!context.isCurrent()) throw new WorkspaceIndexBuildCancelled();
-      }
+      },
+      deletedUris
     );
   }
 
   private scheduleGlobalRebuild(): void {
+    if (this.fullRebuildInFlight !== undefined) {
+      this.rebuildPending = true;
+      return;
+    }
     const generation = ++this.rebuildGeneration;
     this.fullRebuildInFlight = generation;
     const promise = this.rebuildGlobalSnapshot(generation);
@@ -223,6 +227,10 @@ export class VaultIndexService implements vscode.Disposable {
       console.error("[ofm] vault index rebuild failed", error);
     } finally {
       if (this.fullRebuildInFlight === generation) this.fullRebuildInFlight = undefined;
+      if (!this.disposed && this.rebuildPending) {
+        this.rebuildPending = false;
+        this.scheduleGlobalRebuild();
+      }
     }
   }
 
@@ -278,8 +286,4 @@ function monotonicNow(): number {
 
 function yieldImmediate(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
-}
-
-function isExcluded(uri: vscode.Uri): boolean {
-  return /[/\\](node_modules|\.git)[/\\]/.test(uri.path);
 }

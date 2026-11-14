@@ -134,6 +134,18 @@
     "configuration": {
       "title": "Flintmark",
       "properties": {
+        "ofm.workspaceIndex.exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "**/{.git,node_modules,.obsidian,.trash,.cache,Library,.claude,.codex,.npm,.cargo,.rustup,.vscode,__pycache__,.venv,dist,target}/**",
+            "**/.local/share/**"
+          ],
+          "description": "Workspace-relative glob patterns excluded from note and image indexing. Also respects enabled files.watcherExclude and search.exclude patterns.",
+          "scope": "resource"
+        },
         "ofm.theme": {
           "type": "string",
           "enum": [
@@ -298,7 +310,7 @@
     "test:report": "node scripts/test-report.mjs",
     "build:test": "node esbuild.test.mjs",
     "test:integration": "npm run compile && npm run build:test && xvfb-run -a node out/test/runTest.js",
-    "test:e2e": "npm run compile && xvfb-run -a node test/e2e/native-scroll-anchor.e2e.mjs && xvfb-run -a node test/e2e/wheel-observer.e2e.mjs && xvfb-run -a node test/e2e/vault-ready-lifecycle.e2e.mjs && xvfb-run -a node test/e2e/livepreview.e2e.mjs && xvfb-run -a node test/e2e/todo-sync.e2e.mjs && xvfb-run -a node test/e2e/external-update.e2e.mjs && xvfb-run -a node test/e2e/theme-mode.e2e.mjs && xvfb-run -a node test/e2e/image-index-lifecycle.e2e.mjs && xvfb-run -a node test/e2e/issue-regressions.e2e.mjs && xvfb-run -a node test/e2e/panel-sync.e2e.mjs && xvfb-run -a node test/e2e/save-barrier.e2e.mjs",
+    "test:e2e": "npm run compile && xvfb-run -a node test/e2e/native-scroll-anchor.e2e.mjs && xvfb-run -a node test/e2e/wheel-observer.e2e.mjs && xvfb-run -a node test/e2e/vault-ready-lifecycle.e2e.mjs && xvfb-run -a node test/e2e/livepreview.e2e.mjs && xvfb-run -a node test/e2e/todo-sync.e2e.mjs && xvfb-run -a node test/e2e/external-update.e2e.mjs && xvfb-run -a node test/e2e/theme-mode.e2e.mjs && xvfb-run -a node test/e2e/image-index-lifecycle.e2e.mjs && xvfb-run -a node test/e2e/issue-regressions.e2e.mjs && xvfb-run -a node test/e2e/panel-sync.e2e.mjs && xvfb-run -a node test/e2e/save-barrier.e2e.mjs && xvfb-run -a node test/e2e/workspace-index-busy.e2e.mjs",
     "test:visual": "npm run compile && xvfb-run -a node test/e2e/visual.e2e.mjs",
     "test:visual:update": "npm run compile && xvfb-run -a node test/e2e/visual.e2e.mjs --update",
     "shots:features": "npm run compile && xvfb-run -a node scripts/capture-shots.mjs",
@@ -307,6 +319,7 @@
     "test": "npm run test:unit && npm run test:perf && npm run test:integration && npm run test:e2e",
     "test:e2e:issues": "npm run compile && xvfb-run -a node test/e2e/issue-regressions.e2e.mjs",
     "test:stress": "npm run compile && FLINTMARK_STRESS_FILES=20000 FLINTMARK_STRESS_IMAGES=4200 FLINTMARK_STRESS_NOISE=1 xvfb-run -a node test/e2e/vault-ready-lifecycle.e2e.mjs",
+    "test:e2e:index": "npm run compile && xvfb-run -a node test/e2e/workspace-index-busy.e2e.mjs",
     "test:e2e:sync": "npm run compile && xvfb-run -a node test/e2e/panel-sync.e2e.mjs",
     "postinstall": "patch-package --error-on-fail",
     "test:acceptance": "node scripts/ci/run-acceptance.mjs",
@@ -358,7 +371,8 @@
     "@lezer/common": "^1.2.0",
     "@lezer/highlight": "^1.2.3",
     "katex": "^0.17.0",
-    "mermaid": "^11.15.0"
+    "mermaid": "^11.15.0",
+    "minimatch": "^9.0.9"
   },
   "icon": "media/icon.png",
   "galleryBanner": {

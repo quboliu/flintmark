@@ -26,23 +26,58 @@ export class Uri {
   static from(value: { scheme: string; path: string }) {
     return new Uri(value.scheme, value.path);
   }
+  static file(path: string) { return Uri.from({ scheme: 'file', path }); }
+  get fsPath() { return this.path; }
   toString() { return `${this.scheme}://${this.path}`; }
 }
 export const FileType = { File: 1, Directory: 2 };
 const deleted = new EventEmitter<Uri>();
+const created = new EventEmitter<Uri>();
+const leafCreated = new Map<string, EventEmitter<Uri>>();
+const leafDeleted = new Map<string, EventEmitter<Uri>>();
 const renamed = new EventEmitter<{ files: { oldUri: Uri; newUri: Uri }[] }>();
 const noopEvent = () => new Disposable();
 let folder: { uri: Uri; name: string; index: number };
 let files: { image: Uri[]; note: Uri[] };
+let scanGate: Promise<void> | undefined;
+const directories = new Set<string>();
+export const scanTokens: { isCancellationRequested: boolean }[] = [];
+export const scanBases: unknown[] = [];
+export const notices: string[] = [];
+export const configuration = new Map<string, unknown>();
+export const noteTexts = new Map<string, string>();
+export const scanExcludes: (string | undefined)[] = [];
+export const window = { async showInformationMessage(message: string) { notices.push(message); } };
 export const calls = { delivered: 0, matchedFolder: 0, imageScan: 0, noteScan: 0 };
 export function reset(root: Uri, image: Uri[], note: Uri[]) {
   Object.assign(calls, { delivered: 0, matchedFolder: 0, imageScan: 0, noteScan: 0 });
   deleted.dispose();
+  created.dispose();
+  leafCreated.clear();
+  leafDeleted.clear();
+  directories.clear();
+  scanTokens.length = 0;
+  scanBases.length = 0;
+  notices.length = 0;
+  configuration.clear();
+  noteTexts.clear();
+  scanExcludes.length = 0;
+  scanGate = undefined;
   renamed.dispose();
   folder = { uri: root, name: 'work', index: 0 };
   files = { image, note };
 }
 export function removeFiles() { files = { image: [], note: [] }; }
+export function holdScans(gate?: Promise<void>) { scanGate = gate; }
+export function createDirectory(uri: Uri) { directories.add(uri.path); created.fire(uri); }
+export function createLeaf(kind: 'note' | 'image', uri: Uri) {
+  files[kind].push(uri);
+  for (const [glob, event] of leafCreated) if (glob.includes(kind === 'note' ? 'md' : 'png')) event.fire(uri);
+}
+export function deleteLeaf(kind: 'note' | 'image', uri: Uri) {
+  files[kind] = files[kind].filter((file) => file.path !== uri.path);
+  for (const [glob, event] of leafDeleted) if (glob.includes(kind === 'note' ? 'md' : 'png')) event.fire(uri);
+}
 export function deleteDirectory(uri: Uri) { calls.delivered++; deleted.fire(uri); }
 export function renameDirectory(oldUri: Uri, newUri: Uri) {
   calls.delivered++;
@@ -62,19 +97,35 @@ export const workspace = {
     if (matches) calls.matchedFolder++;
     return matches ? folder : undefined;
   },
-  getConfiguration() { return { get: (_key: string, fallback: unknown) => fallback }; },
+  getConfiguration(section?: string) {
+    return { get: (key: string, fallback: unknown) => configuration.get(section ? `${section}.${key}` : key) ?? fallback };
+  },
   createFileSystemWatcher(glob: string) {
+    const create = new EventEmitter<Uri>();
+    const remove = new EventEmitter<Uri>();
+    leafCreated.set(glob, create);
+    leafDeleted.set(glob, remove);
     return {
-      onDidCreate: noopEvent,
+      onDidCreate: glob === '**/*' ? created.event : create.event,
       onDidChange: noopEvent,
-      onDidDelete: glob === '**/*' ? deleted.event : noopEvent,
+      onDidDelete: glob === '**/*' ? deleted.event : remove.event,
       dispose() {},
     };
   },
-  async findFiles(pattern: RelativePattern) {
-    if (pattern.pattern === '**/*.png') { calls.imageScan++; return [...files.image]; }
-    if (pattern.pattern === '**/*.md') { calls.noteScan++; return [...files.note]; }
-    throw new Error('Unexpected test scan pattern: ' + pattern.pattern);
+  async findFiles(pattern: RelativePattern, _exclude?: string, _cap?: number, token?: { isCancellationRequested: boolean }) {
+    const kind = pattern.pattern.includes('png') ? 'image' : pattern.pattern.includes('md') ? 'note' : undefined;
+    if (!kind) throw new Error('Unexpected test scan pattern: ' + pattern.pattern);
+    calls[kind === 'image' ? 'imageScan' : 'noteScan']++;
+    if (token) scanTokens.push(token);
+    scanBases.push(pattern.base);
+    scanExcludes.push(_exclude);
+    const base = pattern.base as Uri;
+    const compare = (uri: Uri) => uri.scheme === 'file'
+      ? uri.path.replace(/^\/[A-Z]:\//, (drive) => drive.toLowerCase()) : uri.path;
+    const prefix = compare(base).replace(/\/$/, '') + '/';
+    const result = files[kind].filter((file) => compare(file).startsWith(prefix));
+    await scanGate;
+    return _cap === undefined ? result : result.slice(0, _cap);
   },
   onDidChangeTextDocument: noopEvent,
   onDidChangeConfiguration: noopEvent,
@@ -82,5 +133,11 @@ export const workspace = {
   onDidCreateFiles: noopEvent,
   onDidDeleteFiles: noopEvent,
   onDidChangeWorkspaceFolders: noopEvent,
-  fs: { async stat() { return { type: FileType.Directory }; } },
+  fs: {
+    async readFile(uri: Uri) { return new TextEncoder().encode(noteTexts.get(uri.path) ?? '# Note\n'); },
+    async stat(uri: Uri) {
+    if (directories.has(uri.path)) return { type: FileType.Directory };
+    if ([...files.note, ...files.image].some((file) => file.path === uri.path)) return { type: FileType.File };
+    throw Object.assign(new Error('File not found'), { code: 'FileNotFound' });
+  } },
 };

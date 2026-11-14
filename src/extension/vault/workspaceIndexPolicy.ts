@@ -1,4 +1,5 @@
 export const DOCUMENT_READY_MAX_STALE_MS = 5_000;
+export const DEFAULT_MAX_FILES = 100_000;
 
 export type IndexSnapshotStatus =
   | "notReady"
@@ -27,13 +28,13 @@ export function isForcedRefreshReason(reason: string): boolean {
 
 export type TreeEventRoute = "note" | "image" | "all" | "ignore";
 
-export type WorkspaceIndexRefreshMode = "content" | "full";
+export type WorkspaceIndexRefreshMode = "content" | "paths" | "full";
 export type WorkspaceFileEventKind = "change" | "create" | "delete" | "rename" | "tree";
 
 export function refreshModeForFileEvent(
   event: WorkspaceFileEventKind
 ): WorkspaceIndexRefreshMode {
-  return event === "change" ? "content" : "full";
+  return event === "change" ? "content" : "paths";
 }
 
 export interface RefreshInvalidationBatch {
@@ -77,7 +78,7 @@ export function mergeRefreshInvalidation(
   }
   const paths = new Set(current?.paths);
   if (path) paths.add(path);
-  return { mode: "content", paths };
+  return { mode: current?.mode === "paths" || mode === "paths" ? "paths" : "content", paths };
 }
 
 export function routeCreatedPath(

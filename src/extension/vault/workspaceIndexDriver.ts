@@ -2,16 +2,20 @@ import { WorkspaceIndexScanQueue } from "./workspaceIndexScanQueue";
 // Workspace Index Driver · shared VS Code host plumbing for path-based indexes.
 //
 // FileSystemWatcher and VS Code file-operation events are treated only as
-// invalidation hints. Structural/tree events rebuild from a per-root `findFiles`
-// reconciliation; known content-only leaf changes may use a spec-provided
-// copy-on-write patch. Either path atomically swaps the root snapshot.
+// invalidation hints. Leaf changes patch the snapshot; directory hints search
+// only that subtree. Explicit reconciliation searches a root. All updates are
+// coalesced during a build and atomically swap the root snapshot.
 
 import * as vscode from "vscode";
+import { homedir } from "node:os";
+import { DEFAULT_INDEX_EXCLUDES, WorkspaceIndexExclusions } from "./workspaceIndexExclusions";
 import {
   decideEnsureFresh,
+  DEFAULT_MAX_FILES,
   deletionAffectsIndex,
   directoriesHoldingFiles,
   mergeRefreshInvalidation,
+  kindForLeafPath,
   refreshModeForFileEvent,
   routeCreatedPath,
   routeUnavailablePath,
@@ -54,7 +58,6 @@ export interface WorkspaceIndexSpec<TSnapshot> {
   watchContent?: boolean;
   maxFiles?: () => number | undefined;
   notReady: () => TSnapshot;
-  overCap?: (root: vscode.Uri, cap: number) => TSnapshot;
   disabled?: (root: vscode.Uri) => TSnapshot;
   build: (
     root: vscode.Uri,
@@ -65,7 +68,8 @@ export interface WorkspaceIndexSpec<TSnapshot> {
     root: vscode.Uri,
     snapshot: TSnapshot,
     changedUris: readonly vscode.Uri[],
-    context: WorkspaceIndexBuildContext
+    context: WorkspaceIndexBuildContext,
+    deletedUris?: readonly vscode.Uri[]
   ) => Promise<TSnapshot | undefined>;
 }
 
@@ -83,9 +87,12 @@ type RegisteredSpec = WorkspaceIndexSpec<unknown>;
 interface RuntimeState extends IndexFreshnessState {
   status: IndexSnapshotStatus;
   inFlightGeneration: number | undefined;
+  lastFullScanAt?: number;
+  capped?: boolean;
 }
 
 const TREE_EVENT_DEBOUNCE_MS = 50;
+const FULL_RESCAN_INTERVAL_MS = 30_000;
 
 /** VS Code can preserve /C:/ on a workspace root but return /c:/ from findFiles.
  *  Canonicalize only the drive letter; directory and filename case must survive. */
@@ -111,13 +118,16 @@ export class WorkspaceIndexDriver implements vscode.Disposable {
   private readonly versions = new Map<WorkspaceIndexKind, Map<string, number>>();
   private readonly roots = new Map<string, vscode.Uri>();
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly fullRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly pending = new Map<string, RefreshInvalidationBatch>();
   private readonly pendingUris = new Map<string, Map<string, vscode.Uri>>();
   private readonly generations = new WorkspaceIndexGenerationClock();
   private readonly runtime = new Map<string, RuntimeState>();
-  private readonly deferredTreeRefresh = new Set<string>();
   private readonly scanQueue = new WorkspaceIndexScanQueue();
   private readonly indexedDirs = new Map<string, Set<string>>();
+  private readonly indexedFiles = new Map<string, Map<string, vscode.Uri>>();
+  private readonly exclusions = new Map<string, WorkspaceIndexExclusions>();
+  private readonly notifiedRoots = new Set<string>();
   private readonly scanCancellations = new Map<string, vscode.CancellationTokenSource>();
   private readonly disposables: vscode.Disposable[] = [];
   private readonly emitter = new vscode.EventEmitter<WorkspaceIndexRefreshEvent>();
@@ -269,6 +279,12 @@ export class WorkspaceIndexDriver implements vscode.Disposable {
           this.addRoot(f.uri);
           this.requestAll(f.uri, "workspace-folder-added", true);
         }
+      }),
+      vscode.workspace.onDidChangeConfiguration((event) => {
+        if (!["ofm.workspaceIndex.exclude", "files.watcherExclude", "search.exclude"].some((section) =>
+          event.affectsConfiguration(section))) return;
+        this.exclusions.clear();
+        for (const root of this.roots.values()) this.requestAll(root, "exclusions-changed", false);
       })
     );
   }
@@ -276,6 +292,10 @@ export class WorkspaceIndexDriver implements vscode.Disposable {
   private addRoot(root: vscode.Uri): void {
     const key = root.toString();
     this.roots.set(key, root);
+    if (root.scheme === "file" && indexComparisonPath(root).replace(/\/$/, "") ===
+        indexComparisonPath(vscode.Uri.file(homedir())).replace(/\/$/, "")) {
+      this.notifyLargeRoot(root, "Indexing your home folder can be expensive.");
+    }
     for (const spec of this.specs.values()) {
       const byRoot = this.snapshots.get(spec.kind);
       if (!byRoot?.has(key)) this.setSnapshot(spec.kind, root, spec.notReady(), 0);
@@ -292,10 +312,14 @@ export class WorkspaceIndexDriver implements vscode.Disposable {
       const timer = this.timers.get(timerKey);
       if (timer) clearTimeout(timer);
       this.timers.delete(timerKey);
+      const fullTimer = this.fullRefreshTimers.get(timerKey);
+      if (fullTimer) clearTimeout(fullTimer);
+      this.fullRefreshTimers.delete(timerKey);
       this.generations.invalidate(timerKey);
       this.cancelScan(timerKey);
       this.indexedDirs.delete(timerKey);
-      this.deferredTreeRefresh.delete(timerKey);
+      this.indexedFiles.delete(timerKey);
+      this.exclusions.delete(timerKey);
       this.runtime.delete(timerKey);
       this.pending.delete(timerKey);
       this.pendingUris.delete(timerKey);
@@ -306,19 +330,16 @@ export class WorkspaceIndexDriver implements vscode.Disposable {
     kind: WorkspaceIndexKind,
     uri: vscode.Uri,
     reason: string,
-    mode: WorkspaceIndexRefreshMode = "full"
+    mode: WorkspaceIndexRefreshMode = "paths"
   ): void {
-    if (isCommonlyExcluded(uri)) return;
     const folder = vscode.workspace.getWorkspaceFolder(uri);
     if (!folder) return;
-    this.requestRefresh(kind, folder.uri, reason, false, true, mode, mode === "content" ? uri : undefined);
+    if (this.exclusionPolicy(kind, folder.uri).excludes(relFromRoot(folder.uri, uri))) return;
+    this.requestRefresh(kind, folder.uri, reason, false, true, mode, uri);
   }
 
   private scheduleAllForUri(uri: vscode.Uri, reason: string): void {
-    if (isCommonlyExcluded(uri)) return;
-    const folder = vscode.workspace.getWorkspaceFolder(uri);
-    if (!folder) return;
-    this.requestAll(folder.uri, reason, false);
+    for (const kind of this.specs.keys()) this.scheduleForUri(kind, uri, reason);
   }
 
   private requestAll(root: vscode.Uri, reason: string, immediate: boolean): void {
@@ -342,38 +363,50 @@ export class WorkspaceIndexDriver implements vscode.Disposable {
     if (!spec) return;
     const rootKey = root.toString();
     const timerKey = this.timerKey(kind, rootKey);
-    const generation = markDirty
-      ? this.invalidate(kind, root)
-      : this.bumpGeneration(timerKey);
-    const queuedMode = mode === "content" && stateIsBuilding(this.runtimeState(kind, root))
-      ? "full"
-      : mode;
+    const state = this.runtimeState(kind, root);
+    if (mode === "full" && state.lastFullScanAt !== undefined) {
+      const remaining = state.lastFullScanAt + FULL_RESCAN_INTERVAL_MS - Date.now();
+      if (remaining > 0) {
+        if (!this.fullRefreshTimers.has(timerKey)) {
+          this.fullRefreshTimers.set(timerKey, setTimeout(() => {
+            this.fullRefreshTimers.delete(timerKey);
+            this.requestRefresh(kind, root, reason, true, markDirty);
+          }, remaining));
+        }
+        return;
+      }
+    }
+    if (markDirty) state.dirtyEpoch++;
+    const queuedMode = mode;
     this.pending.set(
       timerKey,
       mergeRefreshInvalidation(
         this.pending.get(timerKey),
         queuedMode,
-        queuedMode === "content" ? changedUri?.toString() : undefined
+        queuedMode !== "full" ? changedUri?.toString() : undefined
       )
     );
-    if (queuedMode === "content" && changedUri && this.pending.get(timerKey)?.mode === "content") {
+    if (queuedMode !== "full" && changedUri && this.pending.get(timerKey)?.mode !== "full") {
       const uris = this.pendingUris.get(timerKey) ?? new Map<string, vscode.Uri>();
       uris.set(changedUri.toString(), changedUri);
       this.pendingUris.set(timerKey, uris);
     } else if (this.pending.get(timerKey)?.mode === "full") {
       this.pendingUris.delete(timerKey);
     }
-    const existing = this.timers.get(timerKey);
-    if (existing) clearTimeout(existing);
+    // Queue hints without superseding a running build. Keep the first timer
+    // too: continuous activity must not postpone publication indefinitely.
+    if (stateIsBuilding(state) || this.timers.has(timerKey)) return;
     const delay = immediate ? 0 : spec.debounceMs ?? TREE_EVENT_DEBOUNCE_MS;
     this.timers.set(
       timerKey,
       setTimeout(() => {
         this.timers.delete(timerKey);
+        if (stateIsBuilding(this.runtimeState(kind, root))) return;
         const batch = this.pending.get(timerKey) ?? { mode: "full", paths: new Set<string>() };
         const uris = this.pendingUris.get(timerKey);
         this.pending.delete(timerKey);
         this.pendingUris.delete(timerKey);
+        const generation = this.bumpGeneration(timerKey);
         void this.rescan(kind, root, reason, generation, batch, uris);
       }, delay)
     );
@@ -383,10 +416,10 @@ export class WorkspaceIndexDriver implements vscode.Disposable {
     if (this.disposed) return;
     this.addRoot(root);
     const state = this.runtimeState(kind, root);
+    if (state.capped) return;
     const decision = decideEnsureFresh(state, Date.now(), reason);
     if (decision === "skip" || decision === "dedupe") return;
-    // Forced requests received during a build invalidate it. The next scan is
-    // debounced, so duplicate attachment notifications still coalesce.
+    // Forced requests received during a build join one follow-up.
     this.requestRefresh(kind, root, reason, false, true);
   }
 
@@ -409,8 +442,9 @@ export class WorkspaceIndexDriver implements vscode.Disposable {
     } finally {
       if (!this.disposed && this.roots.has(root.toString()) &&
           !stateIsBuilding(this.runtimeState(kind, root)) &&
-          this.deferredTreeRefresh.delete(key)) {
-        this.requestRefresh(kind, root, "deferred-tree-delete", false, true);
+          this.pending.has(key)) {
+        const pending = this.pending.get(key)!;
+        this.requestRefresh(kind, root, "deferred-events", false, false, pending.mode);
       }
     }
   }
@@ -448,7 +482,54 @@ export class WorkspaceIndexDriver implements vscode.Disposable {
         isCurrent,
         yieldNow: yieldImmediate,
       };
-      if (batch.mode === "content" && spec.patchSnapshot) {
+      if (batch.mode === "paths" && this.indexedFiles.has(scanKey)) {
+        const files = new Map(this.indexedFiles.get(scanKey));
+        const updated = new Map<string, vscode.Uri>();
+        const removed = new Map<string, vscode.Uri>();
+        const cap = spec.maxFiles?.() ?? DEFAULT_MAX_FILES;
+        for (const uri of batchUris?.values() ?? []) {
+          const path = indexComparisonPath(uri);
+          // Remove both the leaf and its old descendants, even if a directory
+          // was replaced by a file (or vice versa) between notifications.
+          for (const [key, old] of files) {
+            if (key === path || key.startsWith(path + "/")) {
+              removed.set(key, old);
+              updated.delete(key);
+              files.delete(key);
+            }
+          }
+          let stat: vscode.FileStat;
+          try {
+            stat = await vscode.workspace.fs.stat(uri);
+          } catch (error) {
+            if ((error as { code?: string }).code === "FileNotFound" ||
+                (error as { code?: string }).code === "ENOENT") continue;
+            throw error;
+          }
+          const found = (stat.type & vscode.FileType.Directory) !== 0
+            ? await vscode.workspace.findFiles(new vscode.RelativePattern(uri, spec.include), this.exclusionPolicy(kind, root).glob, cap + 1)
+            : kindForLeafPath(uri.path) === kind ? [uri] : [];
+          for (const file of found) {
+            if (this.exclusionPolicy(kind, root).excludes(relFromRoot(root, file))) continue;
+            const key = indexComparisonPath(file);
+            if (!files.has(key) && files.size >= cap) {
+              state.capped = true;
+              this.notifyLargeRoot(root, `The workspace index reached its ${cap}-file limit; the partial index remains available.`);
+              continue;
+            }
+            files.set(key, file);
+            updated.set(key, file);
+            removed.delete(key);
+          }
+        }
+        changedUris = [...updated.values()];
+        const current = this.snapshots.get(kind)?.get(rootKey);
+        if (spec.patchSnapshot && current !== undefined) {
+          snapshot = await spec.patchSnapshot(root, current, changedUris, context, [...removed.values()]);
+        }
+        if (snapshot === undefined) snapshot = await spec.build(root, [...files.values()], context);
+        scannedFiles = [...files.values()];
+      } else if (batch.mode === "content" && spec.patchSnapshot) {
         changedUris = [...batch.paths].flatMap((path) => {
           const uri = batchUris?.get(path);
           return uri ? [uri] : [];
@@ -463,8 +544,16 @@ export class WorkspaceIndexDriver implements vscode.Disposable {
       }
 
       if (completedMode === "full") {
+        if (state.lastFullScanAt !== undefined && Date.now() - state.lastFullScanAt < FULL_RESCAN_INTERVAL_MS) {
+          this.requestRefresh(kind, root, "patch-fallback", false, true);
+          state.status = "ready";
+          state.inFlight = false;
+          state.inFlightGeneration = undefined;
+          return;
+        }
+        state.lastFullScanAt = Date.now();
         changedUris = [];
-        const cap = spec.maxFiles?.();
+        const cap = spec.maxFiles?.() ?? DEFAULT_MAX_FILES;
         // A newer generation cancels this token, so a superseded scan stops
         // its file search instead of running on to a discarded result.
         const cancellation = new vscode.CancellationTokenSource();
@@ -474,8 +563,8 @@ export class WorkspaceIndexDriver implements vscode.Disposable {
         try {
           files = await vscode.workspace.findFiles(
             new vscode.RelativePattern(root, spec.include),
-            spec.exclude,
-            cap === undefined ? undefined : cap + 1,
+            this.exclusionPolicy(kind, root).glob,
+            cap + 1,
             cancellation.token
           );
         } finally {
@@ -484,14 +573,14 @@ export class WorkspaceIndexDriver implements vscode.Disposable {
           }
           cancellation.dispose();
         }
+        files = files.filter((file) => !this.exclusionPolicy(kind, root).excludes(relFromRoot(root, file)));
         if (!isCurrent()) throw new WorkspaceIndexBuildCancelled();
-        // Over-cap searches are incomplete: retain conservative delete routing.
-        scannedFiles = cap === undefined || files.length <= cap ? files : undefined;
-        if (cap !== undefined && files.length > cap) {
-          snapshot = spec.overCap ? spec.overCap(root, cap) : spec.notReady();
-        } else {
-          snapshot = await spec.build(root, files, context);
+        state.capped = files.length >= cap;
+        if (state.capped) {
+          this.notifyLargeRoot(root, `The workspace index reached its ${cap}-file limit; the partial index remains available.`);
         }
+        scannedFiles = files.slice(0, cap);
+        snapshot = await spec.build(root, scannedFiles, context);
       }
     } catch (error) {
       if (!isCurrent() || error instanceof WorkspaceIndexBuildCancelled) {
@@ -520,6 +609,7 @@ export class WorkspaceIndexDriver implements vscode.Disposable {
     this.setSnapshot(kind, root, snapshot, version);
     if (completedMode === "full") this.indexedDirs.delete(scanKey);
     if (scannedFiles) {
+      this.indexedFiles.set(scanKey, new Map(scannedFiles.map((file) => [indexComparisonPath(file), file])));
       this.indexedDirs.set(
         scanKey,
         directoriesHoldingFiles(scannedFiles.map(indexComparisonPath), indexComparisonPath(root))
@@ -536,7 +626,7 @@ export class WorkspaceIndexDriver implements vscode.Disposable {
   /** Route a path whose current type can be inspected. Known leaf files only
    * invalidate their own index; directories and stat failures are tree events. */
   private async routeCreatedUri(uri: vscode.Uri, reason: string): Promise<void> {
-    if (isCommonlyExcluded(uri)) return;
+    if (this.excludedForAll(uri)) return;
     try {
       const stat = await vscode.workspace.fs.stat(uri);
       const type = (stat.type & vscode.FileType.Directory) !== 0 ? "directory" : "file";
@@ -551,7 +641,7 @@ export class WorkspaceIndexDriver implements vscode.Disposable {
   /** Deleted/old paths cannot be stat'ed. A recognized target extension is a
    * known leaf event; every ambiguous path conservatively invalidates both. */
   private routeUnavailableUri(uri: vscode.Uri, reason: string): void {
-    if (isCommonlyExcluded(uri)) return;
+    if (this.excludedForAll(uri)) return;
     const route = routeUnavailablePath(uri.path);
     const comparisonPath = indexComparisonPath(uri);
     if (route === "ignore") return;
@@ -564,7 +654,7 @@ export class WorkspaceIndexDriver implements vscode.Disposable {
       // cannot repeatedly cancel initialization before directory routing exists.
       if (route === "all" && dirs === undefined &&
           stateIsBuilding(this.runtimeState(kind, folder.uri))) {
-        this.deferredTreeRefresh.add(key);
+        this.scheduleForUri(kind, uri, reason);
         continue;
       }
       // A directory can itself end in .md or .png. Known indexed directories
@@ -589,6 +679,36 @@ export class WorkspaceIndexDriver implements vscode.Disposable {
     const state = this.runtimeState(kind, root);
     state.dirtyEpoch++;
     return this.bumpGeneration(this.timerKey(kind, root.toString()));
+  }
+
+  private excludedForAll(uri: vscode.Uri): boolean {
+    const folder = vscode.workspace.getWorkspaceFolder(uri);
+    return !folder || [...this.specs.keys()].every((kind) =>
+      this.exclusionPolicy(kind, folder.uri).excludes(relFromRoot(folder.uri, uri)));
+  }
+
+  private notifyLargeRoot(root: vscode.Uri, detail: string): void {
+    const key = root.toString();
+    if (this.notifiedRoots.has(key)) return;
+    this.notifiedRoots.add(key);
+    void vscode.window.showInformationMessage(`Flintmark: ${detail} Consider opening a narrower folder for note and image indexing.`);
+  }
+
+  private exclusionPolicy(kind: WorkspaceIndexKind, root: vscode.Uri): WorkspaceIndexExclusions {
+    const key = this.timerKey(kind, root.toString());
+    let policy = this.exclusions.get(key);
+    if (!policy) {
+      const configuration = vscode.workspace.getConfiguration(undefined, root);
+      const patterns = [...configuration.get<string[]>("ofm.workspaceIndex.exclude", DEFAULT_INDEX_EXCLUDES)];
+      for (const section of ["files.watcherExclude", "search.exclude"]) {
+        const excludes = configuration.get<Record<string, unknown>>(section, {});
+        patterns.push(...Object.keys(excludes).filter((pattern) => excludes[pattern] === true));
+      }
+      const specExclude = this.specs.get(kind)?.exclude;
+      policy = new WorkspaceIndexExclusions(specExclude ? [...patterns, specExclude] : patterns);
+      this.exclusions.set(key, policy);
+    }
+    return policy;
   }
 
   private bumpGeneration(key: string): number {
@@ -648,18 +768,15 @@ export class WorkspaceIndexDriver implements vscode.Disposable {
     this.generations.invalidateAll();
     for (const key of [...this.scanCancellations.keys()]) this.cancelScan(key);
     for (const timer of this.timers.values()) clearTimeout(timer);
+    for (const timer of this.fullRefreshTimers.values()) clearTimeout(timer);
+    this.fullRefreshTimers.clear();
     this.timers.clear();
-    this.deferredTreeRefresh.clear();
     this.pending.clear();
     this.pendingUris.clear();
     for (const d of this.disposables) d.dispose();
     this.disposables.length = 0;
     this.emitter.dispose();
   }
-}
-
-function isCommonlyExcluded(uri: vscode.Uri): boolean {
-  return /[/\\](node_modules|\.git|\.obsidian|\.trash)(?:[/\\]|$)/.test(uri.path);
 }
 
 function yieldImmediate(): Promise<void> {

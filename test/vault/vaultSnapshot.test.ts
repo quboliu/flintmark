@@ -13,6 +13,24 @@ async function test(name: string, fn: () => Promise<void>): Promise<void> {
 }
 
 async function main(): Promise<void> {
+await test("structural patch adds and deletes notes without reading unchanged notes", async () => {
+  const snapshot = {
+    inputs: new Map([
+      ["keep.md", { path: "keep.md", text: "kept" }],
+      ["gone.md", { path: "gone.md", text: "gone" }],
+    ]),
+    uris: new Map([["keep.md", "keep.md"], ["gone.md", "gone.md"]]),
+  };
+  const reads: string[] = [];
+  const patched = await patchNoteSnapshot(snapshot, ["new.md"], (uri) => uri, async (uri) => {
+    reads.push(uri);
+    return "new";
+  }, () => {}, ["gone.md"]);
+  assert.deepEqual(reads, ["new.md"]);
+  assert.deepEqual([...patched!.inputs.keys()].sort(), ["keep.md", "new.md"]);
+  assert.equal(patched!.inputs.get("keep.md")!.text, "kept");
+  assert.equal(snapshot.inputs.has("gone.md"), true, "old publication stays immutable");
+});
 await test("one content save reads exactly one file and retains other snapshot entries", async () => {
   const snapshot = {
     inputs: new Map([
