@@ -65,7 +65,10 @@ for (const f of files) {
     outfile,
     // Opt in only this host-boundary test; other tests must not silently mock VS Code.
     alias: resolve(f) === resolve("test/vault/workspaceIndexDriver.test.ts")
-      ? { vscode: resolve("test/fixtures/workspaceIndexVscode.ts") } : undefined,
+      ? {
+        vscode: resolve("test/fixtures/workspaceIndexVscode.ts"),
+        "node:fs/promises": resolve("test/fixtures/workspaceIndexFs.ts"),
+      } : undefined,
     sourcemap: "inline",
     logLevel: "warning",
   });

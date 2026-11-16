@@ -1,3 +1,4 @@
+import {saveExpectedSource, savePreviewSource} from '../helpers/save-source.mjs';
 import { sourceLine, revealSource } from "./sourceViewport.mjs";
 import { positiveWheel, verifyVisibleWheelDisplacement } from "./wheelCompletionClock.mjs";
 import { installNativeAnchorTrace as installDetailedNativeAnchorTrace } from "./trace-native-anchor.mjs";
@@ -322,24 +323,7 @@ try {
     await win.keyboard.type(" EDITED");
     await win.waitForTimeout(1200); // let the serialized edits reach the host
     const expected = Buffer.from(INITIAL.replace("\nplain line\n", "\nplain line EDITED\n"));
-    const saveStarted = performance.now();
-    const deadline = saveStarted + 10000;
-    await win.keyboard.press("Control+S");
-    await win.waitForTimeout(1500);
-    let bytes = readFileSync(notePath);
-    let readEnded = performance.now();
-    const checkpoint = { elapsedMs: readEnded - saveStarted, exact: bytes.equals(expected) };
-    // A keypress completion is not a disk-save completion. Keep the original
-    // checkpoint visible, then wait for the complete expected file, with one save.
-    while (!bytes.equals(expected) && performance.now() < deadline) {
-      await win.waitForTimeout(Math.min(100, Math.max(0, deadline - performance.now())));
-      bytes = readFileSync(notePath);
-      readEnded = performance.now();
-    }
-    const withinBudget = bytes.equals(expected) && readEnded <= deadline;
-    console.log("SINGLE_SAVE_COMPLETION", JSON.stringify({ checkpoint, completedMs: readEnded - saveStarted, budgetMs: 10000, exact: bytes.equals(expected), withinBudget }));
-    assert.ok(withinBudget, `one save must persist the entire expected source within the bounded functional wait: ${JSON.stringify({ checkpoint, completedMs: readEnded - saveStarted, actualBytes: bytes.length, expectedBytes: expected.length, exact: bytes.equals(expected) })}`);
-    const onDisk = bytes.toString("utf8");
+    const onDisk = await saveExpectedSource(win, notePath, expected, {checkpointMs:1500});
     // The typed text must round-trip INTACT — this is the regression guard for
     // the concurrent-edit corruption that produced "ETD" from "EDITED" before
     // serialization. (Exact cursor line isn't the point.)
@@ -362,22 +346,7 @@ try {
       document.querySelector(".cm-content").cmTile.root.view.state.doc.toString());
     assert.ok(/-\s+cherry/.test(expected) && expected.includes("- banana"),
       "Enter must continue the list in the editor before saving");
-    const saveStarted = performance.now();
-    const deadline = saveStarted + 10000;
-    await win.keyboard.press("Control+S");
-    await win.waitForTimeout(1200);
-    let onDisk = readFileSync(notePath, "utf8");
-    const checkpoint = { elapsedMs: performance.now() - saveStarted, exact: onDisk === expected };
-    // Save is asynchronous; observe one save to completion, with the same
-    // deadline as the preceding round-trip test. Never resend the shortcut.
-    while (onDisk !== expected && performance.now() < deadline) {
-      await win.waitForTimeout(100);
-      onDisk = readFileSync(notePath, "utf8");
-    }
-    const completedMs = performance.now() - saveStarted;
-    console.log("LIST_SINGLE_SAVE_COMPLETION", JSON.stringify({ checkpoint, completedMs, exact: onDisk === expected }));
-    assert.ok(onDisk === expected && completedMs <= 10000,
-      "one save must persist the entire list-edit source within 10 seconds");
+    const onDisk = await saveExpectedSource(win, notePath, expected);
     // The key behaviour: the new line got an auto-inserted "- " marker (a plain
     // newline would have produced bare "cherry").
     assert.ok(
@@ -392,9 +361,7 @@ try {
     assert.equal(await box.isChecked(), false, "task should start unchecked");
     await box.click();
     await win.waitForTimeout(1000); // toggle round-trips through the host
-    await win.keyboard.press("Control+S");
-    await win.waitForTimeout(1500);
-    const onDisk = readFileSync(notePath, "utf8");
+    const onDisk = await savePreviewSource(win, cm, notePath, {checkpointMs:1500});
     assert.ok(
       /- \[[xX]\] my task/.test(onDisk),
       `task should be checked on disk; file is:\n${onDisk}`
@@ -469,10 +436,11 @@ try {
 
     await appendAtClickedLine("math-caret-alpha", "__MATH_ALPHA__");
     await appendAtClickedLine("math-caret-beta", "__MATH_BETA__");
-    await win.keyboard.press("Control+S");
-    await win.waitForTimeout(1200);
-
-    const lines = readFileSync(notePath, "utf8").split("\n");
+    const memory = await cm.evaluate(() => document.querySelector('.cm-content').cmTile.root.view.state.doc.toString());
+    for (const line of ['math-caret-alpha__MATH_ALPHA__', 'math-caret-beta__MATH_BETA__']) {
+      assert.ok(memory.split('\n').includes(line), 'The geometrically clicked source line must contain its complete sentinel before saving: '+line);
+    }
+    const lines = (await saveExpectedSource(win, notePath, memory)).split('\n');
     assert.ok(
       lines.includes("math-caret-alpha__MATH_ALPHA__"),
       "the first sentinel must be persisted only on the line clicked below the target formula"
@@ -789,9 +757,7 @@ try {
     await win.keyboard.type("EditedCell");
     await win.keyboard.press("Enter"); // blur → commit (rebuilds the table source)
     await win.waitForTimeout(1000);
-    await win.keyboard.press("Control+S");
-    await win.waitForTimeout(1200);
-    const onDisk = readFileSync(notePath, "utf8");
+    const onDisk = await savePreviewSource(win, cm, notePath);
     assert.ok(
       /\|\s*EditedCell\s*\|/.test(onDisk),
       `cell edit should commit to the table source; file is:\n${onDisk}`
@@ -844,9 +810,7 @@ try {
     await win.keyboard.press("Shift+End");
     await win.keyboard.press("Control+b");
     await win.waitForTimeout(800);
-    await win.keyboard.press("Control+S");
-    await win.waitForTimeout(1200);
-    const onDisk = readFileSync(notePath, "utf8");
+    const onDisk = await savePreviewSource(win, cm, notePath);
     assert.ok(
       onDisk.includes("**formatword**"),
       `Mod-B should wrap the selection in **; file is:\n${onDisk}`
@@ -866,9 +830,7 @@ try {
     await app.evaluate(({ clipboard }) => clipboard.writeText("https://example.com"));
     await win.keyboard.press("Control+v");
     await win.waitForTimeout(800);
-    await win.keyboard.press("Control+S");
-    await win.waitForTimeout(1200);
-    const onDisk = readFileSync(notePath, "utf8");
+    const onDisk = await savePreviewSource(win, cm, notePath);
     assert.ok(
       onDisk.includes("[pasteword](https://example.com)"),
       `URL paste over selection should produce a markdown link; file is:\n${onDisk}`
@@ -910,9 +872,7 @@ try {
     );
     await win.keyboard.press("Enter"); // accept → inserts the name + ]]
     await win.waitForTimeout(600);
-    await win.keyboard.press("Control+S");
-    await win.waitForTimeout(1200);
-    const onDisk = readFileSync(notePath, "utf8");
+    const onDisk = await savePreviewSource(win, cm, notePath);
     assert.ok(
       onDisk.includes("[[Other Note]]"),
       `accepting [[ completion should yield [[Other Note]]; file is:\n${onDisk}`
@@ -932,8 +892,7 @@ try {
       `# completion should list the 'project' tag, got: ${JSON.stringify(opts)}`
     );
     await win.keyboard.press("Escape");
-    await win.keyboard.press("Control+S"); // don't leave note.md dirty
-    await win.waitForTimeout(600);
+    await savePreviewSource(win, cm, notePath); // finish this edit before the next case
   });
 
   // NOTE: image paste runs BEFORE the folding test on purpose — the viewport is
@@ -955,14 +914,9 @@ try {
       const ev = new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true });
       document.querySelector(".cm-content").dispatchEvent(ev);
     }, PIXEL_PNG_B64);
-    // Host writes the file + replies; webview inserts the embed. Allow round-trip.
-    let onDisk = "";
-    for (let i = 0; i < 20; i++) {
-      await win.waitForTimeout(300);
-      await win.keyboard.press("Control+S");
-      onDisk = readFileSync(notePath, "utf8");
-      if (/!\[\[pasted\.png\]\]/.test(onDisk)) break;
-    }
+    // Wait for the asynchronous insertion, then save once and observe completion.
+    await cm.waitForFunction(() => document.querySelector('.cm-content').cmTile.root.view.state.doc.toString().includes('![[pasted.png]]'), undefined, {timeout:6000});
+    const onDisk = await savePreviewSource(win, cm, notePath);
     assert.ok(
       /!\[\[pasted\.png\]\]/.test(onDisk),
       `image paste should insert ![[pasted.png]]; file is:\n${onDisk}`
@@ -1843,6 +1797,23 @@ try {
     await win.keyboard.type("explorer-find");
     await win.waitForTimeout(200);
     assert.equal(await panel.locator("input[name='search']").first().inputValue(), "explorer-find");
+    const restore = await frame.evaluate(() => {
+      const input=document.querySelector('.cm-search input[name="search"]');
+      input.setSelectionRange(2,7);
+      input.blur();
+      if(document.activeElement!==document.body)throw Error('Focus-loss setup did not clear the active element');
+      window.dispatchEvent(new Event('focus'));
+      return {focused:document.activeElement===input,value:input.value,start:input.selectionStart,end:input.selectionEnd};
+    });
+    assert.deepEqual(restore,{focused:true,value:'explorer-find',start:2,end:7},'Frame refocus must restore the search field without selecting its query again');
+    const contentRestored = await frame.evaluate(() => {
+      const content = document.querySelector('.cm-content');
+      content.focus();
+      content.blur();
+      window.dispatchEvent(new Event('focus'));
+      return document.activeElement === content;
+    });
+    assert.ok(contentRestored, 'An explicit return to the document must not restore the old search focus');
     await win.keyboard.press("Escape");
   });
 } finally {

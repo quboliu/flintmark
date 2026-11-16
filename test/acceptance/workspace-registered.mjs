@@ -285,17 +285,29 @@ async function findCmFrame(win, timeoutMs) {
   return null;
 }
 
+let inputAttempt = 0;
 async function autocompleteOptions(cm, win) {
+  const attempt = ++inputAttempt;
+  const started = performance.now();
+  const steps = [];
+  async function step(name, operation) {
+    const record = {name, startedMs: performance.now() - started};
+    steps.push(record);
+    const save = () => writeFileSync(join(OUT, 'workspace-input-steps.json'), JSON.stringify({attempt, steps}, null, 2));
+    save();
+    try { const result = await operation(); record.completedMs = performance.now() - started; save(); return result; }
+    catch (error) { record.error = String(error); save(); throw error; }
+  }
   const line = cm.locator(".cm-line", { hasText: "selection-probe" }).first();
-  await line.click();
-  await cm.evaluate(()=>{const e=document.querySelector('.cm-content');const v=e.cmTile?.root?.view||e.cmView?.view||e.parentElement.cmView?.view;const at=v.state.doc.toString().indexOf('selection-probe');v.dispatch({selection:{anchor:v.state.doc.lineAt(at).to}});v.focus();});
-  await win.keyboard.type(" [[Late");
-  await win.waitForTimeout(250);
-  const options = await cm.locator(".cm-tooltip-autocomplete li").allInnerTexts();
-  const input = await cm.evaluate(() => {
+  await step('native-line-click', () => line.click());
+  await step('place-caret', () => cm.evaluate(()=>{const e=document.querySelector('.cm-content');const v=e.cmTile?.root?.view||e.cmView?.view||e.parentElement.cmView?.view;const at=v.state.doc.toString().indexOf('selection-probe');v.dispatch({selection:{anchor:v.state.doc.lineAt(at).to}});v.focus();}));
+  await step("type-completion-query", () => win.keyboard.type(" [[Late"));
+  await step("completion-pause", () => win.waitForTimeout(250));
+  const options = await step("read-completions", () => cm.locator(".cm-tooltip-autocomplete li").allInnerTexts());
+  const input = await step("read-editor-state", () => cm.evaluate(() => {
     const v=document.querySelector('.cm-content').cmTile.root.view;
     return {text:v.state.doc.toString(),selection:{anchor:v.state.selection.main.anchor,head:v.state.selection.main.head},focused:v.hasFocus,documentFocused:document.hasFocus(),active:document.activeElement?.className,messages:window.__workspaceMessages||[]};
-  });
+  }));
   const trace={options,input};
   writeFileSync(join(OUT,'workspace-input-latest.json'),JSON.stringify(trace,null,2));
   console.log('WORKSPACE_INPUT',JSON.stringify(trace));

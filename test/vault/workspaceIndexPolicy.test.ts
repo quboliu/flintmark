@@ -88,10 +88,10 @@ test("one structural invalidation upgrades the whole batch and cannot downgrade"
   assert.equal(batch.paths.size, 0);
 });
 
-test("only a known leaf content change is incremental; every structural cause is full", () => {
+test("file and tree events reconcile paths without requesting a full search", () => {
   assert.equal(refreshModeForFileEvent("change"), "content");
   for (const event of ["create", "delete", "rename", "tree"] as const) {
-    assert.equal(refreshModeForFileEvent(event), "full", event);
+    assert.equal(refreshModeForFileEvent(event), "paths", event);
   }
 });
 

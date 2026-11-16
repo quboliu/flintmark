@@ -1,3 +1,4 @@
+import {closeEditor} from '../helpers/close-editor.mjs';
 import { isVisibleFrame } from "./visibleFrame.mjs";
 // Regression coverage for workspace index lifecycle edge cases that VS Code
 // file watchers do not report as complete per-file logs: parent directory
@@ -74,14 +75,7 @@ async function launchApp(initialFile = join(work, "rename", "A", "note.md")) {
 let app = await launchApp();
 
 async function closeApp(target = app) {
-  let closed = false;
-  await Promise.race([
-    target.close().then(() => {
-      closed = true;
-    }),
-    new Promise((resolve) => setTimeout(resolve, 5000)),
-  ]);
-  if (!closed) target.process()?.kill("SIGTERM");
+  await closeEditor(target);
 }
 
 async function findVisibleCmFrame(win, ms, heading, imageFragment) {

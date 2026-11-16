@@ -18,7 +18,7 @@ export async function palette(win, combo, text, options = {}) {
   let lastError;
   for (let attempt = 0; attempt < 6; attempt++) {
     await win.bringToFront().catch(() => {});
-    await win.locator('.tab.active').first().click({position:{x:14,y:12},timeout:1000}).catch(() => {});
+    await win.locator('.editor-group-container.active .tab.active').first().click({position:{x:14,y:12},timeout:1000}).catch(() => {});
     await win.keyboard.press('Escape').catch(() => {});
     await win.waitForTimeout(150);
     await win.keyboard.press(openers[attempt % openers.length]);

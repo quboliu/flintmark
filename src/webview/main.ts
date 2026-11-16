@@ -305,11 +305,29 @@ function handleSearchSelectAll(event: KeyboardEvent): void {
   input.select();
 }
 
+// The host can briefly blur a webview after Find has already focused its input.
+// Chromium then reports body as activeElement. Remember the last real control
+// so returning to the frame does not silently send the next query key to text.
+let lastFocusedElement: HTMLElement | null = null;
+document.addEventListener("focusin", (event) => {
+  const target = event.target;
+  if (target instanceof HTMLElement && target !== document.body && target !== document.documentElement) {
+    lastFocusedElement = target;
+  }
+});
+
 function focusEditorIfFrameFocused(): void {
   if (!view || view.hasFocus || !document.hasFocus()) return;
   // Leave focus that already sits on something else (find input, table cell).
   const active = document.activeElement;
   if (active && active !== document.body && active !== document.documentElement) return;
+  if (lastFocusedElement?.isConnected && view.dom.contains(lastFocusedElement) &&
+      lastFocusedElement.matches(".cm-search input[name='search'], .cm-search input[name='replace']") &&
+      lastFocusedElement.getClientRects().length > 0) {
+    // Restore focus only: selecting again would overwrite a partially typed query.
+    lastFocusedElement.focus();
+    return;
+  }
   view.focus();
 }
 

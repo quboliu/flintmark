@@ -29,7 +29,8 @@ function structureInput(document: vscode.TextDocument): StructureDocumentInput {
   return {
     uri: document.uri.toString(),
     version: document.version,
-    text: document.getText(),
+    // TextDocument.getText() joins every line. Read only on a cache miss.
+    get text() { return document.getText(); },
   };
 }
 

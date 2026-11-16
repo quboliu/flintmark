@@ -67,7 +67,7 @@ try {
 
   const palette = (combo, text) => openPalette(win, combo, text, { waitBeforeEnter: 1000 });
   async function clickEditorAction(label, waitAfterClick = 1500) {
-    const action = win.locator(`.editor-actions [aria-label*="${label}"]`).first();
+    const action = win.locator(`.editor-group-container.active .editor-actions [aria-label*="${label}"]`).first();
     await action.waitFor({ state: "visible", timeout: 8000 });
     await action.click();
     await win.waitForTimeout(waitAfterClick);
@@ -111,9 +111,14 @@ try {
   const liveHasExternalUpdate = liveText.includes(ADDED);
 
   await clickEditorAction("Code View");
-  await win.locator(".editor-group-container .monaco-editor .view-lines").first().waitFor({ state: "visible", timeout: 8000 });
+  await win.waitForFunction(() => {
+    const group = document.querySelector('.editor-group-container.active');
+    const editor = group?.querySelector('.monaco-editor');
+    const lines = editor?.querySelector('.view-lines');
+    return !!lines?.getClientRects().length && editor.contains(document.activeElement);
+  }, undefined, { timeout: 8000 });
   const sourceText = normalizeEditorText(
-    await win.locator(".editor-group-container .monaco-editor .view-lines").first().evaluate((element) =>
+    await win.locator(".editor-group-container.active .monaco-editor .view-lines").first().evaluate((element) =>
       [...element.querySelectorAll(".view-line")]
         .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top)
         .map((line) => line.textContent || "")
@@ -133,7 +138,7 @@ try {
   await win.keyboard.type(SOURCE_ADDED);
   await win.waitForTimeout(1200);
   const sourceAfterTyping = normalizeEditorText(
-    await win.locator(".editor-group-container .monaco-editor .view-lines").first().evaluate((element) =>
+    await win.locator(".editor-group-container.active .monaco-editor .view-lines").first().evaluate((element) =>
       [...element.querySelectorAll(".view-line")]
         .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top)
         .map((line) => line.textContent || "")
@@ -162,15 +167,23 @@ try {
 
   const SPLIT_ADDED = "This paragraph was typed in a split source editor.";
   await clickEditorAction("Split Editor Right");
+  const splitGroup = await win.locator(".editor-group-container.active").elementHandle();
+  assert.ok(splitGroup, "split editor group should be active");
   await clickEditorAction("Code View");
-  await win.locator(".editor-group-container .monaco-editor .view-lines").first().waitFor({ state: "visible", timeout: 8000 });
+  assert.ok(await splitGroup.evaluate(group => group.classList.contains("active")), "Code View command must preserve the selected split group");
+  await win.waitForFunction(() => {
+    const group = document.querySelector('.editor-group-container.active');
+    const editor = group?.querySelector('.monaco-editor');
+    const lines = editor?.querySelector('.view-lines');
+    return !!lines?.getClientRects().length && editor.contains(document.activeElement);
+  }, undefined, { timeout: 8000 });
   await win.keyboard.press("Control+End");
   await win.keyboard.press("Enter");
   await win.keyboard.press("Enter");
   await win.keyboard.type(SPLIT_ADDED);
   await win.waitForTimeout(1200);
   const splitSourceText = normalizeEditorText(
-    await win.locator(".editor-group-container .monaco-editor .view-lines").first().evaluate((element) =>
+    await win.locator(".editor-group-container.active .monaco-editor .view-lines").first().evaluate((element) =>
       [...element.querySelectorAll(".view-line")]
         .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top)
         .map((line) => line.textContent || "")
