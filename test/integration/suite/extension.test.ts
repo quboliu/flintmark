@@ -153,7 +153,7 @@ describe("OFM custom editor (integration)", () => {
 });
 
 describe("Workspace index scan scheduling", () => {
-  it("waits for a superseded build and only publishes the latest snapshot", async () => {
+  it("publishes the first build before one coalesced rate-limited follow-up", async () => {
     const folder = fs.mkdtempSync(path.join(os.tmpdir(), "ofm-index-"));
     fs.writeFileSync(path.join(folder, "note.md"), "# Indexed");
     const root = vscode.Uri.file(folder);
@@ -176,19 +176,30 @@ describe("Workspace index scan scheduling", () => {
         } finally { active--; }
       },
     });
-    const done = new Promise<void>((resolve) => driver.onDidRefresh(() => resolve()));
+    const firstPublished = new Promise<void>((resolve) => driver.onDidRefresh((event) => {
+      if (event.version === 1) resolve();
+    }));
+    const done = new Promise<void>((resolve) => driver.onDidRefresh((event) => {
+      if (event.version === 2) resolve();
+    }));
     try {
       handle.requestRefresh(root, "first", true);
       await firstStarted;
-      handle.requestRefresh(root, "superseded", true);
+      fs.writeFileSync(path.join(folder, "new.md"), "# New");
+      handle.requestRefresh(root, "queued", true);
       handle.requestRefresh(root, "latest", true);
       await delay(100);
       assert.strictEqual(calls, 1, "new scans must wait for the old build");
       release();
+      await firstPublished;
+      assert.strictEqual(maximum, 1);
+      assert.strictEqual(calls, 1, "the first build publishes without waiting for a rescan");
+      assert.deepStrictEqual(handle.snapshot(root), [vscode.Uri.file(path.join(folder, "note.md")).toString()]);
       await done;
       assert.strictEqual(maximum, 1);
-      assert.strictEqual(calls, 2);
-      assert.deepStrictEqual(handle.snapshot(root), [vscode.Uri.file(path.join(folder, "note.md")).toString()]);
+      assert.strictEqual(calls, 2, "full requests coalesce into one follow-up");
+      assert.deepStrictEqual(handle.snapshot(root)?.slice().sort(), ["new.md", "note.md"].map((name) =>
+        vscode.Uri.file(path.join(folder, name)).toString()).sort());
     } finally {
       release();
       driver.dispose();
