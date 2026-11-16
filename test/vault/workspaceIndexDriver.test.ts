@@ -26,6 +26,30 @@ const cases = [
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 async function main() {
   let failures = 0;
+  for (const scheme of ['file', 'custom']) {
+    const uri = (path: string) => host.Uri.from({ scheme, path });
+    const notes: host.Uri[] = [];
+    host.reset(uri('/work'), [], notes);
+    const driver = new WorkspaceIndexDriver();
+    const handle = driver.registerSpec({
+      kind: 'note', include: '**/*.md', debounceMs: 1,
+      notReady: (): string[] => [], build: async (_root, files) => files.map((file) => file.path),
+    });
+    try {
+      await driver.initialize();
+      notes.push(uri('/work/new-dir/note.md'));
+      host.createDirectory(uri('/work/new-dir'));
+      const deadline = performance.now() + 2000;
+      while (!handle.snapshots()[0].snapshot.includes('/work/new-dir/note.md') && performance.now() < deadline) await sleep(10);
+      assert.ok(handle.snapshots()[0].snapshot.includes('/work/new-dir/note.md'), 'directory creation indexes its note');
+      if (scheme === 'file') assert.equal(host.calls.providerStat, 0, 'local creation metadata must not round-trip through the editor file service');
+      else assert.ok(host.calls.providerStat > 0, 'custom filesystem metadata must use its registered provider');
+      console.log(`✓ ${scheme} creation metadata uses the correct filesystem boundary`);
+    } catch (error) {
+      failures++;
+      console.error(`✗ ${scheme} creation metadata uses the correct filesystem boundary`, error);
+    } finally { driver.dispose(); }
+  }
   {
     const uri = (path: string) => host.Uri.file(path);
     const root = uri('/work');

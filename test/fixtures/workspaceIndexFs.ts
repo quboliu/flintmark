@@ -1,9 +1,9 @@
 // Node filesystem boundary for the driver test's synthetic file:// workspace.
 // Other tests retain the real filesystem; custom:// uses the VS Code boundary.
-import { workspace, Uri, FileType } from "./workspaceIndexVscode";
+import { workspace, Uri, FileType, statFixture } from "./workspaceIndexVscode";
 
 export async function stat(path: string) {
-  const value = await workspace.fs.stat(Uri.file(path));
+  const value = await statFixture(Uri.file(path));
   return { isDirectory: () => (value.type & FileType.Directory) !== 0 };
 }
 

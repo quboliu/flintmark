@@ -678,8 +678,13 @@ export class WorkspaceIndexDriver implements vscode.Disposable {
   private async routeCreatedUri(uri: vscode.Uri, reason: string): Promise<void> {
     if (this.excludedForAll(uri)) return;
     try {
-      const stat = await vscode.workspace.fs.stat(uri);
-      const type = (stat.type & vscode.FileType.Directory) !== 0 ? "directory" : "file";
+      // Local watcher hints can arrive faster than provider IPC can resolve
+      // them. Keep metadata reads in the extension host, as in path patches;
+      // remote/custom schemes must still use their registered filesystem.
+      const directory = uri.scheme === "file"
+        ? (await statLocalPath(uri.fsPath)).isDirectory()
+        : ((await vscode.workspace.fs.stat(uri)).type & vscode.FileType.Directory) !== 0;
+      const type = directory ? "directory" : "file";
       this.applyTreeRoute(uri, reason, routeCreatedPath(uri.path, type));
     } catch {
       // A fast-created temporary file may be gone before stat completes.

@@ -50,9 +50,9 @@ export const configuration = new Map<string, unknown>();
 export const noteTexts = new Map<string, string>();
 export const scanExcludes: (string | undefined)[] = [];
 export const window = { async showInformationMessage(message: string) { notices.push(message); } };
-export const calls = { delivered: 0, matchedFolder: 0, imageScan: 0, noteScan: 0 };
+export const calls = { providerStat: 0, delivered: 0, matchedFolder: 0, imageScan: 0, noteScan: 0 };
 export function reset(root: Uri, image: Uri[], note: Uri[]) {
-  Object.assign(calls, { delivered: 0, matchedFolder: 0, imageScan: 0, noteScan: 0 });
+  Object.assign(calls, { providerStat: 0, delivered: 0, matchedFolder: 0, imageScan: 0, noteScan: 0 });
   deleted.dispose();
   created.dispose();
   leafCreated.clear();
@@ -151,8 +151,13 @@ export const workspace = {
     },
     async readFile(uri: Uri) { return new TextEncoder().encode(noteTexts.get(uri.path) ?? '# Note\n'); },
     async stat(uri: Uri) {
+      calls.providerStat++;
+      return statFixture(uri);
+    } },
+};
+
+export async function statFixture(uri: Uri) {
     if (directories.has(uri.path)) return { type: FileType.Directory };
     if ([...files.note, ...files.image].some((file) => file.path === uri.path)) return { type: FileType.File };
     throw Object.assign(new Error('File not found'), { code: 'FileNotFound' });
-  } },
-};
+}
