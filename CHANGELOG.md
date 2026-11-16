@@ -12,6 +12,8 @@ Version 0.33.4 was not published because final release acceptance failed. This r
 - **Things heading scaling.** All six heading levels now scale with the configured prose font size. H6 is at least as large as body text. Thanks to [@sfaroy](https://github.com/sfaroy) for reporting and suggesting the relative-size correction in [#25](https://github.com/quboliu/flintmark/issues/25).
 - **Todo and Outline navigation focus.** Navigation explicitly focuses the editor group so typing works when the preview was already active and focus remained in the sidebar.
 - **Large-document allocation.** Reuse a single source read across preview change handlers, skip image rescans for dirty-state-only events, and avoid rebuilding source strings when Outline and Todo reuse a cached document version.
+- **Search focus recovery.** Find and Replace retain keyboard focus after a transient preview blur, without stealing focus after returning to the document.
+- **Busy-workspace indexing.** Finish the initial scan under sustained file activity, then update changed paths incrementally instead of repeatedly cancelling and restarting full scans. Configurable indexing exclusions cover tool caches and respect editor exclusions. Thanks to [Jacob Stephens (@JacobStephens2)](https://github.com/JacobStephens2) for the repair in [#28](https://github.com/quboliu/flintmark/pull/28); his original commits and authorship are preserved.
 - **Regression coverage.** Installed-editor tests change prose size from 16 to 32 and back to 16 pixels and verify every heading. URL paste coverage now uses the system clipboard and the native paste shortcut after verifying the selection.
 
 
