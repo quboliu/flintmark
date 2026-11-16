@@ -14,13 +14,19 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - run: npm ci
       - uses: actions/download-artifact@v4
         with:
           name: release-candidate
           path: candidate/
-          run-id: 43231060460
+          run-id: 43808965011
           github-token: ${{ github.token }}
+      - name: Match the candidate source exactly
+        shell: bash
+        run: |
+          source_commit=$(node -p 'require("./candidate/manifest.json").sourceCommit')
+          git fetch origin "$source_commit"
+          git checkout --detach "$source_commit"
+      - run: npm ci
       - run: node scripts/ci/download-editor.mjs cursor
       - run: |
           npm run compile
